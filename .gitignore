@@ -1,0 +1,14 @@
+# Local notes, archives and editor/OS metadata.
+/_LOCAL/
+/.idea/
+.DS_Store
+
+# Rebuildable artifacts and local runtime state.
+/bin/
+/gateway.local.yaml
+/gateway.*.local.yaml
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite.lock
+/coverage.out

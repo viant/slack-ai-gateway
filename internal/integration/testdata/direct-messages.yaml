@@ -1,0 +1,28 @@
+# Slack-only test fixture with a fake backend; not a runtime configuration.
+# Copy outside the repository before opting into a live test; see ../README.md.
+storage:
+  driver: sqlite
+  path: slack-smoke.sqlite
+transport: socket
+access_mode: shared_channel
+slack:
+  status:
+    # Modes: message (default), agent_session (native indicator), hybrid (both).
+    # Native indicator requires the app agent experience. Restart applies to new questions.
+    mode: message
+    # Message/hybrid refresh in positive whole seconds; native renews every 10 minutes.
+    refresh_interval_sec: 30
+  app_id: A_REPLACE_ME
+  workspace_id: T_REPLACE_ME
+  channels:
+    # No channel access; this fixture tests DM only.
+    mode: selected
+    allowlist: []
+    allow_private: false
+  app_token_env: SLACK_APP_TOKEN
+  bot_token_env: SLACK_BOT_TOKEN
+access:
+  direct_messages:
+    users:
+      mode: channel_members
+# The gated live test injects a fake backend. No Agently credentials are used.

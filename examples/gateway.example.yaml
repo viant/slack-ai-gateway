@@ -1,0 +1,55 @@
+# Copy to ~/.agently-slack-gateway/config/gateway.local.yaml; replace the IDs.
+# This is the runtime configuration for a real Agently backend.
+# Create the config/ and db/ directories first; see ../README.md for shell commands.
+storage:
+  driver: sqlite
+  # A separate Gateway database, never the smoke-test or Agently database.
+  # Resolved from this YAML's directory, including after copying to config/.
+  path: ../db/gateway-agently.sqlite
+
+transport: socket
+access_mode: shared_channel
+slack:
+  response:
+    # Every mode starts with a link to the full response in Agently.
+    # Default/raw preserves the source output, including Forge.
+    # Alternatives: cli_compatible, summary, normalized_summary, report_text.
+    # Restart to change future finalizations; persisted outbox parts are immutable.
+    # See the repository's docs/response-presentation.md.
+    mode: raw
+  status:
+    # message (default): phase/time; agent_session: native indicator; hybrid: both.
+    # Restart at any time; existing questions keep their mode. See docs/request-status.md.
+    mode: message
+    # Message refresh in message/hybrid: periodic status refresh in whole seconds (default: 30; must be positive).
+    # One setting for the gateway; changes require restart.
+    # Phase changes and completion are published independently.
+    refresh_interval_sec: 30
+  app_id: A_TEST
+  workspace_id: T_TEST
+  channels:
+    mode: selected
+    allowlist: [C_TEST]
+    denylist: []
+    allow_private: false
+  app_token_env: SLACK_APP_TOKEN
+  bot_token_env: SLACK_BOT_TOKEN
+access:
+  defaults:
+    users:
+      mode: channel_members
+  # DM is disabled unless explicitly enabled; independent of channel defaults.
+  # direct_messages:
+  #   users:
+  #     mode: channel_members
+  # DM needs message.im + im:history + im:read; see docs/direct-messages.md.
+  # global adds hard user restrictions; channel_overrides replace local fields.
+  # See docs/access-policy.md before opening workspace-wide routing.
+agently:
+  base_url: http://127.0.0.1:9191
+  agent_id: steward
+  principal_id: agently_steward
+  auth:
+    mode: oob_session
+    # The variable contains a local credential-file reference, not a password.
+    secrets_url_env: AGENTLY_OOB_SECRETS
