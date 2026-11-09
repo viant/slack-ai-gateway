@@ -1,0 +1,15 @@
+#package('github.com/viant/agently-slack-gateway/internal/storage/mysql/graph/deliveries/write')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/deliveries','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $Rows<[]*Delivery>(body/data))
+#define($_ = $Data<[]*Delivery>(output/body))
+
+SELECT deliveries.*, resolutions.*, type(deliveries,'Delivery'), type(resolutions,'Resolution')
+FROM outbox_messages deliveries
+LEFT JOIN delivery_resolutions resolutions ON resolutions.delivery_id=deliveries.id

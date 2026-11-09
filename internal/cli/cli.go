@@ -13,6 +13,8 @@ import (
 	"github.com/viant/agently-slack-gateway/internal/gateway"
 	runner "github.com/viant/agently-slack-gateway/internal/runtime"
 	"github.com/viant/agently-slack-gateway/internal/slack"
+	"github.com/viant/agently-slack-gateway/internal/storage"
+	"github.com/viant/agently-slack-gateway/internal/storage/mysql"
 	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
 )
 
@@ -20,6 +22,7 @@ type dependencies struct {
 	login     func(context.Context, string, string, string, string) (gateway.AgentlyClientFactory, error)
 	connect   func(context.Context, config.SlackTokens, gateway.Route, *slog.Logger) (runner.Source, gateway.SlackSender, error)
 	directory func(config.SlackTokens, gateway.Route) gateway.SlackDirectory
+	openMySQL func(context.Context, string) (storage.Store, error)
 }
 
 func Execute(ctx context.Context, args []string, out io.Writer) error {
@@ -66,7 +69,7 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 		flags.BoolVar(&acceptRisk, "confirm-duplicate-risk", false, "explicitly accept duplicate risk for retry")
 	}
 	if err := flags.Parse(args[1:]); err != nil {
-		return fmt.Errorf("invalid command flags; use --config FILE and --storage-driver sqlite")
+		return fmt.Errorf("invalid command flags; use --config FILE and --storage-driver sqlite|mysql")
 	}
 	if flags.NArg() != 0 || *path == "" {
 		return fmt.Errorf("--config FILE is required; positional arguments are not accepted")
@@ -137,24 +140,13 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 			return err
 		}
 	}
-	s, err := sqlite.Open(ctx, c.Storage.Path, command == "migrate" || command == "run")
+	s, err := openStorage(ctx, c, command, out, deps.openMySQL)
 	if err != nil {
-		return fmt.Errorf("open gateway storage: %w", err)
+		return err
 	}
 	defer s.Close()
-	if command == "migrate" || command == "run" && s.Created() {
-		if err = s.Migrate(ctx); err != nil {
-			return err
-		}
-		if command == "migrate" {
-			_, err = fmt.Fprintln(out, "Gateway SQLite schema is current.")
-			return err
-		}
-		if _, err = fmt.Fprintf(out, "Gateway SQLite database initialized at %s.\n", c.Storage.Path); err != nil {
-			return err
-		}
-	}
-	if err = s.CheckSchema(ctx); err != nil {
+	if command == "migrate" {
+		_, err = fmt.Fprintln(out, "Gateway SQLite schema is current.")
 		return err
 	}
 	if command == "status" {
@@ -202,4 +194,55 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 		ResponseMode: c.ResponseMode(), AgentlyBaseURL: c.Agently.BaseURL,
 		Policy: gateway.ConfiguredPolicy{Route: route, PrincipalID: c.Agently.PrincipalID, Directory: directory}}
 	return runtime.Run(ctx)
+}
+
+// openStorage keeps backend-specific initialization outside the runtime.
+// MySQL provisioning is explicit; only SQLite can initialize on first run.
+func openStorage(ctx context.Context, c config.Config, command string, out io.Writer, openMySQL func(context.Context, string) (storage.Store, error)) (storage.Store, error) {
+	if c.Storage.Driver == "mysql" {
+		if command == "migrate" {
+			return nil, fmt.Errorf("migrate supports SQLite only; provision MySQL explicitly with Endly or the versioned MySQL DDL")
+		}
+		dsn, err := c.MySQLDSN()
+		if err != nil {
+			return nil, err
+		}
+		if openMySQL == nil {
+			openMySQL = func(ctx context.Context, dsn string) (storage.Store, error) { return mysql.Open(ctx, dsn) }
+		}
+		s, err := openMySQL(ctx, dsn)
+		if err != nil {
+			// Driver errors can include DSN credentials and server details.
+			return nil, fmt.Errorf("cannot open gateway MySQL storage; check the configured DSN and provisioned database")
+		}
+		return s, nil
+	}
+	s, err := sqlite.Open(ctx, c.Storage.Path, command == "migrate" || command == "run")
+	if err != nil {
+		return nil, fmt.Errorf("open gateway storage: %w", err)
+	}
+	failed := true
+	defer func() {
+		if failed {
+			_ = s.Close()
+		}
+	}()
+	if command == "migrate" || command == "run" && s.Created() {
+		if err = s.Migrate(ctx); err != nil {
+			return nil, err
+		}
+		if command == "run" {
+			if _, err = fmt.Fprintf(out, "Gateway SQLite database initialized at %s.\n", c.Storage.Path); err != nil {
+				return nil, err
+			}
+		}
+	}
+	// Explicit migration already validates its result, as before.
+	if command != "migrate" {
+		if err = s.CheckSchema(ctx); err != nil {
+			return nil, err
+		}
+	}
+	failed = false
+	return s, nil
 }

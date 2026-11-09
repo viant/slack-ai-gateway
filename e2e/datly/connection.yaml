@@ -1,0 +1,27 @@
+# The caller owns the private directory and removes it in its defer task.
+logging: false
+
+init:
+  - name: connectionDSN
+    when: $params.dsn
+    value: $params.dsn
+    else: $env.AGENTLY_SLACK_MYSQL_DSN
+
+pipeline:
+  requireDSN:
+    when: $connectionDSN = ''
+    action: fail
+    message: AGENTLY_SLACK_MYSQL_DSN is required; initialize the explicit E2E fixture first
+
+  connector:
+    init:
+      connectors:
+        - name: slack
+          driver: mysql
+          dsn: $connectionDSN
+      connectorJSON: $AsJSON('$connectors')
+    action: storage:upload
+    sourceKey: connectorJSON
+    mode: 384
+    dest:
+      URL: ${params.directory}/connectors.json

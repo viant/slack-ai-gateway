@@ -1,0 +1,1 @@
+SELECT * FROM  (SELECT 1 AS snapshot_id)  snapshot

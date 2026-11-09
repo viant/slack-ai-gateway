@@ -1,0 +1,21 @@
+# Only the owning workflow passes its randomly allocated resources here.
+pipeline:
+  container:
+    when: "'${params.containerName}' != ''"
+    action: exec:run
+    checkError: true
+    commands:
+      - if docker container inspect '${params.containerName}' > /dev/null 2>&1; then docker rm --force --volumes '${params.containerName}'; fi
+
+  defer:
+    when: "'${params.directory}' != ''"
+    remove:
+      action: storage:remove
+      assets:
+        - URL: $params.directory
+    verify:
+      # Endly's storage removal does not report individual deletion errors.
+      action: exec:run
+      checkError: true
+      commands:
+        - test ! -e '${params.directory}'

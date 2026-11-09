@@ -1,0 +1,1 @@
+SELECT bindings.* FROM conversation_bindings bindings

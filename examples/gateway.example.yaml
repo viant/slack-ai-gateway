@@ -2,6 +2,9 @@
 # This is the runtime configuration for a real Agently backend.
 # Create the config/ and db/ directories first; see ../README.md for shell commands.
 storage:
+  # SQLite initializes a missing file on run; its parent directory must exist.
+  # For provisioned MySQL, replace this section with driver: mysql and
+  # dsn_env: AGENTLY_SLACK_MYSQL_DSN; omit path. See docs/mysql.md.
   driver: sqlite
   # A separate Gateway database, never the smoke-test or Agently database.
   # Resolved from this YAML's directory, including after copying to config/.

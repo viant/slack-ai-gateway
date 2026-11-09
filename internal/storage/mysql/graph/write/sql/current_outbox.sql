@@ -1,0 +1,1 @@
+SELECT r.id, r.job_id, r.workspace_id, r.channel_id, r.root_thread_ts, r.part, r.content, r.state, r.attempts, r.next_attempt_at, r.slack_ts, r.created_at, r.updated_at, r.format FROM outbox_messages r WHERE $criteria.CompositeIn("r", $Unsafe.ProjectCurrentOutboxParentKeys($CurrentWriter))

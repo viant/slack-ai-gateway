@@ -6,7 +6,7 @@ Questions in a channel require a bot mention, including thread follow-ups. Direc
 messages use a separate access policy and do not require mentions.
 
 The gateway persists questions, conversation bindings, final replies and progress
-state in SQLite. It reports progress while Agently works and delivers completed
+state in SQLite or MySQL. It reports progress while Agently works and delivers completed
 answers in the selected presentation mode. Interrupted executions are observed
 without resubmitting prompts; uncertain remote effects require operator review.
 Answer text is not streamed to Slack.
@@ -14,12 +14,10 @@ Answer text is not streamed to Slack.
 ## Requirements
 
 - Go 1.26 or newer; macOS or Linux for the SQLite lifetime lock.
-- The current `go.mod` uses sibling `../agently-core` and `../forge` checkouts.
-  Keep those checkouts available when building.
 - An Agently deployment with OOB/PKCE login, the configured agent and an account
   permitted to use it. Browser login and arbitrary MFA flows are not implemented.
-- A Slack app installed in one workspace, with Socket Mode enabled. SQLite and
-  Socket Mode are the only implemented storage and transport options.
+- A Slack app installed in one workspace, with Socket Mode enabled.
+- SQLite storage, or a provisioned MySQL 8.0 database. Socket Mode is the supported transport.
 
 All accepted users execute through the same Agently account. Slack access rules
 do not provide separate backend identities or hide responses from channel readers.
@@ -72,7 +70,7 @@ Configure the account's data and tool permissions accordingly.
    ```
 
 `validate-config` is entirely offline. `check-agently` logs in and verifies the
-session identity and agent listing, without SQLite, Slack or a conversation/query;
+session identity and agent listing, without gateway storage, Slack or a conversation/query;
 it does not verify downstream tool permissions. Wait for `slack_connection
 state=ready` before mentioning the bot on an allowed channel.
 
@@ -96,10 +94,27 @@ source contains one complete initial schema; earlier development database histor
 are incompatible. Use a new database path if you were testing a prerelease version.
 See [operations](docs/operations.md) for backups, schema checks and recovery.
 
-Only one process may use a gateway database, including operator commands. Keep it
-on local disk. Protect its directory and backups: questions and answers are stored.
-The `.lock` file may remain after shutdown; do not remove it while a process is active.
-Do not reuse a Slack-only smoke database for real Agently conversations.
+For MySQL, replace the example's entire `storage` section with:
+
+```yaml
+storage:
+  driver: mysql
+  dsn_env: AGENTLY_SLACK_MYSQL_DSN
+```
+
+The environment variable contains the MySQL DSN; configuration validation does not
+read it or connect to the database. Provision MySQL explicitly before `run`.
+The gateway does not create or migrate its MySQL schema, check its schema version,
+or fall back to SQLite. See [MySQL setup and Datly verification](docs/mysql.md).
+
+Use one integration and one gateway process per database, and stop the runtime
+before operator commands. SQLite enforces this with a lifetime file lock; MySQL
+deployment exclusivity is an operational requirement, not a distributed lock or HA
+feature. Keep SQLite on local disk and protect database access and backups:
+questions and answers are stored. The SQLite `.lock` file may remain after shutdown;
+do not remove it while a process is active. Do not reuse a Slack-only smoke database
+for real Agently conversations. Changing the storage configuration does not copy
+existing conversations or pending work between databases.
 
 YAML changes require restart. `slack.status.mode` selects one edited progress
 message (`message`, default), a native indicator (`agent_session`), or both
@@ -120,7 +135,8 @@ through retries. See [response presentation](docs/response-presentation.md).
 | [Direct messages](docs/direct-messages.md) | Slack app setup and independent DM authorization |
 | [Request status](docs/request-status.md) | Progress modes, timing and failure behavior |
 | [Response presentation](docs/response-presentation.md) | Answer modes and rich-content limitations |
-| [Operations](docs/operations.md) | SQLite initialization, diagnostics and uncertain-delivery resolution |
+| [Operations](docs/operations.md) | Storage initialization, diagnostics and uncertain-delivery resolution |
+| [MySQL](docs/mysql.md) | Docker provisioning, MySQL configuration and Datly graph verification |
 | [Agently contract](docs/agently-contract.md) | Authentication, SDK operations and execution correlation |
 
 ## Development
@@ -138,11 +154,17 @@ For an explicitly enabled Slack-only test, use the [integration test instruction
 Its channel and DM configurations are test fixtures with a fake backend, not
 alternative runtime examples.
 
+Live MySQL storage tests run only when explicitly configured. From `e2e/datly/`,
+`endly -r=run` provisions a disposable MySQL server, regenerates and validates
+Datly components, and runs the MySQL storage suite. See the [Datly workflow](e2e/datly/README.md).
+
 | Directory | Contents |
 | --- | --- |
 | `cmd/` | Executable entry point |
-| `internal/` | Configuration, adapters, gateway workers, SQLite store and tests |
+| `internal/` | Configuration, adapters, gateway workers, SQLite/MySQL stores and tests |
 | `migrations/sqlite/` | Embedded current initial schema; future versioned changes belong here |
+| `script/mysql/` | Explicit versioned MySQL schema |
+| `e2e/` | Local MySQL provisioning and Datly generation/verification workflows |
 | `examples/` | Runtime configuration and Slack app manifest |
 | `docs/` | User, operator and integration references |
 

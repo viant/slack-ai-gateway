@@ -1,0 +1,68 @@
+init:
+  - name: projectRoot
+    when: $params.projectRoot
+    value: $params.projectRoot
+    else: $WorkingDirectory(../..)
+  - name: connectorFile
+    when: $params.connectorFile
+    value: $params.connectorFile
+    else: ''
+  - name: prepareConnection
+    when: $params.connectorFile
+    value: false
+    else: true
+  - name: connectionDirectory
+    value: ''
+
+pipeline:
+  prerequisites:
+    action: exec:run
+    checkError: true
+    commands:
+      - command -v datly
+      - command -v go
+
+  connection:
+    when: $prepareConnection
+    allocate:
+      action: exec:run
+      checkError: true
+      commands:
+        - mktemp -d "${TMPDIR:-/tmp}/slack-datly.XXXXXXXX"
+      '@extract':
+        - key: connectionDirectory
+          regExpr: '(?m)^(/[^\r\n]*slack-datly\.[^\r\n]+)$'
+          required: true
+    connector:
+      action: run
+      request: '@connection.yaml'
+      logging: false
+      params:
+        directory: $connectionDirectory
+      post:
+        connectorFile: ${connectionDirectory}/connectors.json
+
+  transcribe:
+    action: exec:run
+    TimeoutMs: 1800000
+    checkError: true
+    commands:
+      - cd '$projectRoot'
+      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/bindings/read
+      - datly transcribe patch -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/bindings/write
+      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/deliveries/read
+      - datly transcribe patch -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/deliveries/write
+      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/operations/check
+      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/operations/notbefore
+      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/operations/status
+      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/read
+      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/sessions/read
+      - datly transcribe patch -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/sessions/write
+      - datly transcribe patch -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/write
+
+  defer:
+    when: $prepareConnection
+    action: run
+    request: '@cleanup.yaml'
+    params:
+      directory: $connectionDirectory

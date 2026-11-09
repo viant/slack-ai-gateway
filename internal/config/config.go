@@ -273,11 +273,32 @@ func (c Config) ValidateStorage() error {
 			return fmt.Errorf("sqlite does not accept a MySQL DSN reference")
 		}
 	case "mysql":
-		return fmt.Errorf("MySQL is planned for stage E and is not implemented; no fallback is available")
+		if c.Storage.Path != "" {
+			return fmt.Errorf("mysql does not accept storage.path; use storage.dsn_env")
+		}
+		if !environmentName.MatchString(c.Storage.DSNEnv) {
+			return fmt.Errorf("mysql requires storage.dsn_env naming an environment variable")
+		}
 	default:
 		return fmt.Errorf("unsupported storage driver")
 	}
 	return nil
+}
+
+// MySQLDSN loads credentials only when a command opens MySQL storage.
+// Validation intentionally checks the reference without reading its value.
+func (c Config) MySQLDSN() (string, error) {
+	if err := c.ValidateStorage(); err != nil {
+		return "", err
+	}
+	if c.Storage.Driver != "mysql" {
+		return "", fmt.Errorf("MySQL DSN requires storage.driver: mysql")
+	}
+	dsn := os.Getenv(c.Storage.DSNEnv)
+	if strings.TrimSpace(dsn) == "" {
+		return "", fmt.Errorf("MySQL DSN environment variable is missing")
+	}
+	return dsn, nil
 }
 
 func (c Config) ValidateRun() error {

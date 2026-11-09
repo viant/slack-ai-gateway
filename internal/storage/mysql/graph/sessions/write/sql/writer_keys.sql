@@ -1,0 +1,1 @@
+SELECT WorkspaceId AS WorkspaceId, ChannelId AS ChannelId, RootThreadTs AS RootThreadTs FROM `/`

@@ -17,6 +17,7 @@ import (
 	"github.com/viant/agently-slack-gateway/internal/config"
 	"github.com/viant/agently-slack-gateway/internal/gateway"
 	runner "github.com/viant/agently-slack-gateway/internal/runtime"
+	"github.com/viant/agently-slack-gateway/internal/storage"
 	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
 	"github.com/viant/agently-slack-gateway/internal/storetest"
 	"github.com/viant/agently-slack-gateway/migrations"
@@ -377,6 +378,98 @@ func TestMySQLAndUnknownDriverNeverFallback(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(filepath.Dir(path), "fallback.sqlite")); !os.IsNotExist(err) {
 			t.Fatal("fallback database created")
 		}
+	}
+}
+
+func TestMySQLValidationAndMigrationDoNotOpenStorage(t *testing.T) {
+	t.Setenv("TEST_GATEWAY_MYSQL_DSN", "")
+	path := writeConfig(t, "storage: {driver: mysql, dsn_env: TEST_GATEWAY_MYSQL_DSN}\n"+runStorageTestConfig)
+	deps := dependencies{openMySQL: func(context.Context, string) (storage.Store, error) {
+		t.Fatal("offline operation opened MySQL")
+		return nil, nil
+	}}
+	storetest.Must(t, execute(context.Background(), []string{"validate-config", "--config", path}, &bytes.Buffer{}, deps))
+	err := execute(context.Background(), []string{"migrate", "--config", path}, &bytes.Buffer{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "Endly") {
+		t.Fatalf("MySQL migration did not direct explicit provisioning: %v", err)
+	}
+	files, err := os.ReadDir(filepath.Dir(path))
+	storetest.Must(t, err)
+	if len(files) != 1 {
+		t.Fatal("offline MySQL operation created local storage")
+	}
+}
+
+type operatorStore struct {
+	gateway.Store
+	closed   bool
+	checked  bool
+	resolved bool
+}
+
+func (s *operatorStore) Close() error { s.closed = true; return nil }
+func (s *operatorStore) CheckRunBindings(context.Context, gateway.Route, string) error {
+	s.checked = true
+	return nil
+}
+func (s *operatorStore) Status(context.Context, int) (*storage.Status, error) {
+	return &storage.Status{Counts: map[string]map[string]int{"inbox_jobs": {"completed": 1}}}, nil
+}
+func (s *operatorStore) ResolveDelivery(context.Context, int64, string, string, bool) error {
+	s.resolved = true
+	return nil
+}
+
+func TestMySQLCommandsUseSelectedStorageAndCloseIt(t *testing.T) {
+	dsn := "test:secret-marker@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true"
+	t.Setenv("TEST_GATEWAY_MYSQL_DSN", dsn)
+	t.Setenv("SLACK_APP_TOKEN", "")
+	t.Setenv("SLACK_BOT_TOKEN", "")
+	for _, command := range []string{"status", "resolve-delivery", "run"} {
+		t.Run(command, func(t *testing.T) {
+			path := writeConfig(t, "storage: {driver: mysql, dsn_env: TEST_GATEWAY_MYSQL_DSN}\n"+runStorageTestConfig)
+			s := &operatorStore{}
+			called := 0
+			deps := dependencies{openMySQL: func(_ context.Context, actual string) (storage.Store, error) {
+				called++
+				if actual != dsn {
+					t.Fatal("wrong DSN reference")
+				}
+				return s, nil
+			}}
+			var out bytes.Buffer
+			err := execute(context.Background(), []string{command, "--config", path}, &out, deps)
+			if command == "run" {
+				if err == nil || !strings.Contains(err.Error(), "Slack token") || !s.checked {
+					t.Fatalf("run bypassed identity/credentials boundary: %v", err)
+				}
+			} else {
+				storetest.Must(t, err)
+			}
+			if called != 1 || !s.closed || s.resolved != (command == "resolve-delivery") {
+				t.Fatal("wrong storage lifecycle")
+			}
+			if strings.Contains(out.String(), "secret-marker") || strings.Contains(out.String(), "initialized") {
+				t.Fatal("MySQL credentials exposed or initialization attempted")
+			}
+		})
+	}
+}
+
+func TestMySQLStorageFailureIsRedactedAndNeverFallsBack(t *testing.T) {
+	t.Setenv("TEST_GATEWAY_MYSQL_DSN", "test:secret-marker@tcp(127.0.0.1:3309)/agently_steward_slack")
+	path := writeConfig(t, "storage: {driver: mysql, dsn_env: TEST_GATEWAY_MYSQL_DSN}\n")
+	deps := dependencies{openMySQL: func(context.Context, string) (storage.Store, error) {
+		return nil, errors.New("driver error with secret-marker")
+	}}
+	err := execute(context.Background(), []string{"status", "--config", path}, &bytes.Buffer{}, deps)
+	if err == nil || strings.Contains(err.Error(), "secret-marker") || !strings.Contains(err.Error(), "MySQL") {
+		t.Fatalf("unsafe or missing MySQL storage error: %v", err)
+	}
+	files, readErr := os.ReadDir(filepath.Dir(path))
+	storetest.Must(t, readErr)
+	if len(files) != 1 {
+		t.Fatal("failed MySQL open created fallback storage")
 	}
 }
 

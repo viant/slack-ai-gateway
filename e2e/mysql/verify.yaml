@@ -1,0 +1,7 @@
+pipeline:
+  schema:
+    action: exec:run
+    checkError: true
+    timeoutMs: 240000
+    commands:
+      - bash '${repoPath}/e2e/mysql/verify.sh'

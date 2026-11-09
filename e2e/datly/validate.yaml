@@ -1,0 +1,58 @@
+init:
+  - name: projectRoot
+    when: $params.projectRoot
+    value: $params.projectRoot
+    else: $WorkingDirectory(../..)
+  - name: connectorFile
+    when: $params.connectorFile
+    value: $params.connectorFile
+    else: ''
+  - name: prepareConnection
+    when: $params.connectorFile
+    value: false
+    else: true
+  - name: connectionDirectory
+    value: ''
+
+pipeline:
+  prerequisites:
+    action: exec:run
+    checkError: true
+    commands:
+      - command -v datly
+      - command -v go
+
+  connection:
+    when: $prepareConnection
+    allocate:
+      action: exec:run
+      checkError: true
+      commands:
+        - mktemp -d "${TMPDIR:-/tmp}/slack-datly.XXXXXXXX"
+      '@extract':
+        - key: connectionDirectory
+          regExpr: '(?m)^(/[^\r\n]*slack-datly\.[^\r\n]+)$'
+          required: true
+    connector:
+      action: run
+      request: '@connection.yaml'
+      logging: false
+      params:
+        directory: $connectionDirectory
+      post:
+        connectorFile: ${connectionDirectory}/connectors.json
+
+  validate:
+    action: exec:run
+    TimeoutMs: 600000
+    checkError: true
+    commands:
+      - cd '$projectRoot'
+      - datly validate -dir . -schema -connector slack -schema-connectors '$connectorFile' -format json github.com/viant/agently-slack-gateway/internal/storage/mysql/dql/...
+
+  defer:
+    when: $prepareConnection
+    action: run
+    request: '@cleanup.yaml'
+    params:
+      directory: $connectionDirectory

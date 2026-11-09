@@ -60,6 +60,9 @@ func TestStorageRequiresExplicitSupportedDriver(t *testing.T) {
 		{"memory", Storage{Driver: "sqlite", Path: ":memory:"}, false},
 		{"uri", Storage{Driver: "sqlite", Path: "file:test?mode=memory"}, false},
 		{"mysql_no_fallback", Storage{Driver: "mysql", Path: "fallback.sqlite", DSNEnv: "MYSQL_DSN"}, false},
+		{"mysql", Storage{Driver: "mysql", DSNEnv: "MYSQL_DSN"}, true},
+		{"mysql_missing_reference", Storage{Driver: "mysql"}, false},
+		{"mysql_raw_dsn", Storage{Driver: "mysql", DSNEnv: "user:secret-marker@tcp(localhost)/database"}, false},
 		{"unknown", Storage{Driver: "other", Path: "gateway.sqlite"}, false},
 		{"mixed", Storage{Driver: "sqlite", Path: "gateway.sqlite", DSNEnv: "MYSQL_DSN"}, false},
 	} {
@@ -69,6 +72,27 @@ func TestStorageRequiresExplicitSupportedDriver(t *testing.T) {
 				t.Fatalf("validation: %v", err)
 			}
 		})
+	}
+}
+
+func TestMySQLDSNIsLoadedOnlyOnDemand(t *testing.T) {
+	c := Config{Storage: Storage{Driver: "mysql", DSNEnv: "TEST_MYSQL_DSN"}}
+	t.Setenv("TEST_MYSQL_DSN", "")
+	if err := c.ValidateStorage(); err != nil {
+		t.Fatalf("offline validation read a secret: %v", err)
+	}
+	if _, err := c.MySQLDSN(); err == nil {
+		t.Fatal("missing DSN accepted for storage open")
+	}
+	dsn := "test:secret-marker@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true"
+	t.Setenv("TEST_MYSQL_DSN", dsn)
+	actual, err := c.MySQLDSN()
+	if err != nil || actual != dsn {
+		t.Fatal("DSN value was changed or rejected")
+	}
+	c.Storage.DSNEnv = dsn
+	if _, err = c.MySQLDSN(); err == nil || strings.Contains(err.Error(), "secret-marker") {
+		t.Fatal("invalid reference accepted or exposed")
 	}
 }
 

@@ -1,0 +1,1 @@
+SELECT r.id, r.delivery_id, r.action, r.slack_ts, r.duplicate_risk_accepted, r.created_at FROM delivery_resolutions r WHERE $criteria.CompositeIn("r", $Unsafe.ProjectCurrentResolutionsParentKeys($CurrentWriter))

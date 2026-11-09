@@ -1,0 +1,13 @@
+#package('github.com/viant/agently-slack-gateway/internal/storage/mysql/graph/sessions/write')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/sessions','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $Rows<[]*Publication>(body/data))
+#define($_ = $Data<[]*Publication>(output/body))
+
+SELECT sessions.*,type(sessions,'Publication') FROM agent_session_publications sessions

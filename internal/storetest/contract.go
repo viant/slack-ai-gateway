@@ -1,5 +1,5 @@
 // Package storetest contains reusable contract tests, not production adapters.
-// Stage E must run this same suite against a real MySQL implementation.
+// SQLite and MySQL run the same behavioral contract.
 package storetest
 
 import (

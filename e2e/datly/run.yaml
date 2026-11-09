@@ -1,0 +1,149 @@
+init:
+  - name: projectRoot
+    when: $params.projectRoot
+    value: $params.projectRoot
+    else: $WorkingDirectory(../..)
+  - name: fixtureName
+    value: agently-slack-test-${uuid.next}
+  - name: fixtureDirectory
+    value: ''
+
+pipeline:
+  prerequisites:
+    action: exec:run
+    checkError: true
+    commands:
+      - command -v docker
+      - command -v mysql
+      - command -v datly
+      - command -v go
+      - docker info > /dev/null
+
+  allocate:
+    action: exec:run
+    checkError: true
+    commands:
+      - mktemp -d "${TMPDIR:-/tmp}/slack-mysql.XXXXXXXX"
+    '@extract':
+      - key: fixtureDirectory
+        regExpr: '(?m)^(/[^\r\n]*slack-mysql\.[^\r\n]+)$'
+        required: true
+
+  credentials:
+    logging: false
+    init:
+      fixturePassword: $uuid.next
+      mysqlEnvironment: |
+        MYSQL_ROOT_PASSWORD=$fixturePassword
+        MYSQL_ROOT_HOST=%
+    action: storage:upload
+    sourceKey: mysqlEnvironment
+    mode: 384
+    dest:
+      URL: ${fixtureDirectory}/mysql.env
+
+  start:
+    action: exec:run
+    TimeoutMs: 180000
+    checkError: true
+    commands:
+      - docker run --detach --rm --name '$fixtureName' --env-file '${fixtureDirectory}/mysql.env' --publish 127.0.0.1::3306 mysql:8.0
+
+  port:
+    action: exec:run
+    checkError: true
+    commands:
+      - docker port '$fixtureName' 3306/tcp
+    '@extract':
+      - key: fixturePort
+        regExpr: '127\.0\.0\.1:([0-9]+)'
+        required: true
+
+  client:
+    logging: false
+    init:
+      mysqlDefaults: |
+        [client]
+        user=root
+        password=$fixturePassword
+        host=127.0.0.1
+        port=$fixturePort
+        protocol=TCP
+    action: storage:upload
+    sourceKey: mysqlDefaults
+    mode: 384
+    dest:
+      URL: ${fixtureDirectory}/mysql.cnf
+
+  ready:
+    action: exec:run
+    TimeoutMs: 190000
+    checkError: true
+    commands:
+      - |
+        bash -c '
+          deadline=$((SECONDS + 180))
+          until mysql --defaults-extra-file="${fixtureDirectory}/mysql.cnf" --connect-timeout=2 --execute="SELECT 1" > /dev/null 2>&1; do
+            if (( SECONDS >= deadline )); then
+              echo "Isolated MySQL fixture did not become ready within 180 seconds" >&2
+              exit 1
+            fi
+            sleep 0.5
+          done
+        '
+
+  schema:
+    action: exec:run
+    checkError: true
+    commands:
+      - mysql --defaults-extra-file='${fixtureDirectory}/mysql.cnf' --binary-mode < '${projectRoot}/script/mysql/schema_versioned.ddl'
+
+  connection:
+    action: run
+    request: '@connection.yaml'
+    logging: false
+    params:
+      directory: $fixtureDirectory
+      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true
+
+  transcribe:
+    action: run
+    request: '@transcribe.yaml'
+    params:
+      projectRoot: $projectRoot
+      connectorFile: ${fixtureDirectory}/connectors.json
+
+  validate:
+    action: run
+    request: '@validate.yaml'
+    params:
+      projectRoot: $projectRoot
+      connectorFile: ${fixtureDirectory}/connectors.json
+
+  testEnvironment:
+    logging: false
+    init:
+      testEnvironment: |
+        export AGENTLY_SLACK_MYSQL_DSN='root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true'
+        export AGENTLY_SLACK_MYSQL_TEST_DSN='root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true'
+    action: storage:upload
+    sourceKey: testEnvironment
+    mode: 384
+    dest:
+      URL: ${fixtureDirectory}/test.env
+
+  verify:
+    action: exec:run
+    TimeoutMs: 1800000
+    checkError: true
+    commands:
+      - cd '$projectRoot'
+      - . '${fixtureDirectory}/test.env'
+      - go test -count=1 ./internal/storage/mysql/...
+
+  defer:
+    action: run
+    request: '@cleanup.yaml'
+    params:
+      containerName: $fixtureName
+      directory: $fixtureDirectory

@@ -57,14 +57,14 @@ require (
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
-	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/francoispqt/gojay v1.2.13 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
-	github.com/go-sql-driver/mysql v1.10.1 // indirect
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
@@ -107,9 +107,9 @@ require (
 	github.com/viant/agently-core/protocol/resource v0.1.0 // indirect
 	github.com/viant/agently-core/protocol/window v0.1.0 // indirect
 	github.com/viant/authz v0.1.2-0.20261027201251-5ba403d7e022 // indirect
-	github.com/viant/bindly v0.4.1 // indirect
+	github.com/viant/bindly v0.5.1-0.20261107224459-fee82b537c68
 	github.com/viant/bintly v0.2.0 // indirect
-	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4 // indirect
+	github.com/viant/datly v1.1.1-0.20261109185227-674263d179f1
 	github.com/viant/embedius v0.5.8-0.20261108015858-2dbb2e0a515a // indirect
 	github.com/viant/forge v0.3.47-0.20261109173735-ebb545c0b9e6 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
@@ -119,20 +119,20 @@ require (
 	github.com/viant/jsonrpc v0.25.1 // indirect
 	github.com/viant/linager v0.1.0 // indirect
 	github.com/viant/mcp v0.24.2-0.20261108032237-21edf2c50ace // indirect
-	github.com/viant/mcp-protocol v0.19.2-0.20261101165444-1c2b609f8dbf // indirect
+	github.com/viant/mcp-protocol v0.19.2-0.20261109171433-0c12367a2739 // indirect
 	github.com/viant/mcp-tasks v0.1.0 // indirect
 	github.com/viant/mcp-ui v0.2.1 // indirect
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/sqlite-vec v0.3.1 // indirect
 	github.com/viant/sqlparser v0.13.1 // indirect
-	github.com/viant/sqlx v0.26.2-0.20261028024456-7f52e55c52a2 // indirect
-	github.com/viant/structology v0.10.1 // indirect
+	github.com/viant/sqlx v0.26.2-0.20261106174837-52540c3f870c
+	github.com/viant/structology v0.10.2-0.20261107222012-8e078e89542f // indirect
 	github.com/viant/structql v0.5.5 // indirect
-	github.com/viant/tagly v0.4.2-0.20261028223500-81e046a19ef9 // indirect
+	github.com/viant/tagly v0.4.2-0.20261109165833-97d17304159d // indirect
 	github.com/viant/vec v0.2.4 // indirect
 	github.com/viant/velty v0.4.1 // indirect
-	github.com/viant/x v0.5.1 // indirect
-	github.com/viant/xdatly v1.0.1-0.20261015075741-94be032b69bb // indirect
+	github.com/viant/x v0.6.1-0.20261106041415-0487ec66884b
+	github.com/viant/xdatly v1.0.1-0.20261106191133-04634a407286
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.2.0 // indirect
 	github.com/viant/xreflect v0.7.5 // indirect
@@ -147,13 +147,13 @@ require (
 	go.opentelemetry.io/contrib/detectors/gcp v1.44.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.69.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0 // indirect
-	go.opentelemetry.io/otel v1.44.0 // indirect
+	go.opentelemetry.io/otel v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0 // indirect
-	go.opentelemetry.io/otel/metric v1.44.0 // indirect
+	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.44.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.44.0 // indirect
-	go.opentelemetry.io/otel/trace v1.44.0 // indirect
+	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	golang.org/x/image v0.38.0 // indirect
 	golang.org/x/mod v0.38.0 // indirect

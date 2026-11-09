@@ -1,0 +1,1 @@
+SELECT r.id, r.workspace_id, r.channel_id, r.root_thread_ts, r.conversation_id, r.access_mode, r.principal_id, r.owner_id, r.state, r.created_at, r.updated_at FROM conversation_bindings r WHERE $criteria.CompositeIn("r", $WriterKeys)

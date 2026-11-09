@@ -1,8 +1,10 @@
-# Local SQLite operator commands
+# Gateway operator commands
 
 The first release has one complete initial schema for inbox/outbox storage,
-execution observation and progress publications. Schema history and checksums
-are validated; future schema changes can use the existing migration runner.
+execution observation and progress publications. SQLite schema history and checksums
+are validated; future SQLite changes can use the existing migration runner.
+MySQL uses an explicitly provisioned versioned DDL; startup performs no DDL or
+schema-version checks. See [MySQL setup](mysql.md).
 See [request status](request-status.md) and [DM setup](direct-messages.md).
 
 ## Validate configuration without storage or secrets
@@ -75,6 +77,10 @@ are not silently changed. Never point these commands at Agently's database.
 
 ## Inspect state
 
+`status` and `resolve-delivery` support both storage drivers and do not contact
+Slack or Agently. Stop the gateway first. For MySQL, supply the DSN environment
+variable referenced by the configuration; these commands never create a schema.
+
 ```sh
 go run ./cmd/agently-slack-gateway status --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml" --limit 100
 ```
@@ -135,7 +141,7 @@ inspect `status` for the complete persisted state.
 the account/session and ownership configuration before restarting. A restart can
 establish a new session, but does not clear `needs_review` or replay its query.
 Already in-flight remote operations cannot be recalled. Other queued work stays
-in SQLite; it is not drained during the authentication failure.
+in gateway storage; it is not drained during the authentication failure.
 Within the remaining shutdown grace, healthy Slack may receive terminal
 authentication-failure status notices. This best-effort attempt never drains
 queries or final replies, bypasses policy or extends the 30-second window.
@@ -175,7 +181,8 @@ re-run Agently or affect another part. Actual retry happens in a subsequent runt
 session. Repeated resolution of a part no longer in `delivery_unknown` is rejected.
 The state update and audit row commit together. Audit records contain the delivery,
 action, timestamp, time and risk confirmation, not an authenticated operator ID;
-filesystem access remains the administrative boundary for these local operator commands.
+filesystem access for SQLite, or database credentials and grants for MySQL,
+remain the administrative boundary for these operator commands.
 
 The gateway rechecks the original author's current policy before sending or retrying a part.
 Policy denial produces `failed` with no POST. Unavailable metadata or rejected
@@ -194,8 +201,8 @@ The one-second sender pacing and durable 429 cooldown apply across all channels.
 
 ## Current execution boundary
 
-Unlike the local SQLite commands, `check-agently` contacts the IdP and Agently
-to create and validate an authentication session. It does not use Gateway SQLite
+Unlike the storage operator commands, `check-agently` contacts the IdP and Agently
+to create and validate an authentication session. It does not use gateway storage
 or Slack, and does not create/query a conversation. `run` additionally connects to
 Slack, recovers Gateway work and executes real queries/deliveries. Neither command
 connects directly to Agently's database. Agently retains control of its own storage.

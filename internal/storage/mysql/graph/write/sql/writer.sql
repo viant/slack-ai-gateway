@@ -1,0 +1,1 @@
+SELECT * FROM  (SELECT * FROM inbox_jobs j)  jobs

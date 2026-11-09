@@ -1,0 +1,1 @@
+SELECT sessions.* FROM agent_session_publications sessions

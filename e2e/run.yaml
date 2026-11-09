@@ -1,0 +1,10 @@
+# Explicit local provisioning; normal gateway startup never runs this workflow.
+init:
+  repoPath: $WorkingDirectory(./..)
+pipeline:
+  init:
+    action: run
+    request: '@mysql/init'
+  verify:
+    action: run
+    request: '@mysql/verify'
