@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 func TestDirectMessagePolicyIsExplicitAndIndependent(t *testing.T) {

@@ -4,7 +4,7 @@ init:
     value: $params.projectRoot
     else: $WorkingDirectory(../..)
   - name: fixtureName
-    value: agently-slack-test-${uuid.next}
+    value: slack-ai-gateway-test-${uuid.next}
   - name: fixtureDirectory
     value: ''
 
@@ -104,7 +104,7 @@ pipeline:
     params:
       projectRoot: $projectRoot
       driver: mysql
-      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true
+      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/slack_ai_gateway?parseTime=true
 
   validateMySQL:
     action: run
@@ -112,7 +112,7 @@ pipeline:
     params:
       projectRoot: $projectRoot
       driver: mysql
-      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true
+      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/slack_ai_gateway?parseTime=true
 
   sqliteSchema:
     action: exec:run
@@ -134,7 +134,7 @@ pipeline:
     logging: false
     init:
       testEnvironment: |
-        export AGENTLY_SLACK_MYSQL_TEST_DSN='root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true'
+        export SLACK_AI_GATEWAY_MYSQL_TEST_DSN='root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/slack_ai_gateway?parseTime=true'
     action: storage:upload
     sourceKey: testEnvironment
     mode: 384

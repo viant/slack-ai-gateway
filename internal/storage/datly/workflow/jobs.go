@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"time"
 
-	br "github.com/viant/agently-slack-gateway/internal/datly/bindings/read"
-	bw "github.com/viant/agently-slack-gateway/internal/datly/bindings/write"
-	jr "github.com/viant/agently-slack-gateway/internal/datly/read"
-	sr "github.com/viant/agently-slack-gateway/internal/datly/sessions/read"
-	sw "github.com/viant/agently-slack-gateway/internal/datly/sessions/write"
-	jw "github.com/viant/agently-slack-gateway/internal/datly/write"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
+	br "github.com/viant/slack-ai-gateway/internal/datly/bindings/read"
+	bw "github.com/viant/slack-ai-gateway/internal/datly/bindings/write"
+	jr "github.com/viant/slack-ai-gateway/internal/datly/read"
+	sr "github.com/viant/slack-ai-gateway/internal/datly/sessions/read"
+	sw "github.com/viant/slack-ai-gateway/internal/datly/sessions/write"
+	jw "github.com/viant/slack-ai-gateway/internal/datly/write"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 func (x *execution) enqueue(ctx context.Context, in *Input, out *Output) error {

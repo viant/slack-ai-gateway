@@ -1,4 +1,4 @@
-module github.com/viant/agently-slack-gateway
+module github.com/viant/slack-ai-gateway
 
 go 1.26.0
 

@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
 	"github.com/viant/scy"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 // Identity is immutable after login. Only a confirmed identity mismatch poisons

@@ -113,7 +113,7 @@ func TestStorageRequiresExplicitSupportedDriver(t *testing.T) {
 
 func TestMySQLValidationDoesNotLoadSecretOrUseEnvironment(t *testing.T) {
 	t.Setenv("AGENTLY_SLACK_MYSQL_DSN", "old-env-secret-marker")
-	c := Config{Storage: Storage{Driver: "mysql", DSN: "${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true", Secret: &scy.Resource{URL: "aws://secretmanager/us-east-1/secret/synthetic-unavailable", Key: "blowfish://default"}}}
+	c := Config{Storage: Storage{Driver: "mysql", DSN: "${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true", Secret: &scy.Resource{URL: "aws://secretmanager/us-east-1/secret/synthetic-unavailable", Key: "blowfish://default"}}}
 	if err := c.ValidateStorage(); err != nil {
 		t.Fatalf("offline validation accessed secret: %v", err)
 	}

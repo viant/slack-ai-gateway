@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Delivery `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/agently-slack-gateway/internal/datly/deliveries/read.Delivery" sql:"uri=datly_deliveries_read_reader:sql/reader.sql" view:"reader,type=Delivery,rowLock=outbox_messages m,rowLockOrder=m.id,selectorNoLimit=true"`
+	Data []*Delivery `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/deliveries/read.Delivery" sql:"uri=datly_deliveries_read_reader:sql/reader.sql" view:"reader,type=Delivery,rowLock=outbox_messages m,rowLockOrder=m.id,selectorNoLimit=true"`
 }

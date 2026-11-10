@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
 	"github.com/viant/scy"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 // missingSession is distinct from an identity mismatch: a missing/expired

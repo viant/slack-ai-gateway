@@ -8,15 +8,15 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/viant/agently-slack-gateway/internal/agently"
-	"github.com/viant/agently-slack-gateway/internal/config"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	runner "github.com/viant/agently-slack-gateway/internal/runtime"
-	"github.com/viant/agently-slack-gateway/internal/slack"
-	"github.com/viant/agently-slack-gateway/internal/storage"
-	"github.com/viant/agently-slack-gateway/internal/storage/mysql"
-	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
 	"github.com/viant/scy"
+	"github.com/viant/slack-ai-gateway/internal/agently"
+	"github.com/viant/slack-ai-gateway/internal/config"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	runner "github.com/viant/slack-ai-gateway/internal/runtime"
+	"github.com/viant/slack-ai-gateway/internal/slack"
+	"github.com/viant/slack-ai-gateway/internal/storage"
+	"github.com/viant/slack-ai-gateway/internal/storage/mysql"
+	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
 )
 
 type dependencies struct {
@@ -44,7 +44,7 @@ func Execute(ctx context.Context, args []string, out io.Writer) error {
 
 func execute(ctx context.Context, args []string, out io.Writer, deps dependencies) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agently-slack-gateway <validate-config|migrate|check-agently|run|status|resolve-delivery> --config FILE")
+		return fmt.Errorf("usage: slack-ai-gateway <validate-config|migrate|check-agently|run|status|resolve-delivery> --config FILE")
 	}
 	command := args[0]
 	if command != "validate-config" && command != "migrate" && command != "check-agently" && command != "run" && command != "status" && command != "resolve-delivery" {

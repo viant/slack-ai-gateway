@@ -31,14 +31,14 @@ pipeline:
     secrets:
       gatewayMySQLCredentials: $mysqlCred
     commands:
-      - export AGENTLY_SLACK_DISCOVERY_DSN='${gatewayMySQLCredentials.username}:${gatewayMySQLCredentials.password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true'
+      - export SLACK_AI_GATEWAY_DISCOVERY_DSN='${gatewayMySQLCredentials.username}:${gatewayMySQLCredentials.password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true'
 
   connection:
     when: $discoveryDSN != ''
     action: exec:run
     checkError: true
     commands:
-      - export AGENTLY_SLACK_DISCOVERY_DSN='$discoveryDSN'
+      - export SLACK_AI_GATEWAY_DISCOVERY_DSN='$discoveryDSN'
 
   validate:
     action: exec:run
@@ -46,4 +46,4 @@ pipeline:
     checkError: true
     commands:
       - cd '$projectRoot'
-      - datly validate -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" -format json github.com/viant/agently-slack-gateway/dql/...
+      - datly validate -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -format json github.com/viant/slack-ai-gateway/dql/...

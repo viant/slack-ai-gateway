@@ -8,7 +8,7 @@ import (
 
 	"github.com/viant/agently-core/protocol/agui"
 	"github.com/viant/agently-core/sdk"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 func chatInput(threadID string, q gateway.Query) *agui.RunAgentInput {

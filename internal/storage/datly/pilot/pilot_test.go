@@ -11,9 +11,6 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	read "github.com/viant/agently-slack-gateway/internal/datly/read"
-	write "github.com/viant/agently-slack-gateway/internal/datly/write"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
 	"github.com/viant/datly/bootstrap/connector"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
@@ -21,6 +18,9 @@ import (
 	"github.com/viant/datly/spec"
 	"github.com/viant/datly/standalone"
 	"github.com/viant/datly/standalone/config"
+	read "github.com/viant/slack-ai-gateway/internal/datly/read"
+	write "github.com/viant/slack-ai-gateway/internal/datly/write"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 	_ "github.com/viant/sqlx/metadata/product/mysql"
 	xdatly "github.com/viant/xdatly"
 	"github.com/viant/xdatly/handler"
@@ -113,7 +113,7 @@ func TestNativeMySQLGraphPilot(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	prefix := fmt.Sprintf("pilot-%d", time.Now().UnixNano())
 
-	server, err := standalone.New(ctx, standalone.Options{Config: &config.Config{BaseDir: t.TempDir(), Connector: "slack", Connectors: []connector.Config{{Name: "slack", Driver: "mysql", DSN: dsn, MaxOpenConns: 8, MaxIdleConns: 4}}, GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{"github.com/viant/agently-slack-gateway/internal/datly/...", "github.com/viant/agently-slack-gateway/internal/storage/datly/pilot"}}}, RequireLinked: true, Holders: []any{&read.ReaderComponent{}, &write.WriterComponent{}, &PilotComponent{}}})
+	server, err := standalone.New(ctx, standalone.Options{Config: &config.Config{BaseDir: t.TempDir(), Connector: "slack", Connectors: []connector.Config{{Name: "slack", Driver: "mysql", DSN: dsn, MaxOpenConns: 8, MaxIdleConns: 4}}, GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{"github.com/viant/slack-ai-gateway/internal/datly/...", "github.com/viant/slack-ai-gateway/internal/storage/datly/pilot"}}}, RequireLinked: true, Holders: []any{&read.ReaderComponent{}, &write.WriterComponent{}, &PilotComponent{}}})
 	must(t, err)
 	t.Cleanup(func() { server.Shutdown(context.Background()) })
 	must(t, server.Reload(ctx, 1))

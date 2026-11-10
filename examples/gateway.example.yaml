@@ -1,4 +1,4 @@
-# Copy to ~/.agently-slack-gateway/config/gateway.local.yaml; replace the IDs.
+# Copy to ~/.slack-ai-gateway/config/gateway.local.yaml; replace the IDs.
 # This is the runtime configuration for a real Agently backend.
 # Create the config/ and db/ directories first; see ../README.md for shell commands.
 storage:
@@ -8,7 +8,7 @@ storage:
   driver: sqlite
   # A separate Gateway database, never the smoke-test or Agently database.
   # Resolved from this YAML's directory, including after copying to config/.
-  path: ../db/gateway-agently.sqlite
+  path: ../db/gateway.sqlite
 
 transport: socket
 access_mode: shared_channel

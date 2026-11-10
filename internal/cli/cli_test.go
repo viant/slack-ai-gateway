@@ -16,15 +16,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/agently"
-	"github.com/viant/agently-slack-gateway/internal/config"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	runner "github.com/viant/agently-slack-gateway/internal/runtime"
-	"github.com/viant/agently-slack-gateway/internal/storage"
-	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
-	"github.com/viant/agently-slack-gateway/migrations"
 	"github.com/viant/scy"
+	"github.com/viant/slack-ai-gateway/internal/agently"
+	"github.com/viant/slack-ai-gateway/internal/config"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	runner "github.com/viant/slack-ai-gateway/internal/runtime"
+	"github.com/viant/slack-ai-gateway/internal/storage"
+	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
+	"github.com/viant/slack-ai-gateway/migrations"
 	"gopkg.in/yaml.v3"
 )
 
@@ -448,7 +448,7 @@ func TestMySQLAndUnknownDriverNeverFallback(t *testing.T) {
 
 func TestMySQLValidationAndMigrationDoNotOpenStorage(t *testing.T) {
 	t.Setenv("AGENTLY_SLACK_MYSQL_DSN", "ignored-env-secret-marker")
-	path := writeConfig(t, "storage: {driver: mysql, dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true', secret: {URL: /unused/mysql-secret-marker.json, Key: 'blowfish://default'}}\n"+runStorageTestConfig)
+	path := writeConfig(t, "storage: {driver: mysql, dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true', secret: {URL: /unused/mysql-secret-marker.json, Key: 'blowfish://default'}}\n"+runStorageTestConfig)
 	deps := dependencies{openMySQL: func(context.Context, string, *scy.Resource) (storage.Store, error) {
 		t.Fatal("offline operation opened MySQL")
 		return nil, nil
@@ -486,13 +486,13 @@ func (s *operatorStore) ResolveDelivery(context.Context, int64, string, string, 
 }
 
 func TestMySQLCommandsUseSelectedStorageAndCloseIt(t *testing.T) {
-	dsn := "${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true"
+	dsn := "${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true"
 	t.Setenv("AGENTLY_SLACK_MYSQL_DSN", "ignored-old-env-secret-marker")
 	t.Setenv("SLACK_APP_TOKEN", "")
 	t.Setenv("SLACK_BOT_TOKEN", "")
 	for _, command := range []string{"status", "resolve-delivery", "run"} {
 		t.Run(command, func(t *testing.T) {
-			path := writeConfig(t, "storage: {driver: mysql, dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true', secret: {URL: /unused/mysql-secret-marker.json, Key: 'blowfish://default'}}\n"+runStorageTestConfig)
+			path := writeConfig(t, "storage: {driver: mysql, dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true', secret: {URL: /unused/mysql-secret-marker.json, Key: 'blowfish://default'}}\n"+runStorageTestConfig)
 			s := &operatorStore{}
 			called := 0
 			deps := dependencies{openMySQL: func(_ context.Context, actual string, resource *scy.Resource) (storage.Store, error) {
@@ -522,7 +522,7 @@ func TestMySQLCommandsUseSelectedStorageAndCloseIt(t *testing.T) {
 }
 
 func TestMySQLPlainDSNNeedsNoSecret(t *testing.T) {
-	dsn := "test:synthetic-password@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true"
+	dsn := "test:synthetic-password@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true"
 	path := writeConfig(t, fmt.Sprintf("storage: {driver: mysql, dsn: %q}\n", dsn))
 	s := &operatorStore{}
 	called := false
@@ -542,7 +542,7 @@ func TestMySQLPlainDSNNeedsNoSecret(t *testing.T) {
 
 func TestMySQLStorageFailureIsRedactedAndNeverFallsBack(t *testing.T) {
 	t.Setenv("AGENTLY_SLACK_MYSQL_DSN", "ignored-env-secret-marker")
-	path := writeConfig(t, "storage: {driver: mysql, dsn: 'test:secret-marker@tcp(127.0.0.1:3309)/agently_steward_slack'}\n")
+	path := writeConfig(t, "storage: {driver: mysql, dsn: 'test:secret-marker@tcp(127.0.0.1:3309)/slack_ai_gateway'}\n")
 	deps := dependencies{openMySQL: func(context.Context, string, *scy.Resource) (storage.Store, error) {
 		return nil, errors.New("driver error with secret-marker")
 	}}

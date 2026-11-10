@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/viant/agently-slack-gateway/internal/config"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
 	"github.com/viant/scy"
+	"github.com/viant/slack-ai-gateway/internal/config"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 const smokePrincipal = "slack-smoke-shared"
@@ -32,7 +32,7 @@ func smokePolicy(c config.Config, directory gateway.SlackDirectory) (gateway.Con
 }
 
 func TestSmokeConfigOffline(t *testing.T) {
-	path := os.Getenv("AGENTLY_SLACK_CONFIG")
+	path := os.Getenv("SLACK_AI_GATEWAY_CONFIG")
 	if path == "" {
 		path = "testdata/channels.yaml"
 	}
@@ -167,7 +167,7 @@ func TestSmokePolicyDoesNotBypassRolesOrMissingMetadata(t *testing.T) {
 	if _, err := p.Authorize(context.Background(), m, nil); !errors.Is(err, gateway.ErrMetadataUnavailable) {
 		t.Fatal("smoke must not bypass missing directory metadata")
 	}
-	c.Storage.Path = filepath.Join(t.TempDir(), "gateway-agently.sqlite")
+	c.Storage.Path = filepath.Join(t.TempDir(), "gateway.sqlite")
 	if _, err := smokePolicy(c, d); err == nil {
 		t.Fatal("smoke must reject the real integration database")
 	}

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/sdk"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 const ContractVersion = "github.com/viant/agently-core v0.1.59-0.20261104144409-65d86b32d5d9, AG-UI 1.0; see docs/agently-contract.md"

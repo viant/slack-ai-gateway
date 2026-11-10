@@ -15,7 +15,7 @@ history, while MySQL retains explicit provisioning and deployment exclusivity.
 ## Validate configuration without storage or secrets
 
 ```sh
-go run ./cmd/agently-slack-gateway validate-config --config examples/gateway.example.yaml --channel-id C_TEST
+go run ./cmd/slack-ai-gateway validate-config --config examples/gateway.example.yaml --channel-id C_TEST
 ```
 
 This command needs the complete runtime configuration, not just storage. It is
@@ -33,10 +33,10 @@ gateway's SQLite database; they do not connect to Slack or Agently. Only the
 ```yaml
 storage:
   driver: sqlite
-  path: ../db/gateway-agently.sqlite
+  path: ../db/gateway.sqlite
 ```
 
-With YAML in `~/.agently-slack-gateway/config/`, this path places SQLite in the
+With YAML in `~/.slack-ai-gateway/config/`, this path places SQLite in the
 application's `db/` directory. Relative database paths are resolved against the
 configuration file; a full absolute path is also supported. `~` and environment
 variables are not expanded in `storage.path`. See [local setup](../README.md#setup)
@@ -67,7 +67,7 @@ does not print them.
 or network access, or to initialize an existing empty file:
 
 ```sh
-go run ./cmd/agently-slack-gateway migrate --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml"
+go run ./cmd/slack-ai-gateway migrate --config "$HOME/.slack-ai-gateway/config/gateway.local.yaml"
 ```
 
 The current initial schema replaces the unpublished development migration history.
@@ -88,7 +88,7 @@ its optional Scy `storage.secret`; these commands load that storage resource whe
 opening the database and never create a schema.
 
 ```sh
-go run ./cmd/agently-slack-gateway status --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml" --limit 100
+go run ./cmd/slack-ai-gateway status --config "$HOME/.slack-ai-gateway/config/gateway.local.yaml" --limit 100
 ```
 
 Output is a consistent JSON snapshot of jobs, conversation bindings and deliveries,
@@ -201,8 +201,8 @@ Use the reply's timestamp, not the root thread timestamp.
 If the reply is visibly present and verified:
 
 ```sh
-go run ./cmd/agently-slack-gateway resolve-delivery \
-  --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml" \
+go run ./cmd/slack-ai-gateway resolve-delivery \
+  --config "$HOME/.slack-ai-gateway/config/gateway.local.yaml" \
   --delivery-id 123 --action delivered --slack-ts '1790882981.053349'
 ```
 
@@ -214,8 +214,8 @@ when the runtime resumes, subject to other ordering/rate-limit constraints.
 If a retry is explicitly chosen after investigation, accept the duplicate risk:
 
 ```sh
-go run ./cmd/agently-slack-gateway resolve-delivery \
-  --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml" \
+go run ./cmd/slack-ai-gateway resolve-delivery \
+  --config "$HOME/.slack-ai-gateway/config/gateway.local.yaml" \
   --delivery-id 123 --action retry --confirm-duplicate-risk
 ```
 

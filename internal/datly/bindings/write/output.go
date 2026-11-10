@@ -4,5 +4,5 @@ package write
 
 // Output is the generated output scaffold for writer.
 type Output struct {
-	Data []*Binding `json:"data" parameter:"Data,kind=output,in=body,dataType=[]*github.com/viant/agently-slack-gateway/internal/datly/bindings/write.Binding"`
+	Data []*Binding `json:"data" parameter:"Data,kind=output,in=body,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/bindings/write.Binding"`
 }

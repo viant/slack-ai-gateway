@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/viant/agently-slack-gateway/internal/storetest"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 func TestBackendOutageIntakeRollsBackWithReply(t *testing.T) {

@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
 	"github.com/viant/scy"
 	"github.com/viant/scy/auth/flow"
 	"github.com/viant/scy/cred"
 	"github.com/viant/scy/kms"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 	"golang.org/x/oauth2"
 )
 

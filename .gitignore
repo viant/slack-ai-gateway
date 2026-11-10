@@ -5,6 +5,7 @@
 
 # Rebuildable artifacts and local runtime state.
 /bin/
+/cmd/slack-ai-gateway/slack-ai-gateway
 /gateway.local.yaml
 /gateway.*.local.yaml
 *.sqlite

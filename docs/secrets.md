@@ -13,7 +13,7 @@ before creating anything; reuse a compatible credential instead of overwriting
 another application's file.
 
 ```sh
-install -d -m 700 "$HOME/.secret/agently-slack-gateway"
+install -d -m 700 "$HOME/.secret/slack-ai-gateway"
 umask 077
 ```
 
@@ -24,13 +24,13 @@ creation command only when its destination does not already exist.
 
 ```sh
 scy secure --target raw --key blowfish://default \
-  --dest "file://$HOME/.secret/agently-slack-gateway/slack-app-token.enc"
+  --dest "file://$HOME/.secret/slack-ai-gateway/slack-app-token.enc"
 scy secure --target raw --key blowfish://default \
-  --dest "file://$HOME/.secret/agently-slack-gateway/slack-bot-token.enc"
+  --dest "file://$HOME/.secret/slack-ai-gateway/slack-bot-token.enc"
 scy secure --target basic --key blowfish://default \
-  --dest "file://$HOME/.secret/agently-slack-gateway/mysql.json"
+  --dest "file://$HOME/.secret/slack-ai-gateway/mysql.json"
 scy secure --target basic --key blowfish://default \
-  --dest "file://$HOME/.secret/agently-slack-gateway/agently-service.json"
+  --dest "file://$HOME/.secret/slack-ai-gateway/agently-service.json"
 ```
 
 Use the execution account for `agently-service.json`; its authenticated subject
@@ -47,9 +47,9 @@ Set created files to `0600`, and the private runtime YAML to `0600`. Use the
 actual filenames when reusing resources:
 
 ```sh
-chmod 600 "$HOME/.secret/agently-slack-gateway/"*.enc \
-  "$HOME/.secret/agently-slack-gateway/"*.json
-chmod 600 "$HOME/.agently-slack-gateway/config/gateway.local.yaml"
+chmod 600 "$HOME/.secret/slack-ai-gateway/"*.enc \
+  "$HOME/.secret/slack-ai-gateway/"*.json
+chmod 600 "$HOME/.slack-ai-gateway/config/gateway.local.yaml"
 ```
 
 Replace the example locations in the YAML with absolute paths. The resource
@@ -71,7 +71,7 @@ agently:
       Key: blowfish://default
 storage:
   driver: mysql
-  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true'
+  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true'
   secret:
     URL: file:///absolute/path/mysql.json
     Key: blowfish://default

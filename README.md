@@ -1,4 +1,4 @@
-# Agently Slack Gateway
+# Slack AI Gateway
 
 A Go service connecting Slack channels and opt-in direct messages to Agently.
 Each Slack thread maps to a conversation under one configured execution identity.
@@ -36,9 +36,9 @@ Configure the account's data and tool permissions accordingly.
 2. Prepare a personal configuration outside the repository:
 
    ```sh
-   install -d -m 700 "$HOME/.agently-slack-gateway/config" "$HOME/.agently-slack-gateway/db"
-   cp -n examples/gateway.example.yaml "$HOME/.agently-slack-gateway/config/gateway.local.yaml"
-   chmod 600 "$HOME/.agently-slack-gateway/config/gateway.local.yaml"
+   install -d -m 700 "$HOME/.slack-ai-gateway/config" "$HOME/.slack-ai-gateway/db"
+   cp -n examples/gateway.example.yaml "$HOME/.slack-ai-gateway/config/gateway.local.yaml"
+   chmod 600 "$HOME/.slack-ai-gateway/config/gateway.local.yaml"
    ```
 
    `cp -n` preserves an existing file. Edit the placeholder Slack app, workspace
@@ -67,10 +67,10 @@ Configure the account's data and tool permissions accordingly.
 4. Build, validate, check the backend, then start:
 
    ```sh
-   go build -o bin/agently-slack-gateway ./cmd/agently-slack-gateway
-   ./bin/agently-slack-gateway validate-config --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml"
-   ./bin/agently-slack-gateway check-agently --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml"
-   ./bin/agently-slack-gateway run --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml"
+   go build -o bin/slack-ai-gateway ./cmd/slack-ai-gateway
+   ./bin/slack-ai-gateway validate-config --config "$HOME/.slack-ai-gateway/config/gateway.local.yaml"
+   ./bin/slack-ai-gateway check-agently --config "$HOME/.slack-ai-gateway/config/gateway.local.yaml"
+   ./bin/slack-ai-gateway run --config "$HOME/.slack-ai-gateway/config/gateway.local.yaml"
    ```
 
 `validate-config` is entirely offline. `check-agently` is an optional, bounded,
@@ -96,8 +96,8 @@ includes the agent experience used by optional native progress indicators.
 ## Configuration and storage
 
 Always pass `--config`; there is no automatic configuration discovery. The example's
-`../db/gateway-agently.sqlite` resolves relative to the copied YAML, placing data in
-`~/.agently-slack-gateway/db/`. The SQLite path does not expand `~` or environment
+`../db/gateway.sqlite` resolves relative to the copied YAML, placing data in
+`~/.slack-ai-gateway/db/`. The SQLite path does not expand `~` or environment
 variables. Use absolute locations for local secret resources.
 These directories are a recommended layout, not a dependency on Agently's own storage.
 
@@ -114,7 +114,7 @@ For MySQL, replace the example's entire `storage` section with:
 ```yaml
 storage:
   driver: mysql
-  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true'
+  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true'
   secret:
     URL: file:///absolute/path/mysql.json
     Key: blowfish://default
@@ -167,7 +167,7 @@ Ordinary tests need no credentials or live services:
 go test ./...
 go test -race ./...
 go vet ./...
-AGENTLY_SLACK_LIVE=0 AGENTLY_LIVE=0 go test -tags 'slack_live agently_live' ./internal/integration ./internal/agently
+SLACK_AI_GATEWAY_LIVE=0 AGENTLY_LIVE=0 go test -tags 'slack_live agently_live' ./internal/integration ./internal/agently
 ```
 
 For an explicitly enabled Slack-only test, use the [integration test instructions](internal/integration/README.md).

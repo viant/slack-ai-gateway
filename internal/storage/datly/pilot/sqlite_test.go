@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	read "github.com/viant/agently-slack-gateway/internal/datly/read"
-	write "github.com/viant/agently-slack-gateway/internal/datly/write"
-	"github.com/viant/agently-slack-gateway/migrations"
 	"github.com/viant/datly/bootstrap/connector"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 	"github.com/viant/datly/standalone"
 	"github.com/viant/datly/standalone/config"
+	read "github.com/viant/slack-ai-gateway/internal/datly/read"
+	write "github.com/viant/slack-ai-gateway/internal/datly/write"
+	"github.com/viant/slack-ai-gateway/migrations"
 	_ "github.com/viant/sqlx/metadata/product/sqlite"
 	_ "modernc.org/sqlite"
 )
@@ -48,8 +48,8 @@ func TestNativeSQLiteGraphPilot(t *testing.T) {
 			BaseDir: t.TempDir(), Connector: "slack",
 			Connectors: []connector.Config{{Name: "slack", Driver: "sqlite", DSN: dsn, MaxOpenConns: 1, MaxIdleConns: 1}},
 			GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{
-				"github.com/viant/agently-slack-gateway/internal/datly/...",
-				"github.com/viant/agently-slack-gateway/internal/storage/datly/pilot",
+				"github.com/viant/slack-ai-gateway/internal/datly/...",
+				"github.com/viant/slack-ai-gateway/internal/storage/datly/pilot",
 			}},
 		},
 		RequireLinked: true,

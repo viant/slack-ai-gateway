@@ -240,8 +240,8 @@ credentials. `status` still needs exclusive database ownership; stop runtime fir
 For offline configuration validation, without tokens, credentials or a database:
 
 ```sh
-go run ./cmd/agently-slack-gateway validate-config --config examples/gateway.example.yaml
-go run ./cmd/agently-slack-gateway validate-config --config examples/gateway.example.yaml --channel-id C_TEST
+go run ./cmd/slack-ai-gateway validate-config --config examples/gateway.example.yaml
+go run ./cmd/slack-ai-gateway validate-config --config examples/gateway.example.yaml --channel-id C_TEST
 ```
 
 The report shows static routing, policy presence, effective lists/mode and private

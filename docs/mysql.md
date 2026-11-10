@@ -8,7 +8,7 @@ the generated Go and SQL are shared. No separate Datly HTTP service is required.
 Use a dedicated database for one integration and one gateway process. Separate
 integrations can use separate databases on the same MySQL server. Multi-process
 recovery and HA are not supported; stop the runtime before operator commands.
-The local E2E database is named `agently_steward_slack`, while its tables and
+The local E2E database is named `slack_ai_gateway`, while its tables and
 gateway behavior remain independent of the configured Agently agent.
 
 ## Provision a local database
@@ -49,7 +49,7 @@ endly -t=init
 
 This creates the project's own MySQL container and persistent volume, binds
 `127.0.0.1:3309`, and applies `script/mysql/schema_versioned.ddl` to
-`agently_steward_slack`. Its initial business tables are empty. Repeating `init`
+`slack_ai_gateway`. Its initial business tables are empty. Repeating `init`
 preserves data; use the same password when restarting an existing volume.
 The workflow does not reset other MySQL databases or existing Agently test servers.
 See the [fixture instructions](../e2e/mysql/README.md).
@@ -66,7 +66,7 @@ Replace the entire `storage` section in the existing runtime configuration:
 ```yaml
 storage:
   driver: mysql
-  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true'
+  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true'
   secret:
     URL: file:///absolute/path/mysql.json
     Key: blowfish://default
@@ -89,8 +89,8 @@ the deployment, for example by adding `&tls=true` when its certificate is truste
 by the gateway. The configured database must already be provisioned.
 
 ```sh
-go run ./cmd/agently-slack-gateway validate-config --config /absolute/path/gateway.local.yaml
-go run ./cmd/agently-slack-gateway run --config /absolute/path/gateway.local.yaml
+go run ./cmd/slack-ai-gateway validate-config --config /absolute/path/gateway.local.yaml
+go run ./cmd/slack-ai-gateway run --config /absolute/path/gateway.local.yaml
 ```
 
 Validation checks configuration without loading credentials or connecting.
@@ -129,12 +129,12 @@ nor Slack or Agently credentials.
 For generation or validation against the initialized local fixture, use
 `endly -r=transcribe` or `endly -r=validate` from `e2e/datly/`. They load the
 local E2E credentials through Endly and connect to
-`127.0.0.1:3309/agently_steward_slack`. These commands do not start MySQL.
+`127.0.0.1:3309/slack_ai_gateway`. These commands do not start MySQL.
 Their default credential name is `mysql-e2e.json`; use `mysqlCred` to choose
 another file. An explicit `dsn` workflow parameter overrides the discovery
 connection and bypasses the personal credential file, without changing local
 initialization.
 The gateway runtime uses its configured DSN and optional Scy credential resource.
 Ordinary `go test ./...` skips live MySQL tests unless
-`AGENTLY_SLACK_MYSQL_TEST_DSN` is set. Details and test-user requirements are in
+`SLACK_AI_GATEWAY_MYSQL_TEST_DSN` is set. Details and test-user requirements are in
 the [Datly workflow instructions](../e2e/datly/README.md).

@@ -10,10 +10,6 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/viant/agently-slack-gateway/internal/datly/operations/check"
-	"github.com/viant/agently-slack-gateway/internal/datly/operations/notbefore"
-	"github.com/viant/agently-slack-gateway/internal/datly/operations/status"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
 	"github.com/viant/bindly/locator"
 	"github.com/viant/datly/bootstrap/connector"
 	dexec "github.com/viant/datly/exec"
@@ -21,6 +17,10 @@ import (
 	"github.com/viant/datly/spec"
 	"github.com/viant/datly/standalone"
 	"github.com/viant/datly/standalone/config"
+	"github.com/viant/slack-ai-gateway/internal/datly/operations/check"
+	"github.com/viant/slack-ai-gateway/internal/datly/operations/notbefore"
+	"github.com/viant/slack-ai-gateway/internal/datly/operations/status"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 	_ "github.com/viant/sqlx/metadata/product/mysql"
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/state"
@@ -50,7 +50,7 @@ func TestOperationGraphsNative(t *testing.T) {
 		Config: &config.Config{
 			BaseDir: t.TempDir(), Connector: "slack",
 			Connectors:  []connector.Config{{Name: "slack", Driver: "mysql", DSN: dsn}},
-			GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{"github.com/viant/agently-slack-gateway/internal/datly/operations/..."}},
+			GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{"github.com/viant/slack-ai-gateway/internal/datly/operations/..."}},
 		}, Holders: []any{&status.ReaderComponent{}, &check.ReaderComponent{}, &notbefore.ReaderComponent{}},
 	})
 	if err != nil {

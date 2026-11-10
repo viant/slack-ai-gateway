@@ -9,25 +9,25 @@ import (
 	"sync"
 	"time"
 
-	br "github.com/viant/agently-slack-gateway/internal/datly/bindings/read"
-	bw "github.com/viant/agently-slack-gateway/internal/datly/bindings/write"
-	dr "github.com/viant/agently-slack-gateway/internal/datly/deliveries/read"
-	dw "github.com/viant/agently-slack-gateway/internal/datly/deliveries/write"
-	opc "github.com/viant/agently-slack-gateway/internal/datly/operations/check"
-	opn "github.com/viant/agently-slack-gateway/internal/datly/operations/notbefore"
-	ops "github.com/viant/agently-slack-gateway/internal/datly/operations/status"
-	jr "github.com/viant/agently-slack-gateway/internal/datly/read"
-	sr "github.com/viant/agently-slack-gateway/internal/datly/sessions/read"
-	sw "github.com/viant/agently-slack-gateway/internal/datly/sessions/write"
-	jw "github.com/viant/agently-slack-gateway/internal/datly/write"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	"github.com/viant/agently-slack-gateway/internal/storage"
-	"github.com/viant/agently-slack-gateway/internal/storage/datly/workflow"
 	"github.com/viant/datly/bootstrap/connector"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 	"github.com/viant/datly/standalone"
 	"github.com/viant/datly/standalone/config"
+	br "github.com/viant/slack-ai-gateway/internal/datly/bindings/read"
+	bw "github.com/viant/slack-ai-gateway/internal/datly/bindings/write"
+	dr "github.com/viant/slack-ai-gateway/internal/datly/deliveries/read"
+	dw "github.com/viant/slack-ai-gateway/internal/datly/deliveries/write"
+	opc "github.com/viant/slack-ai-gateway/internal/datly/operations/check"
+	opn "github.com/viant/slack-ai-gateway/internal/datly/operations/notbefore"
+	ops "github.com/viant/slack-ai-gateway/internal/datly/operations/status"
+	jr "github.com/viant/slack-ai-gateway/internal/datly/read"
+	sr "github.com/viant/slack-ai-gateway/internal/datly/sessions/read"
+	sw "github.com/viant/slack-ai-gateway/internal/datly/sessions/write"
+	jw "github.com/viant/slack-ai-gateway/internal/datly/write"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
+	"github.com/viant/slack-ai-gateway/internal/storage/datly/workflow"
 	"github.com/viant/sqlx/io/errx"
 	_ "github.com/viant/sqlx/metadata/product/mysql"
 	_ "github.com/viant/sqlx/metadata/product/sqlite"
@@ -46,8 +46,8 @@ func Open(ctx context.Context, connection connector.Config) (*Store, error) {
 	server, err := standalone.New(ctx, standalone.Options{RequireLinked: true, Holders: []any{&workflow.Component{}, &br.ReaderComponent{}, &bw.WriterComponent{}, &dr.ReaderComponent{}, &dw.WriterComponent{}, &jr.ReaderComponent{}, &jw.WriterComponent{}, &sr.ReaderComponent{}, &sw.WriterComponent{}, &ops.ReaderComponent{}, &opc.ReaderComponent{}, &opn.ReaderComponent{}}, Config: &config.Config{
 		Connector: "slack", Connectors: []connector.Config{connection},
 		GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{
-			"github.com/viant/agently-slack-gateway/internal/datly/...",
-			"github.com/viant/agently-slack-gateway/internal/storage/datly/workflow",
+			"github.com/viant/slack-ai-gateway/internal/datly/...",
+			"github.com/viant/slack-ai-gateway/internal/storage/datly/workflow",
 		}},
 	}})
 	if err != nil {

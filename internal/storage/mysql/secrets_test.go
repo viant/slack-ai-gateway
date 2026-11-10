@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	driver "github.com/go-sql-driver/mysql"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
 	"github.com/viant/scy"
 	"github.com/viant/scy/cred"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 func TestMixedDSNUsesNativeConnectorSecret(t *testing.T) {

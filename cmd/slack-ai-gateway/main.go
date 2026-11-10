@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/viant/agently-slack-gateway/internal/cli"
+	"github.com/viant/slack-ai-gateway/internal/cli"
 )
 
 func main() {

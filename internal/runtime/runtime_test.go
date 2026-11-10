@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	runner "github.com/viant/agently-slack-gateway/internal/runtime"
-	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	runner "github.com/viant/slack-ai-gateway/internal/runtime"
+	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 type logWriterFunc func([]byte) (int, error)

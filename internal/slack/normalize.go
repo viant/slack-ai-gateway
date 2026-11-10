@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 // Keep the wire projection explicit: a missing security field must not silently

@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	jr "github.com/viant/agently-slack-gateway/internal/datly/read"
-	jw "github.com/viant/agently-slack-gateway/internal/datly/write"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
+	jr "github.com/viant/slack-ai-gateway/internal/datly/read"
+	jw "github.com/viant/slack-ai-gateway/internal/datly/write"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 func localBackendFailure(reason string) bool {

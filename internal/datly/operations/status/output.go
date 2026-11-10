@@ -4,5 +4,5 @@ package status
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Snapshot `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/agently-slack-gateway/internal/datly/operations/status.Snapshot" sql:"uri=datly_operations_status_reader:sql/reader.sql" view:"reader,type=Snapshot"`
+	Data []*Snapshot `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/operations/status.Snapshot" sql:"uri=datly_operations_status_reader:sql/reader.sql" view:"reader,type=Snapshot"`
 }

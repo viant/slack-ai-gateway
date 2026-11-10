@@ -6,13 +6,13 @@ import (
 	"reflect"
 	"time"
 
-	identity "github.com/viant/agently-slack-gateway/internal/datly/operations/check"
-	"github.com/viant/agently-slack-gateway/internal/datly/operations/notbefore"
-	snapshot "github.com/viant/agently-slack-gateway/internal/datly/operations/status"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	"github.com/viant/agently-slack-gateway/internal/storage"
 	"github.com/viant/bindly/locator"
 	"github.com/viant/datly/runtime/handler/provider"
+	identity "github.com/viant/slack-ai-gateway/internal/datly/operations/check"
+	"github.com/viant/slack-ai-gateway/internal/datly/operations/notbefore"
+	snapshot "github.com/viant/slack-ai-gateway/internal/datly/operations/status"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/xdatly/handler"
 	"github.com/viant/xdatly/state"
 )

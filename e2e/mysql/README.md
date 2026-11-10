@@ -51,12 +51,12 @@ endly -t=init mysqlCred=mysql-slack-e2e.json
 
 The workflow starts MySQL 8.0 with the project's own container and persistent
 volume, binds `127.0.0.1:3309`, and applies the versioned DDL to
-`agently_steward_slack`. Repeating initialization preserves existing rows.
+`slack_ai_gateway`. Repeating initialization preserves existing rows.
 This explicit workflow does not run during gateway startup. Use one gateway
 process per database. The fixture is intended for local development only.
 
 Configure the gateway with `storage.driver: mysql`, a mixed `storage.dsn`
-targeting `127.0.0.1:3309/agently_steward_slack` and `storage.secret` pointing to a
+targeting `127.0.0.1:3309/slack_ai_gateway` and `storage.secret` pointing to a
 private Scy basic credential resource. See [runtime MySQL setup](../../docs/mysql.md#configure-the-gateway)
 and [secret creation](../../docs/secrets.md). The runtime does not read a DSN
 environment variable or implicitly load Endly's credential file.

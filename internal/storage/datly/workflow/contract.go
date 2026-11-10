@@ -5,8 +5,8 @@ package workflow
 import (
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	"github.com/viant/agently-slack-gateway/internal/storage"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	xdatly "github.com/viant/xdatly"
 )
 

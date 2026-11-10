@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	"github.com/viant/agently-slack-gateway/internal/storage"
-	"github.com/viant/agently-slack-gateway/internal/storage/mysql"
-	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
+	"github.com/viant/slack-ai-gateway/internal/storage/mysql"
+	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 func sharedFixture(t *testing.T, driver string) (storage.Store, *sql.DB) {

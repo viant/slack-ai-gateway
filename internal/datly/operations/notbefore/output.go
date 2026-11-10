@@ -4,5 +4,5 @@ package notbefore
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Cooldown `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/agently-slack-gateway/internal/datly/operations/notbefore.Cooldown" sql:"uri=datly_operations_notbefore_reader:sql/reader.sql" view:"reader,type=Cooldown"`
+	Data []*Cooldown `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/operations/notbefore.Cooldown" sql:"uri=datly_operations_notbefore_reader:sql/reader.sql" view:"reader,type=Cooldown"`
 }

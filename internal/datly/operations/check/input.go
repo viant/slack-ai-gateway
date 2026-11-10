@@ -9,7 +9,7 @@ type Input struct {
 	ChannelID    string    `parameter:"ChannelID,kind=query,in=channelId,dataType=string,required=false"`
 	FixedChannel bool      `parameter:"FixedChannel,kind=query,in=fixedChannel,dataType=bool,required=false"`
 	Principal    string    `parameter:"Principal,kind=query,in=principal,dataType=string,required=false"`
-	CheckSmoke   bool      `parameter:"CheckSmoke,kind=query,in=checkSmoke,dataType=bool,required=false" predicate:"handler,group=1,applyWhenAbsent=true,github.com/viant/agently-slack-gateway/internal/datly/predicate.SmokeConversation"`
+	CheckSmoke   bool      `parameter:"CheckSmoke,kind=query,in=checkSmoke,dataType=bool,required=false" predicate:"handler,group=1,applyWhenAbsent=true,github.com/viant/slack-ai-gateway/internal/datly/predicate.SmokeConversation"`
 	Has          *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
 }
 

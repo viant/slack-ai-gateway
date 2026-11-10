@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	datlystore "github.com/viant/agently-slack-gateway/internal/storage/datly"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
-	"github.com/viant/agently-slack-gateway/migrations"
 	"github.com/viant/datly/bootstrap/connector"
+	datlystore "github.com/viant/slack-ai-gateway/internal/storage/datly"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
+	"github.com/viant/slack-ai-gateway/migrations"
 )
 
 func TestNativeOpenUninitializedSQLite(t *testing.T) {

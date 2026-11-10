@@ -4,15 +4,15 @@ import (
 	"context"
 	"time"
 
-	br "github.com/viant/agently-slack-gateway/internal/datly/bindings/read"
-	bw "github.com/viant/agently-slack-gateway/internal/datly/bindings/write"
-	dr "github.com/viant/agently-slack-gateway/internal/datly/deliveries/read"
-	dw "github.com/viant/agently-slack-gateway/internal/datly/deliveries/write"
-	jr "github.com/viant/agently-slack-gateway/internal/datly/read"
-	sr "github.com/viant/agently-slack-gateway/internal/datly/sessions/read"
-	sw "github.com/viant/agently-slack-gateway/internal/datly/sessions/write"
-	jw "github.com/viant/agently-slack-gateway/internal/datly/write"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
+	br "github.com/viant/slack-ai-gateway/internal/datly/bindings/read"
+	bw "github.com/viant/slack-ai-gateway/internal/datly/bindings/write"
+	dr "github.com/viant/slack-ai-gateway/internal/datly/deliveries/read"
+	dw "github.com/viant/slack-ai-gateway/internal/datly/deliveries/write"
+	jr "github.com/viant/slack-ai-gateway/internal/datly/read"
+	sr "github.com/viant/slack-ai-gateway/internal/datly/sessions/read"
+	sw "github.com/viant/slack-ai-gateway/internal/datly/sessions/write"
+	jw "github.com/viant/slack-ai-gateway/internal/datly/write"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 // Recover is invoked once before workers/intake start, with exclusive database

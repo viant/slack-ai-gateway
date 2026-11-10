@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	datlystore "github.com/viant/agently-slack-gateway/internal/storage/datly"
 	"github.com/viant/datly/bootstrap/connector"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	datlystore "github.com/viant/slack-ai-gateway/internal/storage/datly"
 	_ "modernc.org/sqlite"
 )
 

@@ -1,10 +1,10 @@
--- MySQL 8.0.16+ schema for agently-slack-gateway.
+-- MySQL 8.0.16+ schema for slack-ai-gateway.
 -- Explicit provisioning only: the gateway never applies this file on startup.
 -- Reapplying an installed version preserves business data. No SQLite history is imported.
 -- Binary NO PAD collation preserves case and trailing spaces in external identifiers.
-CREATE DATABASE IF NOT EXISTS `agently_steward_slack`
+CREATE DATABASE IF NOT EXISTS `slack_ai_gateway`
     CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin;
-USE `agently_steward_slack`;
+USE `slack_ai_gateway`;
 
 DELIMITER $$
 CREATE TABLE IF NOT EXISTS schema_version (

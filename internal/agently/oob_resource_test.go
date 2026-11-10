@@ -12,10 +12,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/viant/agently-slack-gateway/internal/storetest"
 	"github.com/viant/scy"
 	"github.com/viant/scy/cred"
 	"github.com/viant/scy/kms"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 func TestOOBResourceRejectsUnsupportedSourcesAndRedactsFailures(t *testing.T) {

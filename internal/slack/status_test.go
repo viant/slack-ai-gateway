@@ -11,7 +11,7 @@ import (
 	"time"
 
 	sdk "github.com/slack-go/slack"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 func TestStatusUpdateHTTPContractAndClassification(t *testing.T) {

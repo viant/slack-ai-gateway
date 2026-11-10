@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
+	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
 )
 
 func main() {

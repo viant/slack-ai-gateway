@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
 	"github.com/viant/scy"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 func testManager(t *testing.T, f *loginFixture, unavailable func(context.Context, gateway.BackendState) error) *Manager {

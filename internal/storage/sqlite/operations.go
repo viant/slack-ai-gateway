@@ -1,6 +1,6 @@
 package sqlite
 
-import "github.com/viant/agently-slack-gateway/internal/storage"
+import "github.com/viant/slack-ai-gateway/internal/storage"
 
 // Keep the SQLite package names available to existing callers.
 type Status = storage.Status

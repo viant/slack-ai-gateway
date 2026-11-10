@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/migrations"
+	"github.com/viant/slack-ai-gateway/migrations"
 )
 
 const jobColumns = "id,app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,COALESCE(binding_id,0),access_mode,principal_id,owner_id,request_id,turn_id,state,result_text,reason,query_started_at,poll_attempts,message_surface"

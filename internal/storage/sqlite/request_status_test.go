@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 func claimStatus(t *testing.T, s *Store, now time.Time, kind, phase string) *gateway.RequestStatus {

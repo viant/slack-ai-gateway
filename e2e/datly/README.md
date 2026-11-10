@@ -15,15 +15,18 @@ go version -m "$(command -v datly)"
 ```
 
 The Datly module version (or its `vcs.revision` commit for a local v1 build) must
-match. To build the published revision selected by this project:
+match. From the gateway repository root, build the selected revision using the
+project's module dependencies:
 
 ```sh
-datly_version="$(go list -m -f '{{.Version}}' github.com/viant/datly)"
-go install "github.com/viant/datly/cmd/datly@${datly_version}"
+go build -o bin/datly github.com/viant/datly/cmd/datly
+export PATH="$PWD/bin:$PATH"
 ```
 
-Ensure the resulting binary is the `datly` found on `PATH`. Generation and tests
-use the project's module dependencies; no local absolute `replace` is required.
+Ensure the resulting binary is the `datly` found on `PATH`. The pinned Datly module
+contains a `replace` directive, so `go install ...@version` rejects it. Building
+from this project's module uses its selected dependencies without that directive;
+generation and tests need no local absolute `replace`.
 
 From this directory:
 
@@ -96,7 +99,7 @@ endly -r=validate
 ```
 
 The default connection uses these Endly credentials with
-`127.0.0.1:3309/agently_steward_slack`. Both commands invoke the stock Datly CLI
+`127.0.0.1:3309/slack_ai_gateway`. Both commands invoke the stock Datly CLI
 with `-driver` and `-dsn` directly. They do not create a temporary connector file,
 start Docker or run container cleanup. See the
 [local MySQL instructions](../mysql/README.md) for fixture lifecycle details.
@@ -145,7 +148,7 @@ stage remains a failure even if cleanup also fails. Forced process termination, 
 cannot guarantee cleanup; normal completion and reported workflow errors are
 the supported cleanup paths.
 
-For direct Go tests, `AGENTLY_SLACK_MYSQL_TEST_DSN` is an explicit administrative
+For direct Go tests, `SLACK_AI_GATEWAY_MYSQL_TEST_DSN` is an explicit administrative
 connection to a test MySQL server. Its original database is never changed. Tests
 create and drop only their own randomly named databases, so this user must have
 permission to create databases and stored routines. Without this variable, the

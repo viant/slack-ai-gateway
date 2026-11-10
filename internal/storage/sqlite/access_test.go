@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	"github.com/viant/agently-slack-gateway/internal/storetest"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 func TestDeliveryOriginRejectsForgedDestinationAndInconsistentBinding(t *testing.T) {

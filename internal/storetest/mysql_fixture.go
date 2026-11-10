@@ -19,14 +19,14 @@ import (
 )
 
 // MySQLDSN provisions a fresh, owned database for a storage contract test.
-// AGENTLY_SLACK_MYSQL_TEST_DSN supplies an explicit administrative connection;
+// SLACK_AI_GATEWAY_MYSQL_TEST_DSN supplies an explicit administrative connection;
 // its original database is never altered. The native client owns DELIMITER and
 // stored-routine processing, exactly as in the Endly provisioning workflow.
 func MySQLDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("AGENTLY_SLACK_MYSQL_TEST_DSN")
+	dsn := os.Getenv("SLACK_AI_GATEWAY_MYSQL_TEST_DSN")
 	if dsn == "" {
-		t.Skip("set AGENTLY_SLACK_MYSQL_TEST_DSN for isolated MySQL storage tests")
+		t.Skip("set SLACK_AI_GATEWAY_MYSQL_TEST_DSN for isolated MySQL storage tests")
 	}
 	mysql, err := exec.LookPath("mysql")
 	Must(t, err)
@@ -60,14 +60,14 @@ func MySQLDSN(t *testing.T) string {
 	token := make([]byte, 8)
 	_, err = rand.Read(token)
 	Must(t, err)
-	name := "asgt_" + hex.EncodeToString(token)
+	name := "saigt_" + hex.EncodeToString(token)
 	// CREATE without IF NOT EXISTS proves ownership before registering DROP.
 	Must(t, invoke("CREATE DATABASE `"+name+"` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin;"))
 	t.Cleanup(func() { Must(t, invoke("DROP DATABASE `"+name+"`;")) })
 	_, file, _, _ := runtime.Caller(0)
 	ddl, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../script/mysql/schema_versioned.ddl"))
 	Must(t, err)
-	Must(t, invoke(strings.ReplaceAll(string(ddl), "`agently_steward_slack`", "`"+name+"`")))
+	Must(t, invoke(strings.ReplaceAll(string(ddl), "`slack_ai_gateway`", "`"+name+"`")))
 	cfg.DBName = name
 	cfg.ParseTime = true
 	return cfg.FormatDSN()

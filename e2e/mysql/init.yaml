@@ -12,4 +12,4 @@ pipeline:
     secrets:
       gatewayMySQLCredentials: $mysqlCred
     commands:
-      - env AGENTLY_SLACK_MYSQL_USER='${gatewayMySQLCredentials.username}' AGENTLY_SLACK_MYSQL_PASSWORD='${gatewayMySQLCredentials.password}' bash '${repoPath}/e2e/mysql/init.sh'
+      - env SLACK_AI_GATEWAY_MYSQL_USER='${gatewayMySQLCredentials.username}' SLACK_AI_GATEWAY_MYSQL_PASSWORD='${gatewayMySQLCredentials.password}' bash '${repoPath}/e2e/mysql/init.sh'

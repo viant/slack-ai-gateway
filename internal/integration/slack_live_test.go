@@ -16,22 +16,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/config"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
-	gatewayruntime "github.com/viant/agently-slack-gateway/internal/runtime"
-	slackadapter "github.com/viant/agently-slack-gateway/internal/slack"
-	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
+	"github.com/viant/slack-ai-gateway/internal/config"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	gatewayruntime "github.com/viant/slack-ai-gateway/internal/runtime"
+	slackadapter "github.com/viant/slack-ai-gateway/internal/slack"
+	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
 )
 
 // TestSlackSmoke is intentionally inaccessible from normal tests or the binary.
 // Even with the build tag it cannot contact Slack without an explicit opt-in.
 func TestSlackSmoke(t *testing.T) {
-	if os.Getenv("AGENTLY_SLACK_LIVE") != "1" {
-		t.Skip("set AGENTLY_SLACK_LIVE=1 to explicitly enable real Slack writes")
+	if os.Getenv("SLACK_AI_GATEWAY_LIVE") != "1" {
+		t.Skip("set SLACK_AI_GATEWAY_LIVE=1 to explicitly enable real Slack writes")
 	}
-	path := os.Getenv("AGENTLY_SLACK_CONFIG")
+	path := os.Getenv("SLACK_AI_GATEWAY_CONFIG")
 	if path == "" {
-		t.Fatal("AGENTLY_SLACK_CONFIG is required")
+		t.Fatal("SLACK_AI_GATEWAY_CONFIG is required")
 	}
 	c, err := config.Load(path)
 	if err != nil {
@@ -42,10 +42,10 @@ func TestSlackSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	duration := 10 * time.Minute
-	if value := os.Getenv("AGENTLY_SLACK_TEST_DURATION"); value != "" {
+	if value := os.Getenv("SLACK_AI_GATEWAY_TEST_DURATION"); value != "" {
 		duration, err = time.ParseDuration(value)
 		if err != nil || duration <= 0 || duration > time.Hour {
-			t.Fatal("AGENTLY_SLACK_TEST_DURATION must be a positive duration <=1h")
+			t.Fatal("SLACK_AI_GATEWAY_TEST_DURATION must be a positive duration <=1h")
 		}
 	}
 	tokens, err := c.LoadSlackTokens(context.Background())

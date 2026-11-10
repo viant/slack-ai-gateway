@@ -1,6 +1,6 @@
-#package('github.com/viant/agently-slack-gateway/internal/datly/operations/check')
+#package('github.com/viant/slack-ai-gateway/internal/datly/operations/check')
 
-#import('predicate','github.com/viant/agently-slack-gateway/internal/datly/predicate')
+#import('predicate','github.com/viant/slack-ai-gateway/internal/datly/predicate')
 
 #setting($_ = $connector('slack'))
 #setting($_ = $internal(true))

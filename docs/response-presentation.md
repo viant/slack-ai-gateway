@@ -79,7 +79,7 @@ No credentials or live Slack/Agently instance are needed:
 go test ./...
 go test ./internal/slack -run '^TestResponsePresentationThroughHTTPAndDurableOutbox$' -v
 go test github.com/viant/agently-core/sdk/slack
-go run ./cmd/agently-slack-gateway validate-config --config examples/gateway.example.yaml
+go run ./cmd/slack-ai-gateway validate-config --config examples/gateway.example.yaml
 ```
 
 The integration regression uses local HTTP servers and temporary SQLite. It

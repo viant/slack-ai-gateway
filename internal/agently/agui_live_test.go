@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/agently-slack-gateway/internal/config"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/config"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 )
 
 // TestAGUIBackendLive creates one real backend conversation with two short
@@ -21,9 +21,9 @@ func TestAGUIBackendLive(t *testing.T) {
 	if os.Getenv("AGENTLY_LIVE") != "1" {
 		t.Skip("set AGENTLY_LIVE=1 to enable real Agently conversation creation and execution")
 	}
-	path := os.Getenv("AGENTLY_SLACK_CONFIG")
+	path := os.Getenv("SLACK_AI_GATEWAY_CONFIG")
 	if path == "" {
-		t.Fatal("AGENTLY_SLACK_CONFIG is required")
+		t.Fatal("SLACK_AI_GATEWAY_CONFIG is required")
 	}
 	cfg, err := config.Load(path)
 	if err != nil {

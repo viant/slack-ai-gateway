@@ -4,7 +4,7 @@ package write
 
 // Input is the generated input scaffold for writer.
 type Input struct {
-	Rows                      []*Delivery               `parameter:"Rows,kind=body,in=data,dataType=[]*github.com/viant/agently-slack-gateway/internal/datly/deliveries/write.Delivery" view:"writer,type=Delivery,table=outbox_messages"`
+	Rows                      []*Delivery               `parameter:"Rows,kind=body,in=data,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/deliveries/write.Delivery" view:"writer,type=Delivery,table=outbox_messages"`
 	WriterKeys                []WriterKeysRow           `codec:"structql,'uri=datly_deliveries_write_writer:sql/writer_keys.sql'" parameter:"WriterKeys,kind=param,in=Rows,cardinality=Many"`
 	CurrentWriter             []*CurrentWriterView      `parameter:"CurrentWriter,kind=view,in=CurrentWriter,cardinality=Many" sql:"uri=datly_deliveries_write_writer:sql/current_writer.sql" view:"CurrentWriter,table=outbox_messages"`
 	CurrentResolutions        []*CurrentResolutionsView `parameter:"CurrentResolutions,kind=view,in=CurrentResolutions,cardinality=Many" sql:"uri=datly_deliveries_write_writer:sql/current_resolutions.sql" view:"CurrentResolutions,table=delivery_resolutions"`

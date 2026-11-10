@@ -7,10 +7,10 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/viant/afsc/aws"
-	"github.com/viant/agently-slack-gateway/internal/storage/datly"
 	"github.com/viant/datly/bootstrap/connector"
 	"github.com/viant/scy"
 	_ "github.com/viant/scy/kms/blowfish"
+	"github.com/viant/slack-ai-gateway/internal/storage/datly"
 )
 
 // Store uses the same graphs and operations as the SQLite store.

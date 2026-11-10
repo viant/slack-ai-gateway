@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-container="agently_slack_schema_test_$(openssl rand -hex 6)"
+container="slack_ai_gateway_schema_test_$(openssl rand -hex 6)"
 export MYSQL_ROOT_PASSWORD
 MYSQL_ROOT_PASSWORD=$(openssl rand -hex 24)
 export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
@@ -11,7 +11,7 @@ cleanup() { docker rm --force --volumes "$container" >/dev/null 2>&1 || true; }
 trap cleanup EXIT INT TERM
 
 docker run --detach --rm --name "$container" \
-  --label com.viant.agently-slack-gateway.e2e=schema-test \
+  --label com.viant.slack-ai-gateway.e2e=schema-test \
   --tmpfs /var/lib/mysql:rw --env MYSQL_ROOT_PASSWORD mysql:8.0 >/dev/null
 ready=false
 for ((attempt=1; attempt<=90; attempt++)); do
@@ -31,7 +31,7 @@ load_schema() {
 sql() {
   docker exec --env MYSQL_PWD "$container" \
     mysql --host=127.0.0.1 --protocol=tcp --user=root --default-character-set=utf8mb4 \
-    --batch --skip-column-names agently_steward_slack --execute="$1"
+    --batch --skip-column-names slack_ai_gateway --execute="$1"
 }
 reject() {
   if sql "$1" >/dev/null 2>&1; then

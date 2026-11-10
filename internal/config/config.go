@@ -14,9 +14,9 @@ import (
 
 	_ "github.com/viant/afsc/aws"
 	slackpresentation "github.com/viant/agently-core/sdk/slack"
-	"github.com/viant/agently-slack-gateway/internal/gateway"
 	"github.com/viant/scy"
 	_ "github.com/viant/scy/kms/blowfish"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
 	"gopkg.in/yaml.v3"
 )
 

@@ -24,8 +24,8 @@ Copy one fixture outside the repository, choosing a separate directory for each
 independent test installation:
 
 ```sh
-install -d -m 700 "$HOME/.agently-slack-gateway/smoke-channels"
-cp -n internal/integration/testdata/channels.yaml "$HOME/.agently-slack-gateway/smoke-channels/gateway.local.yaml"
+install -d -m 700 "$HOME/.slack-ai-gateway/smoke-channels"
+cp -n internal/integration/testdata/channels.yaml "$HOME/.slack-ai-gateway/smoke-channels/gateway.local.yaml"
 ```
 
 For DM, copy `direct-messages.yaml` instead, to a separate directory. Edit Slack
@@ -38,18 +38,18 @@ The test loads these resources only after explicit live-test opt-in.
 Validate the Slack-only configuration offline and initialize its database:
 
 ```sh
-AGENTLY_SLACK_CONFIG="$HOME/.agently-slack-gateway/smoke-channels/gateway.local.yaml" \
+SLACK_AI_GATEWAY_CONFIG="$HOME/.slack-ai-gateway/smoke-channels/gateway.local.yaml" \
   go test ./internal/integration -run '^TestSmokeConfigOffline$' -count=1 -v
-go run ./cmd/agently-slack-gateway migrate \
-  --config "$HOME/.agently-slack-gateway/smoke-channels/gateway.local.yaml"
+go run ./cmd/slack-ai-gateway migrate \
+  --config "$HOME/.slack-ai-gateway/smoke-channels/gateway.local.yaml"
 ```
 
 Start the explicitly gated test:
 
 ```sh
-AGENTLY_SLACK_LIVE=1 \
-AGENTLY_SLACK_CONFIG="$HOME/.agently-slack-gateway/smoke-channels/gateway.local.yaml" \
-AGENTLY_SLACK_TEST_DURATION=3m \
+SLACK_AI_GATEWAY_LIVE=1 \
+SLACK_AI_GATEWAY_CONFIG="$HOME/.slack-ai-gateway/smoke-channels/gateway.local.yaml" \
+SLACK_AI_GATEWAY_TEST_DURATION=3m \
 go test -tags slack_live ./internal/integration \
   -run '^TestSlackSmoke$' -count=1 -v -timeout 5m
 ```

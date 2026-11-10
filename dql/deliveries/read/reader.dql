@@ -1,4 +1,4 @@
-#package('github.com/viant/agently-slack-gateway/internal/datly/deliveries/read')
+#package('github.com/viant/slack-ai-gateway/internal/datly/deliveries/read')
 
 #setting($_ = $connector('slack'))
 #setting($_ = $internal(true))

@@ -4,5 +4,5 @@ package check
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*IdentityCheck `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/agently-slack-gateway/internal/datly/operations/check.IdentityCheck" sql:"uri=datly_operations_check_reader:sql/reader.sql" view:"reader,type=IdentityCheck"`
+	Data []*IdentityCheck `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/operations/check.IdentityCheck" sql:"uri=datly_operations_check_reader:sql/reader.sql" view:"reader,type=IdentityCheck"`
 }
