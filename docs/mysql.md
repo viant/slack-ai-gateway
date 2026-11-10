@@ -70,8 +70,10 @@ format with either driver; see [operations](operations.md).
 ## Generate and verify Datly graphs
 
 Use the stock Datly v1 CLI matching the Datly revision in `go.mod`. Authoritative
-sources live in `internal/storage/datly/dql`; generated Go and embedded SQL live
-under `internal/storage/datly/graph`. Edit DQL rather than generated files.
+sources live in [`dql/`](../dql/README.md); generated Go and embedded SQL live
+under `internal/datly/`. Edit DQL rather than generated files. Application-owned
+sidecars and shared predicates also live under `internal/datly/`; the storage
+adapter and transactional orchestration stay in `internal/storage/`.
 MySQL remains the reference metadata source for generation. These same components
 run on SQLite without regeneration or a MySQL server.
 

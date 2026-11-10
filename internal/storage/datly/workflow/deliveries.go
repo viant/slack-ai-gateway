@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"time"
 
+	dr "github.com/viant/agently-slack-gateway/internal/datly/deliveries/read"
+	dw "github.com/viant/agently-slack-gateway/internal/datly/deliveries/write"
 	"github.com/viant/agently-slack-gateway/internal/gateway"
-	dr "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/deliveries/read"
-	dw "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/deliveries/write"
 )
 
 var slackTimestamp = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)

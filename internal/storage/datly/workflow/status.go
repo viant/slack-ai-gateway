@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	graphread "github.com/viant/agently-slack-gateway/internal/datly/read"
+	graphwrite "github.com/viant/agently-slack-gateway/internal/datly/write"
 	"github.com/viant/agently-slack-gateway/internal/gateway"
-	graphread "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/read"
-	graphwrite "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/write"
 )
 
 // The projection preserves the SQLite backend's interpretation of persisted

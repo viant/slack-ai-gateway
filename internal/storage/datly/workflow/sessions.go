@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	sessionsread "github.com/viant/agently-slack-gateway/internal/datly/sessions/read"
+	sessionswrite "github.com/viant/agently-slack-gateway/internal/datly/sessions/write"
 	"github.com/viant/agently-slack-gateway/internal/gateway"
-	sessionsread "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/sessions/read"
-	sessionswrite "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/sessions/write"
 )
 
 func sessionKeyInput(key gateway.ThreadKey) *sessionsread.Input {

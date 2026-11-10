@@ -163,7 +163,7 @@ pipeline:
     commands:
       - cd '$projectRoot'
       - . '${fixtureDirectory}/test.env'
-      - go test -count=1 ./internal/storage/...
+      - go test -count=1 ./internal/storage/... ./internal/datly/...
 
   defer:
     action: run

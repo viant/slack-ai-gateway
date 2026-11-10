@@ -1,0 +1,21 @@
+#package('github.com/viant/agently-slack-gateway/internal/datly/deliveries/read')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/deliveries','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $ID<int64>(query/ID).Optional())
+#define($_ = $Mode<string>(query/mode).Optional().Value('key'))
+#define($_ = $Now<int64>(query/now).Optional())
+#define($_ = $Data<[]*Delivery>(output/view))
+
+SELECT deliveries.*, job.*, binding.*, resolutions.*,
+ type(deliveries,'Delivery'), type(job,'Job'), type(binding,'Binding'), type(resolutions,'Resolution'),
+ row_lock(deliveries,'outbox_messages m','m.id'), set_limit(deliveries,0), set_limit(resolutions,0)
+FROM (${embed:sql/deliveries.sql}) deliveries
+LEFT JOIN inbox_jobs job ON job.id=deliveries.job_id AND 1=1
+LEFT JOIN conversation_bindings binding ON binding.id=job.binding_id AND 1=1
+LEFT JOIN delivery_resolutions resolutions ON resolutions.delivery_id=deliveries.id

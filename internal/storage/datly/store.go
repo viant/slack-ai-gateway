@@ -9,19 +9,19 @@ import (
 	"sync"
 	"time"
 
+	br "github.com/viant/agently-slack-gateway/internal/datly/bindings/read"
+	bw "github.com/viant/agently-slack-gateway/internal/datly/bindings/write"
+	dr "github.com/viant/agently-slack-gateway/internal/datly/deliveries/read"
+	dw "github.com/viant/agently-slack-gateway/internal/datly/deliveries/write"
+	opc "github.com/viant/agently-slack-gateway/internal/datly/operations/check"
+	opn "github.com/viant/agently-slack-gateway/internal/datly/operations/notbefore"
+	ops "github.com/viant/agently-slack-gateway/internal/datly/operations/status"
+	jr "github.com/viant/agently-slack-gateway/internal/datly/read"
+	sr "github.com/viant/agently-slack-gateway/internal/datly/sessions/read"
+	sw "github.com/viant/agently-slack-gateway/internal/datly/sessions/write"
+	jw "github.com/viant/agently-slack-gateway/internal/datly/write"
 	"github.com/viant/agently-slack-gateway/internal/gateway"
 	"github.com/viant/agently-slack-gateway/internal/storage"
-	br "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/bindings/read"
-	bw "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/bindings/write"
-	dr "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/deliveries/read"
-	dw "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/deliveries/write"
-	opc "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/operations/check"
-	opn "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/operations/notbefore"
-	ops "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/operations/status"
-	jr "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/read"
-	sr "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/sessions/read"
-	sw "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/sessions/write"
-	jw "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/write"
 	"github.com/viant/agently-slack-gateway/internal/storage/datly/workflow"
 	"github.com/viant/datly/bootstrap/connector"
 	dexec "github.com/viant/datly/exec"
@@ -45,7 +45,10 @@ var _ storage.Store = (*Store)(nil)
 func Open(ctx context.Context, connection connector.Config) (*Store, error) {
 	server, err := standalone.New(ctx, standalone.Options{RequireLinked: true, Holders: []any{&workflow.Component{}, &br.ReaderComponent{}, &bw.WriterComponent{}, &dr.ReaderComponent{}, &dw.WriterComponent{}, &jr.ReaderComponent{}, &jw.WriterComponent{}, &sr.ReaderComponent{}, &sw.WriterComponent{}, &ops.ReaderComponent{}, &opc.ReaderComponent{}, &opn.ReaderComponent{}}, Config: &config.Config{
 		Connector: "slack", Connectors: []connector.Config{connection},
-		GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{"github.com/viant/agently-slack-gateway/internal/storage/datly/..."}},
+		GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{
+			"github.com/viant/agently-slack-gateway/internal/datly/...",
+			"github.com/viant/agently-slack-gateway/internal/storage/datly/workflow",
+		}},
 	}})
 	if err != nil {
 		return nil, fmt.Errorf("cannot open gateway storage")

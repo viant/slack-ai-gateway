@@ -1,0 +1,36 @@
+#package('github.com/viant/agently-slack-gateway/internal/datly/operations/status')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/operations/status','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $Limit<int>(query/jobs_limit).Optional().QuerySelector('jobs').Value(100))
+#define($_ = $Limit<int>(query/bindings_limit).Optional().QuerySelector('bindings').Value(100))
+#define($_ = $Limit<int>(query/deliveries_limit).Optional().QuerySelector('deliveries').Value(100))
+#define($_ = $Limit<int>(query/statuses_limit).Optional().QuerySelector('statuses').Value(100))
+#define($_ = $Limit<int>(query/sessions_limit).Optional().QuerySelector('sessions').Value(100))
+#define($_ = $Data<[]*Snapshot>(output/view))
+
+SELECT snapshot.*, jobs.*, bindings.*, deliveries.*, statuses.*, sessions.*, counts.*,
+       type(snapshot,'Snapshot'),
+       type(jobs,'Job'), set_limit(jobs,1000),
+       type(bindings,'Binding'), set_limit(bindings,1000),
+       type(deliveries,'Delivery'), set_limit(deliveries,1000),
+       type(statuses,'RequestStatus'), set_limit(statuses,1000),
+       type(sessions,'AgentSession'), set_limit(sessions,1000),
+       type(counts,'StateCount'), set_limit(counts,1000),
+       CAST(jobs.binding_id AS int),
+       CAST(bindings.conversation_id AS string),
+       CAST(counts.snapshot_id AS int),
+       CAST(counts.table_name AS string),
+       CAST(counts.row_count AS int)
+FROM (SELECT 1 AS snapshot_id) snapshot
+LEFT JOIN (${embed:sql/jobs.sql}) jobs ON jobs.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/bindings.sql}) bindings ON bindings.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/deliveries.sql}) deliveries ON deliveries.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/statuses.sql}) statuses ON statuses.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/sessions.sql}) sessions ON sessions.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/counts.sql}) counts ON counts.snapshot_id=snapshot.snapshot_id

@@ -1,7 +1,8 @@
 # Datly storage verification
 
 These workflows use the stock Datly v1 CLI and the typed Go components generated
-from `internal/storage/datly/dql`. SQLite and MySQL use the same generated Go,
+from the root [`dql/`](../../dql/README.md) tree into `internal/datly/`.
+SQLite and MySQL use the same generated Go,
 embedded SQL and storage workflow. Use the generator version matching the Datly
 revision in `go.mod`. Go, Datly, Endly and the native MySQL client must
 be on `PATH`; the full workflow also requires Docker.
@@ -45,6 +46,14 @@ preparation and validation, and Go tests. Transcription
 lists each component and its operation directly in YAML; when adding a DQL
 component, add its native `datly transcribe` command to `transcribe.yaml`.
 The workflow does not parse DQL or select operations itself.
+
+The DQL package passed to `datly transcribe` selects the source, while its
+`#package` declaration selects the generated Go destination. Source SQL remains
+beside its DQL contract; generated SQL resources are embedded with their Go
+components. Keep handwritten component dependencies and hooks in separate
+sidecar files. Shared predicates live in `internal/datly/predicate`; the storage
+adapter, transactional workflow and native pilot tests stay in
+`internal/storage/datly`. Generation and validation commands below are unchanged.
 
 To regenerate or validate against an explicitly provisioned discovery database,
 set `AGENTLY_SLACK_MYSQL_DSN` in the environment, then run:

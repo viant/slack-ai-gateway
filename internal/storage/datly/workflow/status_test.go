@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	jr "github.com/viant/agently-slack-gateway/internal/datly/read"
+	sr "github.com/viant/agently-slack-gateway/internal/datly/sessions/read"
+	sw "github.com/viant/agently-slack-gateway/internal/datly/sessions/write"
+	jw "github.com/viant/agently-slack-gateway/internal/datly/write"
 	"github.com/viant/agently-slack-gateway/internal/gateway"
-	jr "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/read"
-	sr "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/sessions/read"
-	sw "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/sessions/write"
-	jw "github.com/viant/agently-slack-gateway/internal/storage/datly/graph/write"
 	"github.com/viant/xdatly/handler"
 )
 

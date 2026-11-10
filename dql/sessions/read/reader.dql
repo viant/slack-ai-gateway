@@ -1,0 +1,22 @@
+#package('github.com/viant/agently-slack-gateway/internal/datly/sessions/read')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/sessions','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $WorkspaceID<string>(query/WorkspaceID).Optional())
+#define($_ = $ChannelID<string>(query/ChannelID).Optional())
+#define($_ = $RootThreadTS<string>(query/RootThreadTS).Optional())
+#define($_ = $Mode<string>(query/mode).Optional().Value('key'))
+#define($_ = $Data<[]*Publication>(output/view))
+
+SELECT sessions.*, jobs.*, type(sessions,'Publication'),type(jobs,'SessionJob'), row_lock(sessions,'agent_session_publications a','a.workspace_id'),
+       CAST(jobs.mode AS string), CAST(jobs.observed_state AS string),
+       CAST(jobs.binding_state AS string),
+       CAST(jobs.pending AS *int), CAST(jobs.bad AS *int),
+       set_limit(sessions,0), set_limit(jobs,0)
+FROM (${embed:sql/sessions.sql}) sessions
+LEFT JOIN (${embed:sql/jobs.sql}) jobs ON jobs.workspace_id=sessions.workspace_id AND jobs.channel_id=sessions.channel_id AND jobs.root_thread_ts=sessions.root_thread_ts

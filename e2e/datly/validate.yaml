@@ -48,7 +48,7 @@ pipeline:
     checkError: true
     commands:
       - cd '$projectRoot'
-      - datly validate -dir . -schema -connector slack -schema-connectors '$connectorFile' -format json github.com/viant/agently-slack-gateway/internal/storage/datly/dql/...
+      - datly validate -dir . -schema -connector slack -schema-connectors '$connectorFile' -format json github.com/viant/agently-slack-gateway/dql/...
 
   defer:
     when: $prepareConnection

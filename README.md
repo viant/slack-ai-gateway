@@ -165,10 +165,19 @@ components once, validates them against MySQL and SQLite, and runs both storage
 suites. Ordinary SQLite use requires neither the Datly CLI nor Docker.
 See the [Datly workflow](e2e/datly/README.md).
 
+Authoritative Datly contracts and their SQL assets live in [`dql/`](dql/README.md).
+Transcription generates components and embedded SQL under `internal/datly/`;
+application-owned sidecars and shared predicates remain alongside those
+components. The storage adapter, transactional workflow and database
+initialization stay in `internal/storage/`.
+
 | Directory | Contents |
 | --- | --- |
 | `cmd/` | Executable entry point |
-| `internal/` | Configuration, adapters, gateway workers, shared Datly storage, database initialization and tests |
+| `dql/` | Authoritative Datly contracts and adjacent source SQL assets |
+| `internal/datly/` | Generated components, embedded SQL, authored sidecars and shared predicates |
+| `internal/storage/` | Shared storage adapter and workflow, database initialization and storage tests |
+| `internal/` | Configuration, adapters, gateway workers and remaining tests |
 | `migrations/sqlite/` | Embedded current initial schema; future versioned changes belong here |
 | `script/mysql/` | Explicit versioned MySQL schema |
 | `e2e/` | Local MySQL provisioning and shared Datly generation/verification for both drivers |
