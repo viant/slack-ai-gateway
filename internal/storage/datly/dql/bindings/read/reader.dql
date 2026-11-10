@@ -1,0 +1,22 @@
+#package('github.com/viant/agently-slack-gateway/internal/storage/datly/graph/bindings/read')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/bindings','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $ID<int64>(query/ID).Optional().WithPredicate(0,'equal','b','id'))
+#define($_ = $WorkspaceID<string>(query/WorkspaceID).Optional().WithPredicate(0,'equal','b','workspace_id'))
+#define($_ = $ChannelID<string>(query/ChannelID).Optional().WithPredicate(0,'equal','b','channel_id'))
+#define($_ = $RootThreadTS<string>(query/RootThreadTS).Optional().WithPredicate(0,'equal','b','root_thread_ts'))
+#define($_ = $State<string>(query/State).Optional().WithPredicate(0,'equal','b','state'))
+#define($_ = $Data<[]*Binding>(output/view))
+
+SELECT bindings.*, type(bindings,'Binding'), row_lock(bindings,'conversation_bindings b','b.id')
+FROM (
+ SELECT b.* FROM conversation_bindings b
+ WHERE ($ID != 0 OR $WorkspaceID != '' OR $State != '')
+ ${predicate.Builder().CombineAnd($predicate.FilterGroup(0,"AND")).Build("AND")}
+) bindings

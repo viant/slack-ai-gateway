@@ -266,13 +266,17 @@ func TestStatusClockLongWaitDoesNotInventBackendProgress(t *testing.T) {
 	sender := &statusSlack{}
 	w := &gateway.StatusWorker{Store: s, Sender: sender, Policy: policy(), RefreshInterval: 5 * time.Minute, Now: func() time.Time { return now }}
 	statusStep(t, w, "urgent", true)
+	// Anchor the fake clock to durable request time, independently of how long
+	// the selected storage implementation takes to enqueue and load the graph.
+	now = sender.calls[0].Status.CreatedAt
 	work(t, gateway.Worker{Store: s, Policy: policy(), Clients: &fakeAgently{state: "running"}, AgentID: "steward"})
+	storetest.Must(t, s.RecordObservation(context.Background(), sender.calls[0].Status.JobID, "running", now))
 	statusStep(t, w, "urgent", true)
 	now = now.Add(61 * time.Second)
 	statusStep(t, w, "urgent", true)
 	last := sender.calls[len(sender.calls)-1]
 	if last.Status.Phase != "checking" || !strings.Contains(last.Text, "Last confirmed state: running at") || !strings.Contains(last.Text, "Elapsed: 1m1s") {
-		t.Fatal("stale observation presented as current progress")
+		t.Fatalf("stale observation presented as current progress: status=%+v text=%q", last.Status, last.Text)
 	}
 }
 

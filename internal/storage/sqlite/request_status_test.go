@@ -60,17 +60,17 @@ func TestStatusIntentionAtomicDeduplicatedAndConstrained(t *testing.T) {
 	s := fixture(t).Store.(*Store)
 	ctx := context.Background()
 	m := storetest.Message("event", "root", "alice")
-	_, err := s.db.Exec(`CREATE TRIGGER fail_status BEFORE INSERT ON request_status BEGIN SELECT RAISE(ABORT,'test failure'); END`)
+	_, err := fixtureDB(t, s).Exec(`CREATE TRIGGER fail_status BEFORE INSERT ON request_status BEGIN SELECT RAISE(ABORT,'test failure'); END`)
 	storetest.Must(t, err)
 	if _, err := s.Enqueue(ctx, m); err == nil {
 		t.Fatal("ignored status persistence failure")
 	}
 	var n int
-	storetest.Must(t, s.db.QueryRow("SELECT COUNT(*) FROM inbox_jobs").Scan(&n))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM inbox_jobs").Scan(&n))
 	if n != 0 {
 		t.Fatal("partially committed intake")
 	}
-	_, err = s.db.Exec("DROP TRIGGER fail_status")
+	_, err = fixtureDB(t, s).Exec("DROP TRIGGER fail_status")
 	storetest.Must(t, err)
 	for i := 0; i < 2; i++ {
 		inserted, err := s.Enqueue(ctx, m)
@@ -79,14 +79,14 @@ func TestStatusIntentionAtomicDeduplicatedAndConstrained(t *testing.T) {
 			t.Fatal("incorrect dedup")
 		}
 	}
-	storetest.Must(t, s.db.QueryRow("SELECT COUNT(*) FROM request_status").Scan(&n))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM request_status").Scan(&n))
 	if n != 1 {
 		t.Fatal("duplicated status")
 	}
-	if _, err = s.db.Exec("INSERT INTO request_status(job_id,updated_at) VALUES(999,0)"); err == nil {
+	if _, err = fixtureDB(t, s).Exec("INSERT INTO request_status(job_id,updated_at) VALUES(999,0)"); err == nil {
 		t.Fatal("missing FK")
 	}
-	if _, err = s.db.Exec("INSERT INTO request_status(job_id,updated_at) SELECT job_id,0 FROM request_status"); err == nil {
+	if _, err = fixtureDB(t, s).Exec("INSERT INTO request_status(job_id,updated_at) SELECT job_id,0 FROM request_status"); err == nil {
 		t.Fatal("missing unique job")
 	}
 }
@@ -271,7 +271,7 @@ func TestStatusRateLimitGatesFinalRepliesAndSurvivesRestart(t *testing.T) {
 	}
 	claimStatus(t, s, now, "urgent", "")
 	// The converse: a final POST's Retry-After gates status writes too.
-	_, err = s.db.Exec("UPDATE request_status SET rate_limited_until=0,next_attempt_at=0")
+	_, err = fixtureDB(t, s).Exec("UPDATE request_status SET rate_limited_until=0,next_attempt_at=0")
 	storetest.Must(t, err)
 	d, err := s.ClaimDelivery(ctx)
 	storetest.Must(t, err)
@@ -285,13 +285,13 @@ func TestRecoveryDoesNotCreateMissingStatusPublications(t *testing.T) {
 	ctx := context.Background()
 	s := fixture(t).Store.(*Store)
 	for _, state := range []string{"completed", "pending", "needs_review"} {
-		_, err := s.db.Exec(`INSERT INTO inbox_jobs(app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,state,created_at,updated_at) VALUES('A','T','C',?,?, 'alice','1.001','old',0,?,?,1,1)`, state, state, state, state)
+		_, err := fixtureDB(t, s).Exec(`INSERT INTO inbox_jobs(app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,state,created_at,updated_at) VALUES('A','T','C',?,?, 'alice','1.001','old',0,?,?,1,1)`, state, state, state, state)
 		storetest.Must(t, err)
 	}
 	storetest.Must(t, s.Recover(ctx))
 	claimStatus(t, s, time.Now(), "urgent", "")
 	var n int
-	storetest.Must(t, s.db.QueryRow("SELECT COUNT(*) FROM request_status").Scan(&n))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM request_status").Scan(&n))
 	if n != 0 {
 		t.Fatal("recovery invented a status publication")
 	}

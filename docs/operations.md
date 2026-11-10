@@ -7,6 +7,11 @@ MySQL uses an explicitly provisioned versioned DDL; startup performs no DDL or
 schema-version checks. See [MySQL setup](mysql.md).
 See [request status](request-status.md) and [DM setup](direct-messages.md).
 
+SQLite and MySQL use the same Datly storage components and operator behavior.
+Selecting a driver changes the connection and database preparation; the generated
+components do not need to be rebuilt. SQLite retains its file lock and migration
+history, while MySQL retains explicit provisioning and deployment exclusivity.
+
 ## Validate configuration without storage or secrets
 
 ```sh

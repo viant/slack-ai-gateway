@@ -1,0 +1,13 @@
+#package('github.com/viant/agently-slack-gateway/internal/storage/datly/graph/bindings/write')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/bindings','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $Rows<[]*Binding>(body/data))
+#define($_ = $Data<[]*Binding>(output/body))
+
+SELECT bindings.*, type(bindings,'Binding') FROM conversation_bindings bindings

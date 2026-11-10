@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,18 @@ import (
 	"github.com/viant/agently-slack-gateway/internal/gateway"
 	"github.com/viant/agently-slack-gateway/internal/storetest"
 )
+
+// Fixture inspection uses its own test-only connection. Production schema
+// preparation hands its only pool over to Datly before business operations.
+func fixtureDB(t *testing.T, s *Store) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", s.dsn)
+	storetest.Must(t, err)
+	db.SetMaxOpenConns(1)
+	storetest.Must(t, db.PingContext(context.Background()))
+	t.Cleanup(func() { storetest.Must(t, db.Close()) })
+	return db
+}
 
 func fixture(t *testing.T) storetest.Fixture {
 	t.Helper()
@@ -50,11 +63,11 @@ func TestMigrations(t *testing.T) {
 		storetest.Must(t, s.Migrate(ctx))
 		storetest.Must(t, s.CheckSchema(ctx))
 		var n int
-		storetest.Must(t, s.db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&n))
+		storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&n))
 		if n != 1 {
 			t.Fatal("initial schema applied more than once")
 		}
-		storetest.Must(t, s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&n))
+		storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&n))
 		if n != 7 {
 			t.Fatalf("expected 7 tables, got %d", n)
 		}
@@ -72,7 +85,7 @@ func TestMigrations(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := fixture(t).Store.(*Store)
-			_, err := s.db.Exec(tc.sql)
+			_, err := fixtureDB(t, s).Exec(tc.sql)
 			storetest.Must(t, err)
 			if err = s.CheckSchema(ctx); err == nil {
 				t.Fatal("incompatible schema accepted")
@@ -83,7 +96,7 @@ func TestMigrations(t *testing.T) {
 		s, err := Open(ctx, filepath.Join(t.TempDir(), "foreign.sqlite"), true)
 		storetest.Must(t, err)
 		defer s.Close()
-		_, err = s.db.Exec("CREATE TABLE foreign_data(id INTEGER)")
+		_, err = fixtureDB(t, s).Exec("CREATE TABLE foreign_data(id INTEGER)")
 		storetest.Must(t, err)
 		if err = s.Migrate(ctx); err == nil {
 			t.Fatal("foreign database migrated")
@@ -99,19 +112,19 @@ func TestResultAndOutboxRollbackTogether(t *testing.T) {
 	j, err := s.ClaimJob(ctx)
 	storetest.Must(t, err)
 	// Failure on the second INSERT proves both the job update and first part roll back.
-	_, err = s.db.Exec("CREATE TRIGGER reject_part BEFORE INSERT ON outbox_messages WHEN NEW.part=1 BEGIN SELECT RAISE(ABORT,'test failure'); END")
+	_, err = fixtureDB(t, s).Exec("CREATE TRIGGER reject_part BEFORE INSERT ON outbox_messages WHEN NEW.part=1 BEGIN SELECT RAISE(ABORT,'test failure'); END")
 	storetest.Must(t, err)
 	if err = s.Complete(ctx, j.ID, "", "result", []gateway.ReplyPart{{Text: "one", Format: gateway.ReplyPlain}, {Text: "two", Format: gateway.ReplyPlain}}); err == nil {
 		t.Fatal("expected injected write failure")
 	}
 	var state, result string
 	var n int
-	storetest.Must(t, s.db.QueryRow("SELECT state,result_text FROM inbox_jobs WHERE id=?", j.ID).Scan(&state, &result))
-	storetest.Must(t, s.db.QueryRow("SELECT COUNT(*) FROM outbox_messages").Scan(&n))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT state,result_text FROM inbox_jobs WHERE id=?", j.ID).Scan(&state, &result))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM outbox_messages").Scan(&n))
 	if state != "processing" || result != "" || n != 0 {
 		t.Fatal("partial result/outbox commit")
 	}
-	_, err = s.db.Exec("DROP TRIGGER reject_part")
+	_, err = fixtureDB(t, s).Exec("DROP TRIGGER reject_part")
 	storetest.Must(t, err)
 	storetest.Must(t, s.Complete(ctx, j.ID, "", "result", []gateway.ReplyPart{{Text: "one", Format: gateway.ReplyPlain}, {Text: "two", Format: gateway.ReplyPlain}}))
 }
@@ -124,12 +137,12 @@ func TestReplyFormatsSurviveRestart(t *testing.T) {
 	t.Cleanup(func() { s.Close() })
 	storetest.Must(t, s.Migrate(ctx))
 	// Omitting format must retain the plain-text default.
-	_, err = s.db.ExecContext(ctx, `INSERT INTO inbox_jobs
+	_, err = fixtureDB(t, s).ExecContext(ctx, `INSERT INTO inbox_jobs
 	(app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,state,created_at,updated_at)
 	VALUES('A','T','C','old-thread','old','alice','1','old',0,'old-request','completed',0,0)`)
 	storetest.Must(t, err)
 	oldText := "&lt;literal&gt; **plain** &amp; 🙂"
-	_, err = s.db.ExecContext(ctx, `INSERT INTO outbox_messages(job_id,workspace_id,channel_id,root_thread_ts,part,content,state,created_at,updated_at) VALUES(1,'T','C','old-thread',0,?,'pending',0,0)`, oldText)
+	_, err = fixtureDB(t, s).ExecContext(ctx, `INSERT INTO outbox_messages(job_id,workspace_id,channel_id,root_thread_ts,part,content,state,created_at,updated_at) VALUES(1,'T','C','old-thread',0,?,'pending',0,0)`, oldText)
 	storetest.Must(t, err)
 	storetest.Must(t, s.Close())
 	s, err = Open(ctx, path, false)
@@ -199,14 +212,14 @@ func TestAuditAndConstraints(t *testing.T) {
 	_, err = s.BindJob(ctx, j.ID, gateway.Decision{Mode: "shared_channel", PrincipalID: "shared", OwnerID: "shared"})
 	storetest.Must(t, err)
 	var author, principal, owner string
-	storetest.Must(t, s.db.QueryRow("SELECT author_id,principal_id,owner_id FROM inbox_jobs WHERE id=?", j.ID).Scan(&author, &principal, &owner))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT author_id,principal_id,owner_id FROM inbox_jobs WHERE id=?", j.ID).Scan(&author, &principal, &owner))
 	if author != "alice" || principal != "shared" || owner != "shared" {
 		t.Fatal("audit identity conflated with execution identity")
 	}
-	if _, err = s.db.Exec("UPDATE inbox_jobs SET binding_id=99999 WHERE id=?", j.ID); err == nil {
+	if _, err = fixtureDB(t, s).Exec("UPDATE inbox_jobs SET binding_id=99999 WHERE id=?", j.ID); err == nil {
 		t.Fatal("foreign key not enforced")
 	}
-	if _, err = s.db.Exec("UPDATE inbox_jobs SET state='invalid' WHERE id=?", j.ID); err == nil {
+	if _, err = fixtureDB(t, s).Exec("UPDATE inbox_jobs SET state='invalid' WHERE id=?", j.ID); err == nil {
 		t.Fatal("state constraint not enforced")
 	}
 }

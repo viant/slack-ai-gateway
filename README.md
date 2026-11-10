@@ -11,6 +11,11 @@ answers in the selected presentation mode. Interrupted executions are observed
 without resubmitting prompts; uncertain remote effects require operator review.
 Answer text is not streamed to Slack.
 
+Both database drivers use the same embedded Datly readers, writers and storage
+workflow. The configured driver selects the connection; it does not select a
+separate implementation or require regenerating code. Schema installation and
+SQLite file preparation remain specific to the selected database.
+
 ## Requirements
 
 - Go 1.26 or newer; macOS or Linux for the SQLite lifetime lock.
@@ -155,16 +160,18 @@ Its channel and DM configurations are test fixtures with a fake backend, not
 alternative runtime examples.
 
 Live MySQL storage tests run only when explicitly configured. From `e2e/datly/`,
-`endly -r=run` provisions a disposable MySQL server, regenerates and validates
-Datly components, and runs the MySQL storage suite. See the [Datly workflow](e2e/datly/README.md).
+`endly -r=run` provisions a disposable MySQL server, regenerates the common Datly
+components once, validates them against MySQL and SQLite, and runs both storage
+suites. Ordinary SQLite use requires neither the Datly CLI nor Docker.
+See the [Datly workflow](e2e/datly/README.md).
 
 | Directory | Contents |
 | --- | --- |
 | `cmd/` | Executable entry point |
-| `internal/` | Configuration, adapters, gateway workers, SQLite/MySQL stores and tests |
+| `internal/` | Configuration, adapters, gateway workers, shared Datly storage, database initialization and tests |
 | `migrations/sqlite/` | Embedded current initial schema; future versioned changes belong here |
 | `script/mysql/` | Explicit versioned MySQL schema |
-| `e2e/` | Local MySQL provisioning and Datly generation/verification workflows |
+| `e2e/` | Local MySQL provisioning and shared Datly generation/verification for both drivers |
 | `examples/` | Runtime configuration and Slack app manifest |
 | `docs/` | User, operator and integration references |
 

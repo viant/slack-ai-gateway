@@ -113,7 +113,31 @@ pipeline:
       projectRoot: $projectRoot
       connectorFile: ${fixtureDirectory}/connectors.json
 
-  validate:
+  validateMySQL:
+    action: run
+    request: '@validate.yaml'
+    params:
+      projectRoot: $projectRoot
+      connectorFile: ${fixtureDirectory}/connectors.json
+
+  sqliteSchema:
+    action: exec:run
+    TimeoutMs: 600000
+    checkError: true
+    commands:
+      - cd '$projectRoot'
+      - go run ./e2e/datly/schema '${fixtureDirectory}/schema.sqlite'
+
+  sqliteConnection:
+    action: run
+    request: '@connection.yaml'
+    logging: false
+    params:
+      directory: $fixtureDirectory
+      driver: sqlite3
+      dsn: ${fixtureDirectory}/schema.sqlite
+
+  validateSQLite:
     action: run
     request: '@validate.yaml'
     params:
@@ -139,7 +163,7 @@ pipeline:
     commands:
       - cd '$projectRoot'
       - . '${fixtureDirectory}/test.env'
-      - go test -count=1 ./internal/storage/mysql/...
+      - go test -count=1 ./internal/storage/...
 
   defer:
     action: run

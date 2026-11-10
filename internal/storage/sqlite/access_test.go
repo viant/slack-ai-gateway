@@ -38,7 +38,7 @@ func TestDeliveryOriginRejectsForgedDestinationAndInconsistentBinding(t *testing
 			t.Fatalf("forged origin: %v", err)
 		}
 	}
-	_, err = s.db.Exec("UPDATE conversation_bindings SET owner_id='OTHER' WHERE id=?", b.ID)
+	_, err = fixtureDB(t, s).Exec("UPDATE conversation_bindings SET owner_id='OTHER' WHERE id=?", b.ID)
 	storetest.Must(t, err)
 	if _, err := s.GetDeliveryContext(ctx, *d); !errors.Is(err, gateway.ErrConflict) {
 		t.Fatal("inconsistent binding trusted")

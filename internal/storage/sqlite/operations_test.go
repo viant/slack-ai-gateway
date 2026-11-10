@@ -69,12 +69,12 @@ func TestRunDatabaseIdentityGuard(t *testing.T) {
 func TestUncorrelatedQueryRecoveryDoesNotReplay(t *testing.T) {
 	ctx := context.Background()
 	s := fixture(t).Store.(*Store)
-	_, err := s.db.Exec(`INSERT INTO inbox_jobs(app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,turn_id,state,created_at,updated_at)
+	_, err := fixtureDB(t, s).Exec(`INSERT INTO inbox_jobs(app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,turn_id,state,created_at,updated_at)
 	VALUES('A','T','C','1.001','event','alice','1.001','preserve question',0,'request','request','querying',1,1)`)
 	storetest.Must(t, err)
 	storetest.Must(t, s.Recover(ctx))
 	var text, state string
-	storetest.Must(t, s.db.QueryRow("SELECT query_text,state FROM inbox_jobs").Scan(&text, &state))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT query_text,state FROM inbox_jobs").Scan(&text, &state))
 	if text != "preserve question" || state != "needs_review" {
 		t.Fatal("question lost or uncertain query replayed")
 	}
@@ -116,7 +116,7 @@ func TestStatusExcludesTextAndDoesNotMutate(t *testing.T) {
 		}
 	}
 	var state string
-	storetest.Must(t, s.db.QueryRow("SELECT state FROM outbox_messages WHERE part=0").Scan(&state))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT state FROM outbox_messages WHERE part=0").Scan(&state))
 	if state != "delivery_unknown" {
 		t.Fatal("status mutated state")
 	}
@@ -139,22 +139,22 @@ func TestResolveDeliveryRequiresExplicitDecisionAndAuditsAtomically(t *testing.T
 	if err := s.ResolveDelivery(ctx, id+1, "delivered", "1.002", false); err == nil {
 		t.Fatal("resolved a non-unknown part")
 	}
-	_, err := s.db.Exec("CREATE TRIGGER fail_audit BEFORE INSERT ON delivery_resolutions BEGIN SELECT RAISE(ABORT,'audit failure'); END")
+	_, err := fixtureDB(t, s).Exec("CREATE TRIGGER fail_audit BEFORE INSERT ON delivery_resolutions BEGIN SELECT RAISE(ABORT,'audit failure'); END")
 	storetest.Must(t, err)
 	if err := s.ResolveDelivery(ctx, id, "retry", "", true); err == nil {
 		t.Fatal("audit failure ignored")
 	}
 	var state string
-	storetest.Must(t, s.db.QueryRow("SELECT state FROM outbox_messages WHERE id=?", id).Scan(&state))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT state FROM outbox_messages WHERE id=?", id).Scan(&state))
 	if state != "delivery_unknown" {
 		t.Fatal("partial resolution commit")
 	}
-	_, err = s.db.Exec("DROP TRIGGER fail_audit")
+	_, err = fixtureDB(t, s).Exec("DROP TRIGGER fail_audit")
 	storetest.Must(t, err)
 	storetest.Must(t, s.ResolveDelivery(ctx, id, "delivered", "1.001", false))
 	var action, ts string
 	var risk int
-	storetest.Must(t, s.db.QueryRow("SELECT action,slack_ts,duplicate_risk_accepted FROM delivery_resolutions WHERE delivery_id=?", id).Scan(&action, &ts, &risk))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT action,slack_ts,duplicate_risk_accepted FROM delivery_resolutions WHERE delivery_id=?", id).Scan(&action, &ts, &risk))
 	if action != "delivered" || ts != "1.001" || risk != 0 {
 		t.Fatal("audit incomplete")
 	}

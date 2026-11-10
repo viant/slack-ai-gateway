@@ -2,6 +2,10 @@
 logging: false
 
 init:
+  - name: connectionDriver
+    when: $params.driver
+    value: $params.driver
+    else: mysql
   - name: connectionDSN
     when: $params.dsn
     value: $params.dsn
@@ -17,7 +21,7 @@ pipeline:
     init:
       connectors:
         - name: slack
-          driver: mysql
+          driver: $connectionDriver
           dsn: $connectionDSN
       connectorJSON: $AsJSON('$connectors')
     action: storage:upload

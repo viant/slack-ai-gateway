@@ -8,18 +8,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/viant/agently-slack-gateway/internal/gateway"
+	datlystore "github.com/viant/agently-slack-gateway/internal/storage/datly"
+	"github.com/viant/datly/bootstrap/connector"
 	_ "modernc.org/sqlite"
 )
 
 type Store struct {
-	db                  *sql.DB
-	lock                *os.File
-	created             bool
-	statusMu            sync.Mutex
-	preferMessageStatus bool
+	*datlystore.Store
+	db      *sql.DB // Used only while preparing or checking the SQLite schema.
+	dsn     string
+	lock    *os.File
+	created bool
+	closed  bool
 }
 
 var _ gateway.Store = (*Store)(nil)
@@ -71,19 +73,17 @@ func Open(ctx context.Context, path string, create bool) (*Store, error) {
 	u := &url.URL{Scheme: "file", Path: abs}
 	q := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(ON)", "journal_mode(WAL)"}, "_txlock": {"immediate"}}
 	u.RawQuery = q.Encode()
-	db, err := sql.Open("sqlite", u.String())
-	if err != nil {
+	s := &Store{dsn: u.String(), lock: lock, created: created}
+	if err = s.prepareSchema(ctx); err != nil {
 		return nil, err
 	}
-	// SQLite writes are serialized locally; external API work never holds this
-	// connection, so queries in distinct threads can still execute concurrently.
-	db.SetMaxOpenConns(1)
-	if err = db.PingContext(ctx); err != nil {
-		_ = db.Close()
+	// Linked Datly startup is lazy: it accepts empty and foreign SQLite files
+	// without reading gateway tables. Migration and validation remain explicit.
+	if err = s.startRuntime(ctx); err != nil {
 		return nil, err
 	}
 	failed = false
-	return &Store{db: db, lock: lock, created: created}, nil
+	return s, nil
 }
 
 // Created reports whether this Open call created the database file. It does not
@@ -91,10 +91,78 @@ func Open(ctx context.Context, path string, create bool) (*Store, error) {
 func (s *Store) Created() bool { return s.created }
 
 func (s *Store) Close() error {
-	err := s.db.Close()
+	if s.closed {
+		return os.ErrClosed
+	}
+	s.closed = true
+	err := s.stopRuntime()
+	if s.db != nil {
+		if dbErr := s.db.Close(); err == nil {
+			err = dbErr
+		}
+		s.db = nil
+	}
 	lockErr := s.lock.Close()
 	if err != nil {
 		return err
 	}
 	return lockErr
+}
+
+// Schema operations are offline. The lifetime file lock stays owned while the
+// single database pool passes between schema preparation and the Datly runtime.
+func (s *Store) prepareSchema(ctx context.Context) error {
+	if s.closed {
+		return os.ErrClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.stopRuntime(); err != nil {
+		return err
+	}
+	if s.db != nil {
+		return nil
+	}
+	db, err := sql.Open("sqlite", s.dsn)
+	if err != nil {
+		return err
+	}
+	db.SetMaxOpenConns(1)
+	if err = db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return err
+	}
+	s.db = db
+	return nil
+}
+
+func (s *Store) stopRuntime() error {
+	if s.Store == nil {
+		return nil
+	}
+	err := s.Store.Close()
+	s.Store = nil
+	return err
+}
+
+func (s *Store) startRuntime(ctx context.Context) error {
+	if s.closed {
+		return os.ErrClosed
+	}
+	if s.db != nil {
+		err := s.db.Close()
+		s.db = nil
+		if err != nil {
+			return err
+		}
+	}
+	runtime, err := datlystore.Open(ctx, connector.Config{
+		Name: "slack", Driver: "sqlite", DSN: s.dsn, MaxOpenConns: 1, MaxIdleConns: 1,
+	})
+	if err != nil {
+		return err
+	}
+	s.Store = runtime
+	return nil
 }

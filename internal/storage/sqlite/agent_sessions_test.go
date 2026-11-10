@@ -156,7 +156,7 @@ func TestAgentSessionRecoveryRetryCooldownAndLatestProjection(t *testing.T) {
 	}
 	claimStatus(t, s, now, "urgent", "")
 	// Expire persisted cooldown; retry must project the latest final delivery state.
-	_, err = s.db.Exec("UPDATE agent_session_publications SET rate_limited_until=0,next_attempt_at=0")
+	_, err = fixtureDB(t, s).Exec("UPDATE agent_session_publications SET rate_limited_until=0,next_attempt_at=0")
 	storetest.Must(t, err)
 	deliverNativePart(t, s)
 	a = claimStatus(t, s, now, "urgent", "active")

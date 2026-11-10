@@ -268,7 +268,7 @@ func TestSchemaInitializationPreservesPublicationFacts(t *testing.T) {
 	}
 	now := time.Now()
 	settleStatuses(t, s, now)
-	_, err := s.db.Exec(`UPDATE request_status SET observed_state='running',observed_at=123,observation_uncertain=1,outcome='failed',revision=9,sent_revision=8,attempts=7,next_attempt_at=6,refresh_at=5,rate_limited_until=4,reason='test_retry',updated_at=3`)
+	_, err := fixtureDB(t, s).Exec(`UPDATE request_status SET observed_state='running',observed_at=123,observation_uncertain=1,outcome='failed',revision=9,sent_revision=8,attempts=7,next_attempt_at=6,refresh_at=5,rate_limited_until=4,reason='test_retry',updated_at=3`)
 	storetest.Must(t, err)
 	before, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
@@ -290,7 +290,7 @@ func TestSchemaInitializationPreservesPublicationFacts(t *testing.T) {
 		t.Fatal("allowed-mode constraint missing")
 	}
 	var violations int
-	storetest.Must(t, s.db.QueryRow("SELECT COUNT(*) FROM pragma_foreign_key_check").Scan(&violations))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM pragma_foreign_key_check").Scan(&violations))
 	if violations != 0 {
 		t.Fatal("foreign key violation")
 	}

@@ -13,6 +13,10 @@ import (
 	"github.com/viant/agently-slack-gateway/migrations"
 )
 
+const jobColumns = "id,app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,COALESCE(binding_id,0),access_mode,principal_id,owner_id,request_id,turn_id,state,result_text,reason,query_started_at,poll_attempts,message_surface"
+const bindingColumns = "id,workspace_id,channel_id,root_thread_ts,COALESCE(conversation_id,''),access_mode,principal_id,owner_id,state"
+const deliveryColumns = "id,job_id,workspace_id,channel_id,root_thread_ts,part,content,format,state,slack_ts,attempts"
+
 type migration struct {
 	version       int
 	sql, checksum string
@@ -81,6 +85,9 @@ func applied(ctx context.Context, tx *sql.Tx, available []migration) (int, error
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
+	if err := s.prepareSchema(ctx); err != nil {
+		return err
+	}
 	list, err := migrationList()
 	if err != nil {
 		return err
@@ -109,6 +116,16 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func (s *Store) CheckSchema(ctx context.Context) error {
+	if err := s.prepareSchema(ctx); err != nil {
+		return err
+	}
+	if err := s.checkSchema(ctx); err != nil {
+		return err
+	}
+	return s.startRuntime(ctx)
+}
+
+func (s *Store) checkSchema(ctx context.Context) error {
 	list, err := migrationList()
 	if err != nil {
 		return err

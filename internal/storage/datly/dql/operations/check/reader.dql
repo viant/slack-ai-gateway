@@ -1,0 +1,23 @@
+#package('github.com/viant/agently-slack-gateway/internal/storage/datly/graph/operations/check')
+
+#import('predicate','github.com/viant/agently-slack-gateway/internal/storage/datly/predicate')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/operations/check','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $AppID<string>(query/appId).Optional())
+#define($_ = $WorkspaceID<string>(query/workspaceId).Optional())
+#define($_ = $ChannelID<string>(query/channelId).Optional())
+#define($_ = $FixedChannel<bool>(query/fixedChannel).Optional())
+#define($_ = $Principal<string>(query/principal).Optional())
+#define($_ = $CheckSmoke<bool>(query/checkSmoke).Optional().ApplyWhenAbsentPredicate(1,'handler','predicate.SmokeConversation'))
+#define($_ = $Data<[]*IdentityCheck>(output/view))
+
+SELECT identity_check.*, type(identity_check,'IdentityCheck'),
+       CAST(identity_check.incompatible_jobs AS *int),
+       CAST(identity_check.incompatible_bindings AS *int)
+FROM (${embed:sql/check.sql}) identity_check

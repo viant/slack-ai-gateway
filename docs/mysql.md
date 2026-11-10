@@ -1,8 +1,9 @@
 # MySQL storage
 
-The gateway supports SQLite and MySQL 8.0. MySQL uses embedded Datly object graphs:
-generated readers/writers and a private typed workflow run inside the gateway.
-No separate Datly HTTP service is required.
+The gateway supports SQLite and MySQL 8.0 through the same embedded Datly object
+graphs: generated readers/writers and one private typed storage workflow run
+inside the gateway. The configured driver and DSN select the database connection;
+the generated Go and SQL are shared. No separate Datly HTTP service is required.
 
 Use a dedicated database for one integration and one gateway process. Separate
 integrations can use separate databases on the same MySQL server. Multi-process
@@ -69,8 +70,10 @@ format with either driver; see [operations](operations.md).
 ## Generate and verify Datly graphs
 
 Use the stock Datly v1 CLI matching the Datly revision in `go.mod`. Authoritative
-sources live in `internal/storage/mysql/dql`; generated Go and embedded SQL live
-under `internal/storage/mysql/graph`. Edit DQL rather than generated files.
+sources live in `internal/storage/datly/dql`; generated Go and embedded SQL live
+under `internal/storage/datly/graph`. Edit DQL rather than generated files.
+MySQL remains the reference metadata source for generation. These same components
+run on SQLite without regeneration or a MySQL server.
 
 From `e2e/datly/`:
 
@@ -79,10 +82,11 @@ endly -r=run
 ```
 
 This workflow starts an isolated MySQL container on a random loopback port,
-applies the DDL, transcribes and validates the graphs, and runs MySQL storage
-tests. Each test receives its own database. The disposable container and storage
-are removed afterward. This does not reset the persistent database on port 3309
-and requires no Slack or Agently credentials.
+applies the DDL and transcribes the common graphs once. It validates them against
+both MySQL and a temporary SQLite fixture, then runs the SQLite, MySQL and shared
+Datly storage suites. Each live MySQL test receives its own database. The disposable
+container and storage are removed afterward. This does not reset the persistent
+database on port 3309 and requires no Slack or Agently credentials.
 
 For generation or validation against an explicitly prepared discovery database,
 set `AGENTLY_SLACK_MYSQL_DSN`, then use `endly -r=transcribe` or
