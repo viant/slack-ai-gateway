@@ -68,7 +68,7 @@ correlation facts or already in `needs_review` are not automatically replayed.
 ## Authentication
 
 `run` requires `auth.mode: oob_session`. Login discovers the trusted server's OAuth
-configuration, reads a local Scy-compatible basic credential file, performs OOB
+configuration, loads the configured Scy basic credential resource, performs OOB
 login with PKCE/state, validates the exact callback and creates an Agently BFF
 session. The callback `https://localhost/callback.html` is parsed, never followed;
 there is no browser or local listener. The IdP must support this OOB form flow.
@@ -78,11 +78,14 @@ order `cliScopes`, `webUIScopes`, `mobileUIScopes`, deduplicated in order; an em
 result defaults to `openid`. Discovered scopes replace those in the referenced
 OAuth configuration. This requests scopes, not role assignment or an IdP bypass.
 
-Basic credentials must be in an absolute local file or local `file://` URL,
-optionally followed by a Scy key reference. Remote/inline basic credentials are
-rejected. The binary supports legacy Blowfish references; it does not register
-cloud KMS/storage providers. The backend's OAuth `configURL` is trusted
-configuration and can reference Scy-compatible OAuth configuration formats.
+`agently.auth.secret` supplies a native Scy resource with `URL` and `Key` fields.
+Basic credentials use an absolute local file, a local `file://` URL or an AWS
+Secrets Manager resource. Arbitrary HTTP/inline OOB credential locations are
+rejected. The binary registers the AWS storage provider and Blowfish support;
+examples explicitly select `blowfish://default`. See [secret setup](secrets.md)
+for local creation, production access and rotation. The backend's OAuth
+`configURL` remains trusted discovery configuration and uses its existing
+Scy-compatible OAuth formats; it is not overridden by the gateway YAML.
 
 A private in-memory cookie jar holds the BFF session. The `/me` subject must match
 `principal_id` exactly, with provider `session`. Before create, the session is
@@ -110,8 +113,10 @@ authentication with exponential intervals around 1, 2, 4, 8, 16 and 30 seconds,
 with jitter and any longer `Retry-After` respected. Each attempt is bounded by
 90 seconds. Invalid credentials, identity mismatches and other permanent
 authentication failures enter `blocked`; correct the cause and restart the
-gateway. Invalid local credential references or unreadable credentials fail
-before runtime startup. No account switching or credential hot reload is provided.
+gateway. Invalid credential references or unreadable credentials fail
+before runtime startup. Each new OOB login reads its configured resource again.
+Slack token and MySQL credential rotation require restart; no account switching
+or general configuration hot reload is provided.
 
 Recovery never repeats conversation creation or a chat POST. Unsubmitted questions
 finish locally with a durable Slack notice and never run after recovery. Started

@@ -13,7 +13,11 @@ func loadPolicyYAML(t *testing.T, body string) (Config, error) {
 	if err := os.WriteFile(path, []byte("storage: {driver: sqlite, path: gateway.sqlite}\ntransport: socket\naccess_mode: shared_channel\n"+body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	return Load(path)
+	c, err := Load(path)
+	if err == nil {
+		configureOfflineSecrets(&c)
+	}
+	return c, err
 }
 
 func TestAccessYAMLPresenceAndLegacyCompatibility(t *testing.T) {

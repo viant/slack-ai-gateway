@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/viant/afsc/aws"
 	"github.com/viant/scy"
 	"github.com/viant/scy/auth/authorizer"
 	"github.com/viant/scy/auth/flow"
@@ -23,7 +24,7 @@ import (
 )
 
 type oauthConfigLoader func(context.Context, string) (*oauth2.Config, error)
-type basicSecretLoader func(context.Context, string) (*cred.Basic, error)
+type basicSecretLoader func(context.Context, *scy.Resource) (*cred.Basic, error)
 
 func loadOAuthConfig(ctx context.Context, ref string) (result *oauth2.Config, err error) {
 	// Some legacy cipher implementations panic on malformed ciphertext. Keep
@@ -59,45 +60,68 @@ func loadOAuthConfig(ctx context.Context, ref string) (result *oauth2.Config, er
 	return config.Config, err // caller redacts all library errors
 }
 
-func loadBasicSecret(ctx context.Context, ref string) (result *cred.Basic, err error) {
+func loadBasicSecret(ctx context.Context, configured *scy.Resource) (result *cred.Basic, err error) {
 	defer func() {
 		if recover() != nil {
 			result, err = nil, errors.New("cannot decode OOB credentials")
 		}
 	}()
-	// D1 deliberately accepts a local file only, never inline credentials or an
-	// arbitrary remote destination. The env variable contains a reference.
-	path, key, _ := strings.Cut(ref, "|")
-	u, err := url.Parse(path)
-	if err != nil {
-		return nil, errors.New("invalid local secret reference")
+	if configured == nil {
+		return nil, errors.New("OOB credential resource is required")
 	}
-	local := path
-	if u.Scheme == "file" && u.Host == "" && u.RawQuery == "" && u.Fragment == "" {
-		local = u.Path
-	}
-	if !filepath.IsAbs(local) || (u.Scheme != "" && u.Scheme != "file") || u.Host != "" || u.RawQuery != "" || u.Fragment != "" {
-		return nil, errors.New("OOB credentials require an absolute local file path or file URL")
-	}
-	if key == "" {
-		type plainBasic cred.Basic
-		secret, err := scy.New().Load(ctx, scy.NewResource(reflect.TypeOf(plainBasic{}), local, ""))
-		if err != nil {
-			return nil, err
+	// Keep local references absolute and explicitly permit the native AWS
+	// Secret Manager provider. The same source contract applies to fallbacks.
+	for current := configured; current != nil; current = current.Fallback {
+		u, parseErr := url.Parse(current.URL)
+		if parseErr != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return nil, errors.New("invalid OOB credential resource")
 		}
-		basic := (*cred.Basic)(secret.Target.(*plainBasic))
-		if basic.EncryptedPassword != "" {
-			return nil, errors.New("encrypted OOB credentials require a key reference")
+		switch u.Scheme {
+		case "", "file":
+			local := current.URL
+			if u.Scheme == "file" {
+				local = u.Path
+			}
+			if !filepath.IsAbs(local) || u.Host != "" {
+				return nil, errors.New("OOB credentials require an absolute local file or AWS Secret Manager resource")
+			}
+		case "aws":
+			if u.Host != "secretmanager" {
+				return nil, errors.New("OOB credentials require an absolute local file or AWS Secret Manager resource")
+			}
+		default:
+			return nil, errors.New("OOB credentials require an absolute local file or AWS Secret Manager resource")
 		}
-		return basic, nil
 	}
-	secret, err := scy.New().Load(ctx, scy.NewResource(reflect.TypeOf(cred.Basic{}), local, key))
-	if err != nil {
-		return nil, err
+	resource := *configured
+	type plainBasic cred.Basic
+	if resource.Key == "" {
+		resource.SetTarget(reflect.TypeOf(plainBasic{}))
+	} else {
+		resource.SetTarget(reflect.TypeOf(cred.Basic{}))
 	}
-	basic, ok := secret.Target.(*cred.Basic)
-	if !ok {
-		return nil, errors.New("invalid credential format")
+	secret, loadErr := scy.New().Load(ctx, &resource)
+	if loadErr != nil || secret == nil {
+		return nil, errors.New("cannot load OOB credentials")
+	}
+	// Use the native decoded target: YAML payloads are not JSON, and fallback
+	// resources may use Scy's generic credential target.
+	var basic *cred.Basic
+	switch target := secret.Target.(type) {
+	case *cred.Basic:
+		basic = target
+	case *plainBasic:
+		basic = (*cred.Basic)(target)
+	case *cred.Generic:
+		basic = &target.Basic
+	default:
+		basic = &cred.Basic{}
+		if err := secret.Decode(basic); err != nil {
+			return nil, errors.New("invalid OOB credential format")
+		}
+	}
+	if basic.EncryptedPassword != "" {
+		return nil, errors.New("encrypted OOB credentials require a key reference")
 	}
 	return basic, nil
 }

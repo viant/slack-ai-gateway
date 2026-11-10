@@ -32,13 +32,9 @@ func TestAGUIBackendLive(t *testing.T) {
 	if err = cfg.ValidateAgently(); err != nil {
 		t.Fatal(err)
 	}
-	ref := os.Getenv(cfg.Agently.Auth.SecretsURLEnv)
-	if ref == "" {
-		t.Fatal("configured Agently secret reference environment variable is missing")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	factory, err := LoginOOB(ctx, cfg.Agently.BaseURL, cfg.Agently.PrincipalID, cfg.Agently.AgentID, ref)
+	factory, err := LoginOOB(ctx, cfg.Agently.BaseURL, cfg.Agently.PrincipalID, cfg.Agently.AgentID, cfg.Agently.Auth.Secret)
 	if err != nil {
 		t.Fatal(err)
 	}

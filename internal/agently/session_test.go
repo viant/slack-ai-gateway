@@ -20,6 +20,7 @@ import (
 	"github.com/viant/agently-slack-gateway/internal/gateway"
 	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
 	"github.com/viant/agently-slack-gateway/internal/storetest"
+	"github.com/viant/scy"
 	"github.com/viant/scy/auth/flow"
 	"github.com/viant/scy/cred"
 	"github.com/viant/scy/kms"
@@ -31,7 +32,8 @@ import (
 type loginFixture struct {
 	t                    *testing.T
 	server               *httptest.Server
-	secretRef, configRef string
+	secretRef            *scy.Resource
+	configRef            string
 	mode                 atomic.Value
 	sessionStatus        atomic.Int32
 	mu                   sync.Mutex
@@ -50,7 +52,7 @@ func newLoginFixture(t *testing.T) *loginFixture {
 	}
 	f.mode.Store("")
 	dir := t.TempDir()
-	f.secretRef = filepath.Join(dir, "basic.json")
+	f.secretRef = &scy.Resource{URL: filepath.Join(dir, "basic.json")}
 	f.configRef = filepath.Join(dir, "oauth.json")
 	f.server = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.server.Close)
@@ -58,7 +60,7 @@ func newLoginFixture(t *testing.T) *loginFixture {
 	data, err := json.Marshal(config)
 	storetest.Must(t, err)
 	storetest.Must(t, os.WriteFile(f.configRef, data, 0600))
-	storetest.Must(t, os.WriteFile(f.secretRef, []byte(`{"Username":"agently_scheduler","Password":"secret-marker-password"}`), 0600))
+	storetest.Must(t, os.WriteFile(f.secretRef.URL, []byte(`{"Username":"agently_scheduler","Password":"secret-marker-password"}`), 0600))
 	if _, err := loadOAuthConfig(context.Background(), f.configRef); err != nil {
 		t.Fatalf("synthetic config load: %v", err)
 	}
@@ -484,11 +486,11 @@ func TestEncryptedLocalOOBAndOAuthFiles(t *testing.T) {
 	storetest.Must(t, basic.Cipher(ctx, key))
 	data, err := json.Marshal(basic)
 	storetest.Must(t, err)
-	storetest.Must(t, os.WriteFile(f.secretRef, data, 0600))
+	storetest.Must(t, os.WriteFile(f.secretRef.URL, data, 0600))
 	if _, err := loadBasicSecret(ctx, f.secretRef); err == nil {
 		t.Fatal("encrypted file accepted without key")
 	}
-	f.secretRef += "|" + keyRef
+	f.secretRef.Key = keyRef
 	config, err := loadOAuthConfig(ctx, f.configRef)
 	storetest.Must(t, err)
 	encrypted := cred.Oauth2Config{Config: *config}
@@ -515,8 +517,8 @@ func TestInlineOAuthConfigAndMalformedSecrets(t *testing.T) {
 		t.Fatal("invalid inline config accepted")
 	}
 	// Deliberately too short for the legacy cipher: no panic or secret in errors.
-	storetest.Must(t, os.WriteFile(f.secretRef, []byte(`{"Username":"agently_scheduler","EncryptedPassword":"AA=="}`), 0600))
-	_, err = loadBasicSecret(context.Background(), f.secretRef+"|blowfish://inline/offline-test-key")
+	storetest.Must(t, os.WriteFile(f.secretRef.URL, []byte(`{"Username":"agently_scheduler","EncryptedPassword":"AA=="}`), 0600))
+	_, err = loadBasicSecret(context.Background(), &scy.Resource{URL: f.secretRef.URL, Key: "blowfish://inline/offline-test-key"})
 	if err == nil || strings.Contains(err.Error(), "AA==") {
 		t.Fatal("malformed ciphertext was not safely rejected")
 	}
@@ -571,7 +573,7 @@ func TestOOBTimeoutCancellationAndLocalReference(t *testing.T) {
 		t.Fatal("canceled login accepted")
 	}
 	for _, ref := range []string{"inlined://base64/secret-marker", "https://example.invalid/secret-marker", "relative-secret-marker"} {
-		if _, err := loadBasicSecret(context.Background(), ref); err == nil {
+		if _, err := loadBasicSecret(context.Background(), &scy.Resource{URL: ref}); err == nil {
 			t.Fatal("nonlocal reference accepted")
 		}
 	}

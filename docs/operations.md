@@ -83,8 +83,9 @@ are not silently changed. Never point these commands at Agently's database.
 ## Inspect state
 
 `status` and `resolve-delivery` support both storage drivers and do not contact
-Slack or Agently. Stop the gateway first. For MySQL, supply the DSN environment
-variable referenced by the configuration; these commands never create a schema.
+Slack or Agently. Stop the gateway first. For MySQL, configure `storage.dsn` and
+its optional Scy `storage.secret`; these commands load that storage resource when
+opening the database and never create a schema.
 
 ```sh
 go run ./cmd/agently-slack-gateway status --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml" --limit 100
@@ -185,7 +186,7 @@ unavailable. Existing `needs_review` rows, including older
 
 For `blocked`, check the configured identity, account credentials, IdP and agent
 permissions, correct the cause, then restart. There is no credential hot reload.
-Invalid local secrets, invalid static configuration, unusable storage and Slack
+Invalid configured secrets, invalid static configuration, unusable storage and Slack
 authentication failures retain their startup/stop behavior. `check-agently` is
 a bounded one-shot diagnostic and exits on a failed check; it does not start the
 runtime's recovery loop. It is optional before `run`.

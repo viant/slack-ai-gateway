@@ -12,7 +12,7 @@ import (
 func TestLinkedRuntimeWithoutSourceDirectory(t *testing.T) {
 	dsn := fixtureDSN(t)
 	t.Chdir(t.TempDir())
-	s, err := Open(context.Background(), dsn)
+	s, err := Open(context.Background(), dsn, nil)
 	storetest.Must(t, err)
 	t.Cleanup(func() { storetest.Must(t, s.Close()) })
 	inserted, err := s.Enqueue(context.Background(), storetest.Message("linked", "thread", "alice"))

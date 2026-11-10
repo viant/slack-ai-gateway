@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -23,6 +24,8 @@ import (
 	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
 	"github.com/viant/agently-slack-gateway/internal/storetest"
 	"github.com/viant/agently-slack-gateway/migrations"
+	"github.com/viant/scy"
+	"gopkg.in/yaml.v3"
 )
 
 const agentlyTestConfig = `agently:
@@ -31,13 +34,13 @@ const agentlyTestConfig = `agently:
   principal_id: agently_steward
   auth:
     mode: oob_session
-    secrets_url_env: TEST_GATEWAY_OOB_REF
+    secret: {URL: /unused/synthetic-secret-reference, Key: 'blowfish://default'}
 `
 
 func TestValidateConfigIsOfflineAndReportsEffectivePolicy(t *testing.T) {
 	t.Setenv("SLACK_APP_TOKEN", "")
 	t.Setenv("SLACK_BOT_TOKEN", "")
-	t.Setenv("TEST_GATEWAY_OOB_REF", "")
+	t.Setenv("AGENTLY_OOB_SECRETS", "/unused/ignored-env-secret-marker")
 	path := writeConfig(t, `storage: {driver: sqlite, path: nonexistent.sqlite}
 transport: socket
 access_mode: shared_channel
@@ -127,10 +130,7 @@ func (s *routedSender) Send(_ context.Context, d gateway.Delivery) (string, erro
 }
 
 func TestRunWiresMultiChannelPolicyForQueriesAndReplies(t *testing.T) {
-	t.Setenv("TEST_GATEWAY_OOB_REF", "/unused/synthetic-secret-reference")
-	t.Setenv("SLACK_APP_TOKEN", "xapp-synthetic")
-	t.Setenv("SLACK_BOT_TOKEN", "xoxb-synthetic")
-	path := writeConfig(t, `storage: {driver: sqlite, path: real.sqlite}
+	path := writeConfigWithTokens(t, `storage: {driver: sqlite, path: real.sqlite}
 transport: socket
 access_mode: shared_channel
 slack: {app_id: A, workspace_id: T, channels: {mode: selected, allowlist: [C, C2]}, response: {mode: summary}}
@@ -149,7 +149,7 @@ access:
 	directory := &routedDirectory{}
 	sender := &routedSender{cancel: cancel, wantResponse: "[View full response in Agently](http://127.0.0.1:9191/conversation/offline-conversation)\n\noffline reply"}
 	deps := dependencies{
-		login: func(context.Context, string, string, string, string) (gateway.AgentlyClientFactory, error) {
+		login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
 			return backend, nil
 		},
 		directory: func(config.SlackTokens, gateway.Route) gateway.SlackDirectory { return directory },
@@ -194,13 +194,13 @@ access:
 }
 
 func TestCheckAgentlyNeedsNoStorageOrSlack(t *testing.T) {
-	t.Setenv("TEST_GATEWAY_OOB_REF", "/unused/synthetic-secret-reference")
+	t.Setenv("AGENTLY_OOB_SECRETS", "/unused/ignored-env-secret-marker")
 	path := writeConfig(t, agentlyTestConfig)
 	var out bytes.Buffer
 	called := 0
-	deps := dependencies{login: func(_ context.Context, base, principal, agent, ref string) (gateway.AgentlyClientFactory, error) {
+	deps := dependencies{login: func(_ context.Context, base, principal, agent string, ref *scy.Resource) (gateway.AgentlyClientFactory, error) {
 		called++
-		if base != "http://127.0.0.1:9191" || principal != "agently_steward" || agent != "steward" || ref != "/unused/synthetic-secret-reference" {
+		if base != "http://127.0.0.1:9191" || principal != "agently_steward" || agent != "steward" || (ref == nil || ref.URL != "/unused/synthetic-secret-reference" || ref.Key != "blowfish://default") {
 			t.Fatal("incorrect login selection")
 		}
 		return nil, nil // check only consumes the validated login outcome
@@ -252,10 +252,7 @@ func (w *backendStateWriter) Write(p []byte) (int, error) {
 func TestRunConnectsSlackDuringBackendFailureAndClosesUnstartedWork(t *testing.T) {
 	for _, blocked := range []bool{true, false} {
 		t.Run(map[bool]string{true: "blocked", false: "temporarily_unavailable"}[blocked], func(t *testing.T) {
-			t.Setenv("TEST_GATEWAY_OOB_REF", "/unused/synthetic-secret-reference")
-			t.Setenv("SLACK_APP_TOKEN", "xapp-synthetic")
-			t.Setenv("SLACK_BOT_TOKEN", "xoxb-synthetic")
-			path := writeConfig(t, `storage:
+			path := writeConfigWithTokens(t, `storage:
   driver: sqlite
   path: real.sqlite
 transport: socket
@@ -286,7 +283,7 @@ slack:
 			reached := make(chan struct{})
 			out := &backendStateWriter{state: state, reached: reached}
 			deps := dependencies{
-				login: func(context.Context, string, string, string, string) (gateway.AgentlyClientFactory, error) {
+				login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
 					attemptedOnce.Do(func() { close(attempted) })
 					if blocked {
 						return nil, gateway.ErrBackendAuth
@@ -340,10 +337,35 @@ slack:
 
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
-		t.Fatal(err)
+	var document map[string]any
+	storetest.Must(t, yaml.Unmarshal([]byte(body), &document))
+	if slack, ok := document["slack"].(map[string]any); ok {
+		slack["app_token_secret"] = map[string]any{"URL": "/unused/app-token.enc", "Key": "blowfish://default"}
+		slack["bot_token_secret"] = map[string]any{"URL": "/unused/bot-token.enc", "Key": "blowfish://default"}
 	}
+	encoded, err := yaml.Marshal(document)
+	storetest.Must(t, err)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	storetest.Must(t, os.WriteFile(path, encoded, 0600))
+	return path
+}
+
+func writeConfigWithTokens(t *testing.T, body string) string {
+	t.Helper()
+	path := writeConfig(t, body)
+	encoded, err := os.ReadFile(path)
+	storetest.Must(t, err)
+	var document map[string]any
+	storetest.Must(t, yaml.Unmarshal(encoded, &document))
+	slack := document["slack"].(map[string]any)
+	for field, value := range map[string]string{"app_token_secret": "xapp-synthetic", "bot_token_secret": "xoxb-synthetic"} {
+		resource := &scy.Resource{URL: "file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "token.enc")), Key: "blowfish://default"}
+		storetest.Must(t, scy.New().Store(context.Background(), scy.NewSecret(value, resource)))
+		slack[field] = map[string]any{"URL": resource.URL, "Key": resource.Key}
+	}
+	encoded, err = yaml.Marshal(document)
+	storetest.Must(t, err)
+	storetest.Must(t, os.WriteFile(path, encoded, 0600))
 	return path
 }
 
@@ -425,9 +447,9 @@ func TestMySQLAndUnknownDriverNeverFallback(t *testing.T) {
 }
 
 func TestMySQLValidationAndMigrationDoNotOpenStorage(t *testing.T) {
-	t.Setenv("TEST_GATEWAY_MYSQL_DSN", "")
-	path := writeConfig(t, "storage: {driver: mysql, dsn_env: TEST_GATEWAY_MYSQL_DSN}\n"+runStorageTestConfig)
-	deps := dependencies{openMySQL: func(context.Context, string) (storage.Store, error) {
+	t.Setenv("AGENTLY_SLACK_MYSQL_DSN", "ignored-env-secret-marker")
+	path := writeConfig(t, "storage: {driver: mysql, dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true', secret: {URL: /unused/mysql-secret-marker.json, Key: 'blowfish://default'}}\n"+runStorageTestConfig)
+	deps := dependencies{openMySQL: func(context.Context, string, *scy.Resource) (storage.Store, error) {
 		t.Fatal("offline operation opened MySQL")
 		return nil, nil
 	}}
@@ -464,18 +486,18 @@ func (s *operatorStore) ResolveDelivery(context.Context, int64, string, string, 
 }
 
 func TestMySQLCommandsUseSelectedStorageAndCloseIt(t *testing.T) {
-	dsn := "test:secret-marker@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true"
-	t.Setenv("TEST_GATEWAY_MYSQL_DSN", dsn)
+	dsn := "${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true"
+	t.Setenv("AGENTLY_SLACK_MYSQL_DSN", "ignored-old-env-secret-marker")
 	t.Setenv("SLACK_APP_TOKEN", "")
 	t.Setenv("SLACK_BOT_TOKEN", "")
 	for _, command := range []string{"status", "resolve-delivery", "run"} {
 		t.Run(command, func(t *testing.T) {
-			path := writeConfig(t, "storage: {driver: mysql, dsn_env: TEST_GATEWAY_MYSQL_DSN}\n"+runStorageTestConfig)
+			path := writeConfig(t, "storage: {driver: mysql, dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true', secret: {URL: /unused/mysql-secret-marker.json, Key: 'blowfish://default'}}\n"+runStorageTestConfig)
 			s := &operatorStore{}
 			called := 0
-			deps := dependencies{openMySQL: func(_ context.Context, actual string) (storage.Store, error) {
+			deps := dependencies{openMySQL: func(_ context.Context, actual string, resource *scy.Resource) (storage.Store, error) {
 				called++
-				if actual != dsn {
+				if actual != dsn || resource == nil || resource.URL != "/unused/mysql-secret-marker.json" || resource.Key != "blowfish://default" {
 					t.Fatal("wrong DSN reference")
 				}
 				return s, nil
@@ -483,7 +505,7 @@ func TestMySQLCommandsUseSelectedStorageAndCloseIt(t *testing.T) {
 			var out bytes.Buffer
 			err := execute(context.Background(), []string{command, "--config", path}, &out, deps)
 			if command == "run" {
-				if err == nil || !strings.Contains(err.Error(), "Slack token") || !s.checked {
+				if err == nil || !strings.Contains(err.Error(), "Slack") || !s.checked {
 					t.Fatalf("run bypassed identity/credentials boundary: %v", err)
 				}
 			} else {
@@ -499,10 +521,29 @@ func TestMySQLCommandsUseSelectedStorageAndCloseIt(t *testing.T) {
 	}
 }
 
+func TestMySQLPlainDSNNeedsNoSecret(t *testing.T) {
+	dsn := "test:synthetic-password@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true"
+	path := writeConfig(t, fmt.Sprintf("storage: {driver: mysql, dsn: %q}\n", dsn))
+	s := &operatorStore{}
+	called := false
+	deps := dependencies{openMySQL: func(_ context.Context, actual string, resource *scy.Resource) (storage.Store, error) {
+		called = true
+		if actual != dsn || resource != nil {
+			t.Fatal("plain DSN unexpectedly required a secret")
+		}
+		return s, nil
+	}}
+	var out bytes.Buffer
+	storetest.Must(t, execute(context.Background(), []string{"status", "--config", path}, &out, deps))
+	if !called || !s.closed || strings.Contains(out.String(), "synthetic-password") {
+		t.Fatal("unsafe direct DSN storage lifecycle")
+	}
+}
+
 func TestMySQLStorageFailureIsRedactedAndNeverFallsBack(t *testing.T) {
-	t.Setenv("TEST_GATEWAY_MYSQL_DSN", "test:secret-marker@tcp(127.0.0.1:3309)/agently_steward_slack")
-	path := writeConfig(t, "storage: {driver: mysql, dsn_env: TEST_GATEWAY_MYSQL_DSN}\n")
-	deps := dependencies{openMySQL: func(context.Context, string) (storage.Store, error) {
+	t.Setenv("AGENTLY_SLACK_MYSQL_DSN", "ignored-env-secret-marker")
+	path := writeConfig(t, "storage: {driver: mysql, dsn: 'test:secret-marker@tcp(127.0.0.1:3309)/agently_steward_slack'}\n")
+	deps := dependencies{openMySQL: func(context.Context, string, *scy.Resource) (storage.Store, error) {
 		return nil, errors.New("driver error with secret-marker")
 	}}
 	err := execute(context.Background(), []string{"status", "--config", path}, &bytes.Buffer{}, deps)
@@ -533,7 +574,7 @@ func TestRunInitializesMissingDatabaseAndRequiresRealCredentials(t *testing.T) {
 	dbPath := filepath.Join(filepath.Dir(path), "gateway.sqlite")
 	for attempt := range 2 {
 		var out bytes.Buffer
-		if err := Execute(ctx, args, &out); err == nil || !strings.Contains(err.Error(), "Slack token environment variables") {
+		if err := Execute(ctx, args, &out); err == nil || !strings.Contains(err.Error(), "Slack") {
 			t.Fatalf("expected real-backend boundary after initializing storage: %v", err)
 		}
 		if initialized := strings.Contains(out.String(), "Gateway SQLite database initialized at "+dbPath); initialized != (attempt == 0) {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/scy"
 )
 
 // Identity is immutable after login. Only a confirmed identity mismatch poisons
@@ -131,7 +132,7 @@ func (c *Client) conversationThread(ctx context.Context, id string) (string, err
 // LoginOOB creates an in-memory BFF session and verifies the effective subject
 // and agent listing. It does not create a conversation or invoke an agent.
 // The server may persist authentication/session data in its own database.
-func LoginOOB(ctx context.Context, base, principal, agent, secretsRef string) (*Factory, error) {
+func LoginOOB(ctx context.Context, base, principal, agent string, secretsRef *scy.Resource) (*Factory, error) {
 	return loginOOB(ctx, base, principal, agent, secretsRef, loadOAuthConfig, loadBasicSecret, nil)
 }
 
@@ -171,7 +172,7 @@ func (f *Factory) Verify(ctx context.Context) error {
 	return &authFailure{message: "configured Agently agent is not available in workspace metadata", permanent: true}
 }
 
-func loginOOB(ctx context.Context, base, principal, agent, ref string, loadConfig oauthConfigLoader, loadSecret basicSecretLoader, httpClient *http.Client) (*Factory, error) {
+func loginOOB(ctx context.Context, base, principal, agent string, ref *scy.Resource, loadConfig oauthConfigLoader, loadSecret basicSecretLoader, httpClient *http.Client) (*Factory, error) {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	if strings.TrimSpace(principal) == "" || strings.TrimSpace(agent) == "" {

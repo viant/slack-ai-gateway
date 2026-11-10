@@ -3,8 +3,8 @@
 # Create the config/ and db/ directories first; see ../README.md for shell commands.
 storage:
   # SQLite initializes a missing file on run; its parent directory must exist.
-  # For provisioned MySQL, replace this section with driver: mysql and
-  # dsn_env: AGENTLY_SLACK_MYSQL_DSN; omit path. See docs/mysql.md.
+  # For provisioned MySQL, replace this section with the mixed DSN and
+  # credential resource in docs/mysql.md; omit path.
   driver: sqlite
   # A separate Gateway database, never the smoke-test or Agently database.
   # Resolved from this YAML's directory, including after copying to config/.
@@ -35,8 +35,12 @@ slack:
     allowlist: [C_TEST]
     denylist: []
     allow_private: false
-  app_token_env: SLACK_APP_TOKEN
-  bot_token_env: SLACK_BOT_TOKEN
+  app_token_secret:
+    URL: file:///absolute/path/slack-app-token.enc
+    Key: blowfish://default
+  bot_token_secret:
+    URL: file:///absolute/path/slack-bot-token.enc
+    Key: blowfish://default
 access:
   defaults:
     users:
@@ -54,5 +58,7 @@ agently:
   principal_id: agently_steward
   auth:
     mode: oob_session
-    # The variable contains a local credential-file reference, not a password.
-    secrets_url_env: AGENTLY_OOB_SECRETS
+    # Use an existing Scy basic credential file; see docs/secrets.md.
+    secret:
+      URL: file:///absolute/path/agently-service.json
+      Key: blowfish://default

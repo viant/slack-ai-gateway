@@ -46,25 +46,24 @@ Configure the account's data and tool permissions accordingly.
    The single [runtime example](examples/gateway.example.yaml) starts with one
    selected public channel. See [access policy](docs/access-policy.md) for workspace
    routing, private channels and user restrictions, or [DM setup](docs/direct-messages.md).
-3. Set the environment variables referenced by that configuration:
+3. Create or reuse the private Scy resources referenced by that configuration:
 
-   | Default variable | Value |
+   | Configuration field | Resource contents |
    | --- | --- |
-   | `SLACK_APP_TOKEN` | App-level token beginning with `xapp-` |
-   | `SLACK_BOT_TOKEN` | Bot token beginning with `xoxb-` |
-   | `AGENTLY_OOB_SECRETS` | Absolute local Scy-compatible credential-file reference |
+   | `slack.app_token_secret` | App-level token beginning with `xapp-` |
+   | `slack.bot_token_secret` | Bot token beginning with `xoxb-` |
+   | `agently.auth.secret` | Basic credentials for the execution account |
 
-   The credential file contains the service account's `Username` and `Password`.
-   Prepare it using your secret-management tooling outside the repository. An
-   encrypted reference can look like this:
+   Each resource has `URL` and explicit `Key: blowfish://default` fields.
+   Local resources use absolute file paths or local `file://` URLs; production
+   resources can use AWS Secrets Manager. Follow [secret setup](docs/secrets.md)
+   for interactive `scy secure` commands and production examples. The configured
+   `principal_id` must match the authenticated Agently subject; see
+   [authentication](docs/agently-contract.md).
 
-   ```sh
-   export AGENTLY_OOB_SECRETS='/absolute/path/agently_service.enc|blowfish://default'
-   ```
-
-   Token values and passwords belong in private environment/secret files, never
-   YAML or command-line flags. The configured `principal_id` must match the
-   authenticated Agently subject. See [authentication](docs/agently-contract.md).
+   The runtime does not read Slack tokens, OOB references or MySQL DSNs from
+   environment variables. Keep real resource locations and credentials outside
+   version control, in a private configuration and secret store.
 4. Build, validate, check the backend, then start:
 
    ```sh
@@ -85,8 +84,8 @@ before testing a new question. Temporary backend or IdP failures keep Slack
 connected while authentication recovers. Questions received before readiness or
 during an outage get a durable notice that they were not submitted; they never
 run automatically after recovery. Started requests are observed using their
-original identifiers without submitting another prompt. Invalid local secrets,
-configuration, storage or Slack setup still prevent normal startup. See
+original identifiers without submitting another prompt. Invalid configured
+secrets, configuration, storage or Slack setup still prevent normal startup. See
 [connection recovery](docs/operations.md#viant-steward-connection-recovery).
 
 The bot needs `app_mentions:read`, `chat:write` and `channels:read`. Private channels
@@ -98,7 +97,8 @@ includes the agent experience used by optional native progress indicators.
 
 Always pass `--config`; there is no automatic configuration discovery. The example's
 `../db/gateway-agently.sqlite` resolves relative to the copied YAML, placing data in
-`~/.agently-slack-gateway/db/`. YAML paths do not expand `~` or environment variables.
+`~/.agently-slack-gateway/db/`. The SQLite path does not expand `~` or environment
+variables. Use absolute locations for local secret resources.
 These directories are a recommended layout, not a dependency on Agently's own storage.
 
 `run` automatically creates a missing SQLite file and its current schema, with
@@ -114,11 +114,15 @@ For MySQL, replace the example's entire `storage` section with:
 ```yaml
 storage:
   driver: mysql
-  dsn_env: AGENTLY_SLACK_MYSQL_DSN
+  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true'
+  secret:
+    URL: file:///absolute/path/mysql.json
+    Key: blowfish://default
 ```
 
-The environment variable contains the MySQL DSN; configuration validation does not
-read it or connect to the database. Provision MySQL explicitly before `run`.
+Scy reads the credential resource and Datly fills the username/password in the
+DSN when storage opens. Configuration validation reads no secrets and makes no
+connection. Provision MySQL explicitly before `run`.
 The gateway does not create or migrate its MySQL schema, check its schema version,
 or fall back to SQLite. See [MySQL setup and Datly verification](docs/mysql.md).
 
@@ -152,6 +156,7 @@ through retries. See [response presentation](docs/response-presentation.md).
 | [Response presentation](docs/response-presentation.md) | Answer modes and rich-content limitations |
 | [Operations](docs/operations.md) | Storage initialization, diagnostics and uncertain-delivery resolution |
 | [MySQL](docs/mysql.md) | Docker provisioning, MySQL configuration and Datly graph verification |
+| [Secrets](docs/secrets.md) | Local Scy resources, production AWS references and configuration migration |
 | [Agently contract](docs/agently-contract.md) | Authentication, SDK operations and execution correlation |
 
 ## Development
@@ -179,7 +184,8 @@ Default transcription/validation against the persistent local MySQL fixture
 requires a one-time Endly credential setup. Follow the
 [local MySQL instructions](e2e/mysql/README.md) before `endly -t=init`,
 `endly -r=transcribe` or `endly -r=validate`. The isolated full E2E workflow
-uses its own credentials. Gateway runtime DSNs remain environment-based.
+uses its own credentials. Gateway runtime configuration uses its own Scy
+resources, independently of the Endly credential used for tooling.
 
 Authoritative Datly contracts and their SQL assets live in [`dql/`](dql/README.md).
 Transcription generates components and embedded SQL under `internal/datly/`;

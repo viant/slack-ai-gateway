@@ -13,7 +13,7 @@ func TestResponseConfiguration(t *testing.T) {
 	for _, mode := range []string{"", "raw", "cli_compatible", "summary", "normalized_summary", "report_text", "unknown", "SUMMARY"} {
 		t.Run(mode, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
-			body := "storage:\n  driver: sqlite\n  path: test.sqlite\ntransport: socket\naccess_mode: shared_channel\nslack:\n  app_id: A\n  workspace_id: T\n  channel_id: C\n"
+			body := "storage:\n  driver: sqlite\n  path: test.sqlite\ntransport: socket\naccess_mode: shared_channel\nslack:\n  app_id: A\n  workspace_id: T\n  channel_id: C\n  app_token_secret: {URL: /unused/app.enc, Key: 'blowfish://default'}\n  bot_token_secret: {URL: /unused/bot.enc, Key: 'blowfish://default'}\n"
 			if mode != "" {
 				body += "  response:\n    mode: " + mode + "\n"
 			}

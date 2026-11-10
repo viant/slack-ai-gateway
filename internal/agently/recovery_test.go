@@ -16,6 +16,7 @@ import (
 
 	"github.com/viant/agently-slack-gateway/internal/gateway"
 	"github.com/viant/agently-slack-gateway/internal/storetest"
+	"github.com/viant/scy"
 )
 
 func testManager(t *testing.T, f *loginFixture, unavailable func(context.Context, gateway.BackendState) error) *Manager {
@@ -370,7 +371,7 @@ func TestOOBClassifiesFailuresAndValidatesLocalSecrets(t *testing.T) {
 			}
 		})
 	}
-	if err := ValidateOOBReference(context.Background(), "https://secret-marker.invalid/a"); err == nil || strings.Contains(err.Error(), "secret-marker") {
+	if err := ValidateOOBReference(context.Background(), &scy.Resource{URL: "https://secret-marker.invalid/a"}); err == nil || strings.Contains(err.Error(), "secret-marker") {
 		t.Fatal("unsafe static secret reference validation")
 	}
 	if retryAfter("2", time.Now()) != 2*time.Second || retryAfter("garbage", time.Now()) != 0 || retryAfter("-1", time.Now()) != 0 {

@@ -134,7 +134,6 @@ pipeline:
     logging: false
     init:
       testEnvironment: |
-        export AGENTLY_SLACK_MYSQL_DSN='root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true'
         export AGENTLY_SLACK_MYSQL_TEST_DSN='root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true'
     action: storage:upload
     sourceKey: testEnvironment

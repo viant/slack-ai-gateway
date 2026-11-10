@@ -104,21 +104,21 @@ start Docker or run container cleanup. See the
 The discovery connection is selected in this order:
 
 1. An explicit `dsn` workflow parameter.
-2. A nonempty `AGENTLY_SLACK_MYSQL_DSN` environment variable.
-3. A local MySQL DSN built from the Endly credential selected by `mysqlCred`.
+2. A local MySQL DSN built from the Endly credential selected by `mysqlCred`.
 
 An explicit DSN bypasses the personal credential file. `driver` defaults to
 `mysql` and can also be passed as a workflow parameter. The isolated full `run`
 workflow passes its own `driver` and `dsn` for MySQL and SQLite discovery;
 neither standalone commands nor full E2E create connector JSON files.
 Native Endly credential placeholders receive its secret masking in command
-logs. Direct DSN parameters and environment overrides use ordinary command
-logging; they are not implicitly masked.
+logs. Direct DSN parameters use ordinary command logging; they are not implicitly
+masked.
 
 Generated Go and embedded SQL resources belong in the repository; edit their
 DQL sources rather than generated files. The gateway runtime independently
-continues to read its configured DSN environment variable; it does not use
-Endly's credential file.
+loads its configured DSN and Scy credential resource; it does not implicitly use
+Endly's credential file. The removed runtime DSN environment variable is not a
+standalone workflow override.
 
 MySQL is the reference metadata source for generation, not a runtime requirement
 for SQLite. Changing `storage.driver` selects a connector; it does not require

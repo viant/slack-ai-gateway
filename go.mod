@@ -102,7 +102,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
-	github.com/viant/afsc v1.18.0 // indirect
+	github.com/viant/afsc v1.18.0
 	github.com/viant/agently-core/protocol/primitive v0.1.0 // indirect
 	github.com/viant/agently-core/protocol/resource v0.1.0 // indirect
 	github.com/viant/agently-core/protocol/window v0.1.0 // indirect
@@ -172,6 +172,8 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.9 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.8 // indirect
 	github.com/blevesearch/snowballstem v0.9.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

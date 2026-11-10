@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/scy"
 )
 
 // missingSession is distinct from an identity mismatch: a missing/expired
@@ -66,9 +67,9 @@ func retryAfter(value string, now time.Time) time.Duration {
 	return 0
 }
 
-// ValidateOOBReference checks only local credential configuration. Network and
-// IdP availability are handled by Manager after the Slack transport starts.
-func ValidateOOBReference(ctx context.Context, ref string) error {
+// ValidateOOBReference checks the configured credential resource before Slack
+// starts. Agently and IdP availability are handled by Manager afterward.
+func ValidateOOBReference(ctx context.Context, ref *scy.Resource) error {
 	secret, err := loadBasicSecret(ctx, ref)
 	if err != nil || secret == nil || secret.Username == "" || secret.Password == "" {
 		return &authFailure{message: "cannot load Viant Steward OOB credentials", permanent: true}

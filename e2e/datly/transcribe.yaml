@@ -14,7 +14,7 @@ init:
   - name: discoveryDSN
     when: $params.dsn
     value: $params.dsn
-    else: $env.AGENTLY_SLACK_MYSQL_DSN
+    else: ''
 
 pipeline:
   prerequisites:

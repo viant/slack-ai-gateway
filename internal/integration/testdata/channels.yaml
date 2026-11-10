@@ -20,8 +20,12 @@ slack:
     mode: selected
     allowlist: [C_REPLACE_ME]
     allow_private: false
-  app_token_env: SLACK_APP_TOKEN
-  bot_token_env: SLACK_BOT_TOKEN
+  app_token_secret:
+    URL: file:///absolute/path/slack-app-token.enc
+    Key: blowfish://default
+  bot_token_secret:
+    URL: file:///absolute/path/slack-bot-token.enc
+    Key: blowfish://default
 access:
   channel_overrides:
     C_REPLACE_ME:

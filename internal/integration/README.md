@@ -31,7 +31,9 @@ cp -n internal/integration/testdata/channels.yaml "$HOME/.agently-slack-gateway/
 For DM, copy `direct-messages.yaml` instead, to a separate directory. Edit Slack
 app/workspace/channel placeholders and policy keys. Configure app scopes/events
 as in the [main setup](../../README.md#setup) or [DM guide](../../docs/direct-messages.md).
-Load the referenced `SLACK_APP_TOKEN` and `SLACK_BOT_TOKEN` privately.
+Set `slack.app_token_secret` and `slack.bot_token_secret` to the absolute
+locations of the private Scy resources prepared with [secret setup](../../docs/secrets.md).
+The test loads these resources only after explicit live-test opt-in.
 
 Validate the Slack-only configuration offline and initialize its database:
 

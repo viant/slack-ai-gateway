@@ -66,30 +66,35 @@ Replace the entire `storage` section in the existing runtime configuration:
 ```yaml
 storage:
   driver: mysql
-  dsn_env: AGENTLY_SLACK_MYSQL_DSN
+  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true'
+  secret:
+    URL: file:///absolute/path/mysql.json
+    Key: blowfish://default
 ```
 
-`dsn_env` names an environment variable; it is not the DSN itself. Do not set
-`storage.path` with MySQL. For the standard local fixture:
+The DSN retains the address, database and options; Scy loads the username/password
+from the resource, and Datly performs native substitution when opening storage.
+Do not set `storage.path` with MySQL. `storage.secret` is optional when using a
+complete DSN for local development. There is no environment-variable fallback.
 
-```sh
-export AGENTLY_SLACK_MYSQL_DSN='root:dev@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true'
-```
+Create the runtime credential file with `scy secure --target basic`, following
+[secret setup](secrets.md). Use the actual credentials of an existing volume.
+The runtime resource is independent of the credential file selected by Endly for
+provisioning and Datly discovery. Keep real credentials and resource locations
+outside version control.
 
-Use the actual password for an existing volume. Store the real value in a private
-environment/secret file outside version control, then load that environment
-before starting the gateway. Keep the Slack, access
-policy and Agently sections of the configuration as usual.
-The gateway runtime continues to read this DSN environment variable; it does not
-load the Endly E2E credential file.
+For production, set the database address and choose an AWS Secrets Manager
+resource in `storage.secret.URL`. Configure verified MySQL TLS when supported by
+the deployment, for example by adding `&tls=true` when its certificate is trusted
+by the gateway. The configured database must already be provisioned.
 
 ```sh
 go run ./cmd/agently-slack-gateway validate-config --config /absolute/path/gateway.local.yaml
 go run ./cmd/agently-slack-gateway run --config /absolute/path/gateway.local.yaml
 ```
 
-Validation checks the configured variable name without loading credentials or
-connecting. Commands that open MySQL require the variable's value. Missing or
+Validation checks configuration without loading credentials or connecting.
+Commands that open MySQL load its credential resource at that point. Missing or
 unavailable storage causes an error; the gateway never switches to SQLite.
 
 Selecting MySQL does not copy SQLite rows, conversation bindings, pending replies
@@ -126,10 +131,10 @@ For generation or validation against the initialized local fixture, use
 local E2E credentials through Endly and connect to
 `127.0.0.1:3309/agently_steward_slack`. These commands do not start MySQL.
 Their default credential name is `mysql-e2e.json`; use `mysqlCred` to choose
-another file. An explicit `dsn` workflow parameter takes precedence over a
-nonempty `AGENTLY_SLACK_MYSQL_DSN`; either overrides the discovery connection
-and bypasses the personal credential file, without changing local initialization.
-The gateway runtime still requires its configured DSN environment variable.
+another file. An explicit `dsn` workflow parameter overrides the discovery
+connection and bypasses the personal credential file, without changing local
+initialization.
+The gateway runtime uses its configured DSN and optional Scy credential resource.
 Ordinary `go test ./...` skips live MySQL tests unless
 `AGENTLY_SLACK_MYSQL_TEST_DSN` is set. Details and test-user requirements are in
 the [Datly workflow instructions](../e2e/datly/README.md).

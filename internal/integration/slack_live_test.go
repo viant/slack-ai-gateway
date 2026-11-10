@@ -48,7 +48,7 @@ func TestSlackSmoke(t *testing.T) {
 			t.Fatal("AGENTLY_SLACK_TEST_DURATION must be a positive duration <=1h")
 		}
 	}
-	tokens, err := c.LoadSlackTokens()
+	tokens, err := c.LoadSlackTokens(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

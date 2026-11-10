@@ -10,6 +10,7 @@ import (
 
 	"github.com/viant/agently-slack-gateway/internal/config"
 	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/scy"
 )
 
 const smokePrincipal = "slack-smoke-shared"
@@ -76,6 +77,8 @@ func smokeConfig(t *testing.T, body string) config.Config {
 	if err != nil {
 		t.Fatal(err)
 	}
+	c.Slack.AppTokenSecret = &scy.Resource{URL: "file:///unused/app-token.enc", Key: "blowfish://default"}
+	c.Slack.BotTokenSecret = &scy.Resource{URL: "file:///unused/bot-token.enc", Key: "blowfish://default"}
 	return c
 }
 

@@ -16,20 +16,21 @@ import (
 	"github.com/viant/agently-slack-gateway/internal/storage"
 	"github.com/viant/agently-slack-gateway/internal/storage/mysql"
 	"github.com/viant/agently-slack-gateway/internal/storage/sqlite"
+	"github.com/viant/scy"
 )
 
 type dependencies struct {
-	login          func(context.Context, string, string, string, string) (gateway.AgentlyClientFactory, error)
-	validateSecret func(context.Context, string) error
+	login          func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error)
+	validateSecret func(context.Context, *scy.Resource) error
 	connect        func(context.Context, config.SlackTokens, gateway.Route, *slog.Logger) (runner.Source, gateway.SlackSender, error)
 	directory      func(config.SlackTokens, gateway.Route) gateway.SlackDirectory
-	openMySQL      func(context.Context, string) (storage.Store, error)
+	openMySQL      func(context.Context, string, *scy.Resource) (storage.Store, error)
 }
 
 func Execute(ctx context.Context, args []string, out io.Writer) error {
 	return execute(ctx, args, out, dependencies{
 		validateSecret: agently.ValidateOOBReference,
-		login: func(ctx context.Context, base, principal, agent, ref string) (gateway.AgentlyClientFactory, error) {
+		login: func(ctx context.Context, base, principal, agent string, ref *scy.Resource) (gateway.AgentlyClientFactory, error) {
 			return agently.LoginOOB(ctx, base, principal, agent, ref)
 		},
 		connect: func(ctx context.Context, tokens config.SlackTokens, route gateway.Route, log *slog.Logger) (runner.Source, gateway.SlackSender, error) {
@@ -121,11 +122,7 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 		if err := c.ValidateAgently(); err != nil {
 			return nil, err
 		}
-		ref, err := c.OOBSecretsReference()
-		if err != nil {
-			return nil, err
-		}
-		return deps.login(loginCtx, c.Agently.BaseURL, c.Agently.PrincipalID, c.Agently.AgentID, ref)
+		return deps.login(loginCtx, c.Agently.BaseURL, c.Agently.PrincipalID, c.Agently.AgentID, c.Agently.Auth.Secret)
 	}
 	if command == "check-agently" {
 		if _, err = login(ctx); err != nil {
@@ -174,16 +171,12 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 	if err = s.CheckRunBindings(ctx, route, c.Agently.PrincipalID); err != nil {
 		return err
 	}
-	tokens, err := c.LoadSlackTokens()
-	if err != nil {
-		return err
-	}
-	ref, err := c.OOBSecretsReference()
+	tokens, err := c.LoadSlackTokens(ctx)
 	if err != nil {
 		return err
 	}
 	if deps.validateSecret != nil {
-		if err = deps.validateSecret(ctx, ref); err != nil {
+		if err = deps.validateSecret(ctx, c.Agently.Auth.Secret); err != nil {
 			return err
 		}
 	}
@@ -207,19 +200,17 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 
 // openStorage keeps backend-specific initialization outside the runtime.
 // MySQL provisioning is explicit; only SQLite can initialize on first run.
-func openStorage(ctx context.Context, c config.Config, command string, out io.Writer, openMySQL func(context.Context, string) (storage.Store, error)) (storage.Store, error) {
+func openStorage(ctx context.Context, c config.Config, command string, out io.Writer, openMySQL func(context.Context, string, *scy.Resource) (storage.Store, error)) (storage.Store, error) {
 	if c.Storage.Driver == "mysql" {
 		if command == "migrate" {
 			return nil, fmt.Errorf("migrate supports SQLite only; provision MySQL explicitly with Endly or the versioned MySQL DDL")
 		}
-		dsn, err := c.MySQLDSN()
-		if err != nil {
-			return nil, err
-		}
 		if openMySQL == nil {
-			openMySQL = func(ctx context.Context, dsn string) (storage.Store, error) { return mysql.Open(ctx, dsn) }
+			openMySQL = func(ctx context.Context, dsn string, secret *scy.Resource) (storage.Store, error) {
+				return mysql.Open(ctx, dsn, secret)
+			}
 		}
-		s, err := openMySQL(ctx, dsn)
+		s, err := openMySQL(ctx, c.Storage.DSN, c.Storage.Secret)
 		if err != nil {
 			// Driver errors can include DSN credentials and server details.
 			return nil, fmt.Errorf("cannot open gateway MySQL storage; check the configured DSN and provisioned database")

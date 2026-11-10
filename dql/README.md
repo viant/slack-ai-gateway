@@ -44,9 +44,9 @@ initialization and standalone transcription/validation.
 `transcribe` and `validate` use those credentials and the initialized local MySQL
 fixture by default. They invoke the stock Datly CLI directly without provisioning
 Docker or creating temporary connector files.
-An explicit `dsn` workflow parameter takes precedence over a nonempty
-`AGENTLY_SLACK_MYSQL_DSN`; either overrides the discovery connection and bypasses
-the personal credential file. The full workflow passes its own driver and DSN
+An explicit `dsn` workflow parameter overrides the discovery connection and
+bypasses the personal credential file. There is no runtime-DSN environment
+override. The full workflow passes its own driver and DSN
 directly, without connector JSON files.
 `run` provisions an isolated fixture and performs generation, validation and
 runtime tests without requiring personal MySQL credentials. MySQL remains the

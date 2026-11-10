@@ -55,14 +55,13 @@ volume, binds `127.0.0.1:3309`, and applies the versioned DDL to
 This explicit workflow does not run during gateway startup. Use one gateway
 process per database. The fixture is intended for local development only.
 
-Configure the gateway through `storage.driver: mysql` and
-`storage.dsn_env: AGENTLY_SLACK_MYSQL_DSN`. Set that environment variable to a
-MySQL DSN targeting `127.0.0.1:3309/agently_steward_slack` with `parseTime=true`.
-The gateway runtime uses its configured environment variable independently of
-Endly's credential file. For the standard `root`/`dev` fixture, its DSN is
-`root:dev@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true`.
+Configure the gateway with `storage.driver: mysql`, a mixed `storage.dsn`
+targeting `127.0.0.1:3309/agently_steward_slack` and `storage.secret` pointing to a
+private Scy basic credential resource. See [runtime MySQL setup](../../docs/mysql.md#configure-the-gateway)
+and [secret creation](../../docs/secrets.md). The runtime does not read a DSN
+environment variable or implicitly load Endly's credential file.
 Use the original password when restarting an existing volume; the image does
-not reset it. Keep real credentials outside version control.
+not reset it. Keep real credentials and resource locations outside version control.
 
 After initialization, run from `e2e/datly/`:
 
@@ -83,10 +82,9 @@ These commands use the same Endly credentials and existing local server; they
 do not start Docker or provision a database. See the
 [Datly workflow instructions](../datly/README.md).
 For standalone transcription/validation, an explicit `dsn` workflow parameter
-takes precedence over a nonempty `AGENTLY_SLACK_MYSQL_DSN`; either overrides the
-credential-based local connection and bypasses the personal credential file.
-These overrides do not change local provisioning or the password in an existing
-volume. See the Datly workflow instructions for connection selection and logging.
+overrides the credential-based local connection and bypasses the personal
+credential file. It does not change local provisioning or the password in an
+existing volume. See the Datly workflow instructions for connection selection and logging.
 
 Run `endly -t=verify` for schema acceptance on a separate temporary container.
 It checks versioning, repeat initialization, uniqueness, case sensitivity,

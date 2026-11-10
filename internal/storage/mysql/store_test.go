@@ -25,7 +25,7 @@ func fixtureWithDB(t *testing.T) (storetest.Fixture, *sql.DB) {
 	db, err := sql.Open("mysql", dsn)
 	storetest.Must(t, err)
 	t.Cleanup(func() { storetest.Must(t, db.Close()) })
-	s, err := Open(ctx, dsn)
+	s, err := Open(ctx, dsn, nil)
 	storetest.Must(t, err)
 	t.Cleanup(func() {
 		if s != nil {
@@ -36,7 +36,7 @@ func fixtureWithDB(t *testing.T) (storetest.Fixture, *sql.DB) {
 		storetest.Must(t, s.Close())
 		s = nil
 		var err error
-		s, err = Open(ctx, dsn)
+		s, err = Open(ctx, dsn, nil)
 		storetest.Must(t, err)
 		storetest.Must(t, s.Recover(ctx))
 		return s

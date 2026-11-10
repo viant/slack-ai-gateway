@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
@@ -8,12 +9,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
+	_ "github.com/viant/afsc/aws"
 	slackpresentation "github.com/viant/agently-core/sdk/slack"
 	"github.com/viant/agently-slack-gateway/internal/gateway"
+	"github.com/viant/scy"
+	_ "github.com/viant/scy/kms/blowfish"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,22 +26,22 @@ type Config struct {
 	AccessMode string  `yaml:"access_mode"`
 	Access     *Access `yaml:"access"`
 	Slack      struct {
-		AppID       string    `yaml:"app_id"`
-		WorkspaceID string    `yaml:"workspace_id"`
-		ChannelID   string    `yaml:"channel_id"`
-		Channels    *Channels `yaml:"channels"`
-		Status      Status    `yaml:"status"`
-		Response    Response  `yaml:"response"`
-		AppTokenEnv string    `yaml:"app_token_env"`
-		BotTokenEnv string    `yaml:"bot_token_env"`
+		AppID          string        `yaml:"app_id"`
+		WorkspaceID    string        `yaml:"workspace_id"`
+		ChannelID      string        `yaml:"channel_id"`
+		Channels       *Channels     `yaml:"channels"`
+		Status         Status        `yaml:"status"`
+		Response       Response      `yaml:"response"`
+		AppTokenSecret *scy.Resource `yaml:"app_token_secret"`
+		BotTokenSecret *scy.Resource `yaml:"bot_token_secret"`
 	} `yaml:"slack"`
 	Agently struct {
 		BaseURL     string `yaml:"base_url"`
 		AgentID     string `yaml:"agent_id"`
 		PrincipalID string `yaml:"principal_id"`
 		Auth        struct {
-			Mode          string `yaml:"mode"`
-			SecretsURLEnv string `yaml:"secrets_url_env"`
+			Mode   string        `yaml:"mode"`
+			Secret *scy.Resource `yaml:"secret"`
 		} `yaml:"auth"`
 	} `yaml:"agently"`
 }
@@ -156,9 +159,10 @@ func (c Config) Route() (gateway.Route, error) {
 }
 
 type Storage struct {
-	Driver string `yaml:"driver"`
-	Path   string `yaml:"path"`
-	DSNEnv string `yaml:"dsn_env"`
+	Driver string        `yaml:"driver"`
+	Path   string        `yaml:"path"`
+	DSN    string        `yaml:"dsn"`
+	Secret *scy.Resource `yaml:"secret"`
 }
 
 func Load(path string) (Config, error) {
@@ -269,36 +273,23 @@ func (c Config) ValidateStorage() error {
 		if strings.TrimSpace(c.Storage.Path) == "" || c.Storage.Path == ":memory:" || strings.HasPrefix(c.Storage.Path, "file:") {
 			return fmt.Errorf("sqlite requires storage.path pointing to a durable file")
 		}
-		if c.Storage.DSNEnv != "" {
-			return fmt.Errorf("sqlite does not accept a MySQL DSN reference")
+		if c.Storage.DSN != "" || c.Storage.Secret != nil {
+			return fmt.Errorf("sqlite does not accept a MySQL DSN or secret")
 		}
 	case "mysql":
 		if c.Storage.Path != "" {
-			return fmt.Errorf("mysql does not accept storage.path; use storage.dsn_env")
+			return fmt.Errorf("mysql does not accept storage.path; use storage.dsn")
 		}
-		if !environmentName.MatchString(c.Storage.DSNEnv) {
-			return fmt.Errorf("mysql requires storage.dsn_env naming an environment variable")
+		if strings.TrimSpace(c.Storage.DSN) == "" {
+			return fmt.Errorf("mysql requires storage.dsn")
+		}
+		if c.Storage.Secret != nil && c.Storage.Secret.Validate() != nil {
+			return fmt.Errorf("storage.secret requires a resource URL")
 		}
 	default:
 		return fmt.Errorf("unsupported storage driver")
 	}
 	return nil
-}
-
-// MySQLDSN loads credentials only when a command opens MySQL storage.
-// Validation intentionally checks the reference without reading its value.
-func (c Config) MySQLDSN() (string, error) {
-	if err := c.ValidateStorage(); err != nil {
-		return "", err
-	}
-	if c.Storage.Driver != "mysql" {
-		return "", fmt.Errorf("MySQL DSN requires storage.driver: mysql")
-	}
-	dsn := os.Getenv(c.Storage.DSNEnv)
-	if strings.TrimSpace(dsn) == "" {
-		return "", fmt.Errorf("MySQL DSN environment variable is missing")
-	}
-	return dsn, nil
 }
 
 func (c Config) ValidateRun() error {
@@ -329,22 +320,10 @@ func (c Config) ValidateAgently() error {
 	if c.Agently.Auth.Mode != "oob_session" {
 		return fmt.Errorf("agently.auth.mode must explicitly be oob_session")
 	}
-	if name := c.Agently.Auth.SecretsURLEnv; name != "" && !environmentName.MatchString(name) {
-		return fmt.Errorf("agently.auth.secrets_url_env must be an environment variable name")
+	if c.Agently.Auth.Secret.Validate() != nil {
+		return fmt.Errorf("agently.auth.secret requires a resource URL")
 	}
 	return nil
-}
-
-func (c Config) OOBSecretsReference() (string, error) {
-	name := c.Agently.Auth.SecretsURLEnv
-	if name == "" {
-		name = "AGENTLY_OOB_SECRETS"
-	}
-	ref := strings.TrimSpace(os.Getenv(name))
-	if ref == "" {
-		return "", fmt.Errorf("Agently OOB secret reference environment variable is missing")
-	}
-	return ref, nil
 }
 
 // ValidateSlack is shared by the live test and the real-adapter runtime.
@@ -376,15 +355,14 @@ func (c Config) ValidateSlack() error {
 	if _, err := c.Route(); err != nil {
 		return err
 	}
-	for _, name := range []string{c.Slack.AppTokenEnv, c.Slack.BotTokenEnv} {
-		if name != "" && !environmentName.MatchString(name) {
-			return fmt.Errorf("Slack token references must be environment variable names")
-		}
+	if c.Slack.AppTokenSecret.Validate() != nil {
+		return fmt.Errorf("slack.app_token_secret requires a resource URL")
+	}
+	if c.Slack.BotTokenSecret.Validate() != nil {
+		return fmt.Errorf("slack.bot_token_secret requires a resource URL")
 	}
 	return nil
 }
-
-var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type SlackTokens struct{ App, Bot string }
 
@@ -392,20 +370,28 @@ func (SlackTokens) String() string   { return "[Slack credentials redacted]" }
 func (SlackTokens) GoString() string { return "[Slack credentials redacted]" }
 
 // LoadSlackTokens is invoked only by an explicitly started Slack runtime.
-func (c Config) LoadSlackTokens() (SlackTokens, error) {
+func (c Config) LoadSlackTokens(ctx context.Context) (tokens SlackTokens, err error) {
+	defer func() {
+		if recover() != nil {
+			tokens, err = SlackTokens{}, fmt.Errorf("cannot decode Slack credentials")
+		}
+	}()
 	if err := c.ValidateSlack(); err != nil {
 		return SlackTokens{}, err
 	}
-	appEnv, botEnv := c.Slack.AppTokenEnv, c.Slack.BotTokenEnv
-	if appEnv == "" {
-		appEnv = "SLACK_APP_TOKEN"
+	app := *c.Slack.AppTokenSecret
+	appSecret, err := scy.New().Load(ctx, &app)
+	if err != nil || appSecret == nil {
+		return SlackTokens{}, fmt.Errorf("cannot load Slack app token")
 	}
-	if botEnv == "" {
-		botEnv = "SLACK_BOT_TOKEN"
+	bot := *c.Slack.BotTokenSecret
+	botSecret, err := scy.New().Load(ctx, &bot)
+	if err != nil || botSecret == nil {
+		return SlackTokens{}, fmt.Errorf("cannot load Slack bot token")
 	}
-	tokens := SlackTokens{App: os.Getenv(appEnv), Bot: os.Getenv(botEnv)}
+	tokens = SlackTokens{App: appSecret.String(), Bot: botSecret.String()}
 	if !strings.HasPrefix(tokens.App, "xapp-") || !strings.HasPrefix(tokens.Bot, "xoxb-") || strings.ContainsAny(tokens.App+tokens.Bot, " \r\n\t") {
-		return SlackTokens{}, fmt.Errorf("Slack token environment variables are missing or invalid")
+		return SlackTokens{}, fmt.Errorf("Slack token resources are invalid")
 	}
 	return tokens, nil
 }

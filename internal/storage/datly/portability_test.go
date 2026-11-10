@@ -22,7 +22,7 @@ func sharedFixture(t *testing.T, driver string) (storage.Store, *sql.DB) {
 	var dsn string
 	if driver == "mysql" {
 		dsn = storetest.MySQLDSN(t)
-		s, err := mysql.Open(ctx, dsn)
+		s, err := mysql.Open(ctx, dsn, nil)
 		storetest.Must(t, err)
 		store = s
 	} else {
