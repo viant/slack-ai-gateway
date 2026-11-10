@@ -13,10 +13,37 @@ gateway behavior remain independent of the configured Agently agent.
 
 ## Provision a local database
 
-The explicit Endly workflow requires Docker and Endly. From `e2e/`:
+The explicit Endly workflow requires Docker, Endly and local MySQL credentials.
+Prepare the credentials once before initializing the local fixture or using
+the default local connection for standalone Datly transcription/validation.
+
+First check whether `~/.secret/mysql-e2e.json` already exists. It may be shared
+with Agently Core or other local E2E workflows. Reuse it only when its credentials
+match the local gateway MySQL server; do not overwrite an existing shared file
+just to configure this project.
+
+If the credential file does not exist, create it through Endly:
 
 ```sh
-export AGENTLY_SLACK_MYSQL_PASSWORD='<local test password>'
+endly -c=mysql-e2e
+```
+
+Enter username `root` and password `dev` for the project's standard local
+fixture. Endly writes `~/.secret/mysql-e2e.json` and owns its credential encoding
+and encrypted-password loading. Do not handwrite a plaintext JSON credential
+file. For an existing MySQL volume, the password must match the one used when
+that volume was initialized; creating credentials does not change MySQL's password.
+
+If the existing shared credential belongs to another server, create a separate
+one with `endly -c=mysql-slack-e2e` and select it with
+`mysqlCred=mysql-slack-e2e.json` on the initialization, transcription and
+validation commands below. `mysqlCred=/absolute/path/another.json` is also
+supported. Keep the shared file intact; see the
+[credential setup examples](../e2e/mysql/README.md#create-local-credentials-once).
+
+Then, from `e2e/`:
+
+```sh
 endly -t=init
 ```
 
@@ -43,15 +70,18 @@ storage:
 ```
 
 `dsn_env` names an environment variable; it is not the DSN itself. Do not set
-`storage.path` with MySQL. A local DSN has this form:
+`storage.path` with MySQL. For the standard local fixture:
 
-```text
-username:password@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true
+```sh
+export AGENTLY_SLACK_MYSQL_DSN='root:dev@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true'
 ```
 
-Store the real value in a private environment/secret file outside version control,
-then load that environment before starting the gateway. Keep the Slack, access
+Use the actual password for an existing volume. Store the real value in a private
+environment/secret file outside version control, then load that environment
+before starting the gateway. Keep the Slack, access
 policy and Agently sections of the configuration as usual.
+The gateway runtime continues to read this DSN environment variable; it does not
+load the Endly E2E credential file.
 
 ```sh
 go run ./cmd/agently-slack-gateway validate-config --config /absolute/path/gateway.local.yaml
@@ -88,10 +118,18 @@ applies the DDL and transcribes the common graphs once. It validates them agains
 both MySQL and a temporary SQLite fixture, then runs the SQLite, MySQL and shared
 Datly storage suites. Each live MySQL test receives its own database. The disposable
 container and storage are removed afterward. This does not reset the persistent
-database on port 3309 and requires no Slack or Agently credentials.
+database on port 3309 and requires neither the personal MySQL credential file
+nor Slack or Agently credentials.
 
-For generation or validation against an explicitly prepared discovery database,
-set `AGENTLY_SLACK_MYSQL_DSN`, then use `endly -r=transcribe` or
-`endly -r=validate`. Ordinary `go test ./...` skips live MySQL tests unless
+For generation or validation against the initialized local fixture, use
+`endly -r=transcribe` or `endly -r=validate` from `e2e/datly/`. They load the
+local E2E credentials through Endly and connect to
+`127.0.0.1:3309/agently_steward_slack`. These commands do not start MySQL.
+Their default credential name is `mysql-e2e.json`; use `mysqlCred` to choose
+another file. An explicit `dsn` workflow parameter takes precedence over a
+nonempty `AGENTLY_SLACK_MYSQL_DSN`; either overrides the discovery connection
+and bypasses the personal credential file, without changing local initialization.
+The gateway runtime still requires its configured DSN environment variable.
+Ordinary `go test ./...` skips live MySQL tests unless
 `AGENTLY_SLACK_MYSQL_TEST_DSN` is set. Details and test-user requirements are in
 the [Datly workflow instructions](../e2e/datly/README.md).

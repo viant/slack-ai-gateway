@@ -3,16 +3,18 @@ init:
     when: $params.projectRoot
     value: $params.projectRoot
     else: $WorkingDirectory(../..)
-  - name: connectorFile
-    when: $params.connectorFile
-    value: $params.connectorFile
-    else: ''
-  - name: prepareConnection
-    when: $params.connectorFile
-    value: false
-    else: true
-  - name: connectionDirectory
-    value: ''
+  - name: mysqlCred
+    when: $params.mysqlCred
+    value: $params.mysqlCred
+    else: mysql-e2e.json
+  - name: discoveryDriver
+    when: $params.driver
+    value: $params.driver
+    else: mysql
+  - name: discoveryDSN
+    when: $params.dsn
+    value: $params.dsn
+    else: $env.AGENTLY_SLACK_MYSQL_DSN
 
 pipeline:
   prerequisites:
@@ -22,25 +24,21 @@ pipeline:
       - command -v datly
       - command -v go
 
+  credentials:
+    when: $discoveryDSN = ''
+    action: exec:run
+    checkError: true
+    secrets:
+      gatewayMySQLCredentials: $mysqlCred
+    commands:
+      - export AGENTLY_SLACK_DISCOVERY_DSN='${gatewayMySQLCredentials.username}:${gatewayMySQLCredentials.password}@tcp(127.0.0.1:3309)/agently_steward_slack?parseTime=true'
+
   connection:
-    when: $prepareConnection
-    allocate:
-      action: exec:run
-      checkError: true
-      commands:
-        - mktemp -d "${TMPDIR:-/tmp}/slack-datly.XXXXXXXX"
-      '@extract':
-        - key: connectionDirectory
-          regExpr: '(?m)^(/[^\r\n]*slack-datly\.[^\r\n]+)$'
-          required: true
-    connector:
-      action: run
-      request: '@connection.yaml'
-      logging: false
-      params:
-        directory: $connectionDirectory
-      post:
-        connectorFile: ${connectionDirectory}/connectors.json
+    when: $discoveryDSN != ''
+    action: exec:run
+    checkError: true
+    commands:
+      - export AGENTLY_SLACK_DISCOVERY_DSN='$discoveryDSN'
 
   transcribe:
     action: exec:run
@@ -48,21 +46,14 @@ pipeline:
     checkError: true
     commands:
       - cd '$projectRoot'
-      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/bindings/read
-      - datly transcribe patch -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/bindings/write
-      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/deliveries/read
-      - datly transcribe patch -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/deliveries/write
-      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/operations/check
-      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/operations/notbefore
-      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/operations/status
-      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/read
-      - datly transcribe get -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/sessions/read
-      - datly transcribe patch -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/sessions/write
-      - datly transcribe patch -dir . -schema -connector slack -schema-connectors '$connectorFile' github.com/viant/agently-slack-gateway/dql/write
-
-  defer:
-    when: $prepareConnection
-    action: run
-    request: '@cleanup.yaml'
-    params:
-      directory: $connectionDirectory
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/bindings/read
+      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/bindings/write
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/deliveries/read
+      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/deliveries/write
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/operations/check
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/operations/notbefore
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/operations/status
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/read
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/sessions/read
+      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/sessions/write
+      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$AGENTLY_SLACK_DISCOVERY_DSN" github.com/viant/agently-slack-gateway/dql/write

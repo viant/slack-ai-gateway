@@ -2,7 +2,8 @@
 # Explicit, repeatable provisioning of this project's local MySQL fixture.
 set -euo pipefail
 
-: "${AGENTLY_SLACK_MYSQL_PASSWORD:?Export the local E2E MySQL password first}"
+: "${AGENTLY_SLACK_MYSQL_PASSWORD:?Run endly -t=init with the documented MySQL credentials}"
+mysql_user=${AGENTLY_SLACK_MYSQL_USER:-root}
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 container=mysql_agently_slack_gateway
 volume=agently_slack_gateway_mysql
@@ -31,7 +32,7 @@ fi
 export MYSQL_PWD="$AGENTLY_SLACK_MYSQL_PASSWORD"
 ready=false
 for ((attempt=1; attempt<=90; attempt++)); do
-  if docker exec --env MYSQL_PWD "$container" mysql --host=127.0.0.1 --protocol=tcp --user=root --execute='SELECT 1' >/dev/null 2>&1; then
+  if docker exec --env MYSQL_PWD "$container" mysql --host=127.0.0.1 --protocol=tcp --user="$mysql_user" --execute='SELECT 1' >/dev/null 2>&1; then
     ready=true
     break
   fi
@@ -40,6 +41,6 @@ done
 [ "$ready" = true ] || { echo "Local gateway MySQL did not become ready" >&2; exit 1; }
 
 docker exec --interactive --env MYSQL_PWD "$container" \
-  mysql --host=127.0.0.1 --protocol=tcp --user=root \
+  mysql --host=127.0.0.1 --protocol=tcp --user="$mysql_user" \
   < "$repo_root/script/mysql/schema_versioned.ddl"
 echo 'MySQL schema agently_steward_slack is ready on 127.0.0.1:3309.'

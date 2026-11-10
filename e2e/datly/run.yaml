@@ -98,27 +98,21 @@ pipeline:
     commands:
       - mysql --defaults-extra-file='${fixtureDirectory}/mysql.cnf' --binary-mode < '${projectRoot}/script/mysql/schema_versioned.ddl'
 
-  connection:
-    action: run
-    request: '@connection.yaml'
-    logging: false
-    params:
-      directory: $fixtureDirectory
-      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true
-
   transcribe:
     action: run
     request: '@transcribe.yaml'
     params:
       projectRoot: $projectRoot
-      connectorFile: ${fixtureDirectory}/connectors.json
+      driver: mysql
+      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true
 
   validateMySQL:
     action: run
     request: '@validate.yaml'
     params:
       projectRoot: $projectRoot
-      connectorFile: ${fixtureDirectory}/connectors.json
+      driver: mysql
+      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/agently_steward_slack?parseTime=true
 
   sqliteSchema:
     action: exec:run
@@ -128,21 +122,13 @@ pipeline:
       - cd '$projectRoot'
       - go run ./e2e/datly/schema '${fixtureDirectory}/schema.sqlite'
 
-  sqliteConnection:
-    action: run
-    request: '@connection.yaml'
-    logging: false
-    params:
-      directory: $fixtureDirectory
-      driver: sqlite3
-      dsn: ${fixtureDirectory}/schema.sqlite
-
   validateSQLite:
     action: run
     request: '@validate.yaml'
     params:
       projectRoot: $projectRoot
-      connectorFile: ${fixtureDirectory}/connectors.json
+      driver: sqlite3
+      dsn: ${fixtureDirectory}/schema.sqlite
 
   testEnvironment:
     logging: false

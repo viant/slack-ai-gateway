@@ -1,10 +1,17 @@
 # Explicit local provisioning; normal gateway startup never runs this workflow.
 init:
-  repoPath: $WorkingDirectory(./..)
+  - name: repoPath
+    value: $WorkingDirectory(./..)
+  - name: mysqlCred
+    when: $params.mysqlCred
+    value: $params.mysqlCred
+    else: mysql-e2e.json
 pipeline:
   init:
     action: run
     request: '@mysql/init'
+    params:
+      mysqlCred: $mysqlCred
   verify:
     action: run
     request: '@mysql/verify'

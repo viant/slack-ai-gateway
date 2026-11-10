@@ -1,7 +1,15 @@
+init:
+  - name: mysqlCred
+    when: $params.mysqlCred
+    value: $params.mysqlCred
+    else: mysql-e2e.json
+
 pipeline:
   provision:
     action: exec:run
     checkError: true
     timeoutMs: 240000
+    secrets:
+      gatewayMySQLCredentials: $mysqlCred
     commands:
-      - bash '${repoPath}/e2e/mysql/init.sh'
+      - env AGENTLY_SLACK_MYSQL_USER='${gatewayMySQLCredentials.username}' AGENTLY_SLACK_MYSQL_PASSWORD='${gatewayMySQLCredentials.password}' bash '${repoPath}/e2e/mysql/init.sh'

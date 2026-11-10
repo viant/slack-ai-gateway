@@ -38,7 +38,8 @@ MySQL and a temporary SQLite fixture, and runs the SQLite, MySQL and shared Datl
 storage suites. Each live MySQL test additionally gets its own database.
 The container, its anonymous storage and the SQLite fixture are removed afterward.
 This does not reset or use the persistent E2E database on port 3309. No Slack or
-Agently calls are made.
+Agently calls are made, and the personal `~/.secret/mysql-e2e.json` credential
+file is not required.
 
 Endly runs explicit stages for provisioning, readiness (up to 180 seconds),
 schema initialization, transcription, MySQL validation, SQLite fixture
@@ -55,17 +56,69 @@ sidecar files. Shared predicates live in `internal/datly/predicate`; the storage
 adapter, transactional workflow and native pilot tests stay in
 `internal/storage/datly`. Generation and validation commands below are unchanged.
 
-To regenerate or validate against an explicitly provisioned discovery database,
-set `AGENTLY_SLACK_MYSQL_DSN` in the environment, then run:
+## Standalone transcription and validation
+
+By default, these commands use the existing local MySQL fixture. Prepare its Endly
+credentials once before starting. Check whether `~/.secret/mysql-e2e.json`
+already exists; it may be shared with Agently Core or other E2E workflows.
+Reuse it when it matches the gateway server and do not overwrite it blindly.
+If it does not exist, run:
+
+```sh
+endly -c=mysql-e2e
+```
+
+Enter username `root` and password `dev` for the standard local fixture.
+Endly writes `~/.secret/mysql-e2e.json` and loads its stored credentials,
+including encrypted passwords, through its native credential support. Do not
+handwrite plaintext JSON credentials. For an existing MySQL volume, use its
+original password: a credential file does not change the server's password.
+
+The default credential name is `mysql-e2e.json`. If the existing shared file
+belongs to another server, create a separate credential with
+`endly -c=mysql-slack-e2e`, then pass `mysqlCred=mysql-slack-e2e.json` on the
+initialization and standalone generation/validation commands. An absolute
+credential path, such as `mysqlCred=/absolute/path/another.json`, is also
+supported. The [local MySQL instructions](../mysql/README.md) show the complete
+alternate-credential sequence.
+
+Initialize the server from `e2e/`:
+
+```sh
+endly -t=init
+```
+
+Then regenerate or validate from `e2e/datly/`:
 
 ```sh
 endly -r=transcribe
 endly -r=validate
 ```
 
-The workflow stores discovery credentials in a temporary private connector file,
-rather than command arguments. Generated Go and embedded SQL resources belong in
-the repository; edit their DQL sources rather than generated files.
+The default connection uses these Endly credentials with
+`127.0.0.1:3309/agently_steward_slack`. Both commands invoke the stock Datly CLI
+with `-driver` and `-dsn` directly. They do not create a temporary connector file,
+start Docker or run container cleanup. See the
+[local MySQL instructions](../mysql/README.md) for fixture lifecycle details.
+
+The discovery connection is selected in this order:
+
+1. An explicit `dsn` workflow parameter.
+2. A nonempty `AGENTLY_SLACK_MYSQL_DSN` environment variable.
+3. A local MySQL DSN built from the Endly credential selected by `mysqlCred`.
+
+An explicit DSN bypasses the personal credential file. `driver` defaults to
+`mysql` and can also be passed as a workflow parameter. The isolated full `run`
+workflow passes its own `driver` and `dsn` for MySQL and SQLite discovery;
+neither standalone commands nor full E2E create connector JSON files.
+Native Endly credential placeholders receive its secret masking in command
+logs. Direct DSN parameters and environment overrides use ordinary command
+logging; they are not implicitly masked.
+
+Generated Go and embedded SQL resources belong in the repository; edit their
+DQL sources rather than generated files. The gateway runtime independently
+continues to read its configured DSN environment variable; it does not use
+Endly's credential file.
 
 MySQL is the reference metadata source for generation, not a runtime requirement
 for SQLite. Changing `storage.driver` selects a connector; it does not require
@@ -81,14 +134,14 @@ particular, the native smoke-namespace predicate selects the original MySQL
 case/accent-insensitive collation or SQLite `LIKE` semantics from the invocation
 dialect; these spellings are not separate generated models.
 
-`transcribe` and `validate` only inspect the explicitly selected database; they
-do not apply DDL or reset its data. Both share the native Endly connection
-preparation in `connection.yaml`. The full `run` workflow supplies its own
-connector file, independently of any discovery DSN in your environment.
+`transcribe` and `validate` only inspect the selected database; they
+do not apply DDL or reset its data. The full `run` workflow supplies its own
+isolated MySQL and SQLite discovery connections, independently of the personal
+local E2E credentials.
 
-Endly `defer` tasks remove temporary credentials and the owned test container
-after success or an ordinary stage failure. The failing stage remains a failure
-even if cleanup also fails. Forced process termination, including `SIGKILL`,
+In the full `run` workflow, Endly `defer` tasks remove temporary credentials and
+the owned test container after success or an ordinary stage failure. The failing
+stage remains a failure even if cleanup also fails. Forced process termination, including `SIGKILL`,
 cannot guarantee cleanup; normal completion and reported workflow errors are
 the supported cleanup paths.
 

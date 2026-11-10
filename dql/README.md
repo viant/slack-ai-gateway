@@ -30,9 +30,27 @@ endly -r=validate
 endly -r=run
 ```
 
-`transcribe` and `validate` use an explicitly configured discovery database;
+For the default local `transcribe` or `validate`, prepare the E2E credentials
+with `endly -c=mysql-e2e` if `~/.secret/mysql-e2e.json` does not already exist.
+Use username `root` and password `dev` for the standard fixture, or the original
+password of an existing MySQL volume. Do not overwrite a shared existing file;
+Endly owns credential creation and encrypted-password loading. Initialize the
+server with `endly -t=init` from `e2e/`. See the
+[local MySQL instructions](../e2e/mysql/README.md) for the complete setup.
+If the shared credential belongs to another server, create a separate one with
+`endly -c=mysql-slack-e2e` and pass `mysqlCred=mysql-slack-e2e.json` to local
+initialization and standalone transcription/validation.
+
+`transcribe` and `validate` use those credentials and the initialized local MySQL
+fixture by default. They invoke the stock Datly CLI directly without provisioning
+Docker or creating temporary connector files.
+An explicit `dsn` workflow parameter takes precedence over a nonempty
+`AGENTLY_SLACK_MYSQL_DSN`; either overrides the discovery connection and bypasses
+the personal credential file. The full workflow passes its own driver and DSN
+directly, without connector JSON files.
 `run` provisions an isolated fixture and performs generation, validation and
-runtime tests. MySQL remains the reference metadata source for generation. The
-same generated components execute against SQLite and MySQL without regenerating
+runtime tests without requiring personal MySQL credentials. MySQL remains the
+reference metadata source for generation. The same generated components execute
+against SQLite and MySQL without regenerating
 when the runtime driver changes. See the [workflow instructions](../e2e/datly/README.md)
 for credentials, prerequisites and fixture isolation.

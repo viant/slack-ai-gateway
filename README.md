@@ -165,6 +165,12 @@ components once, validates them against MySQL and SQLite, and runs both storage
 suites. Ordinary SQLite use requires neither the Datly CLI nor Docker.
 See the [Datly workflow](e2e/datly/README.md).
 
+Default transcription/validation against the persistent local MySQL fixture
+requires a one-time Endly credential setup. Follow the
+[local MySQL instructions](e2e/mysql/README.md) before `endly -t=init`,
+`endly -r=transcribe` or `endly -r=validate`. The isolated full E2E workflow
+uses its own credentials. Gateway runtime DSNs remain environment-based.
+
 Authoritative Datly contracts and their SQL assets live in [`dql/`](dql/README.md).
 Transcription generates components and embedded SQL under `internal/datly/`;
 application-owned sidecars and shared predicates remain alongside those
