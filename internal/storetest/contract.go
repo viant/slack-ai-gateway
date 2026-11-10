@@ -76,6 +76,7 @@ func ready(t *testing.T, s gateway.Store, j *gateway.Job) *gateway.Binding {
 }
 
 func Run(t *testing.T, open func(*testing.T) Fixture) {
+	runBackendOutage(t, open)
 	ctx := context.Background()
 	t.Run("workspace_cooldown_is_durable_and_covers_new_threads", func(t *testing.T) {
 		f := open(t)

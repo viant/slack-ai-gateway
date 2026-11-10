@@ -28,11 +28,20 @@ WHERE j.next_attempt_at <= $Now AND (
 ORDER BY j.id LIMIT 1
 #elseif($Mode == "status")
 ${embed:status.sql}
+#elseif($Mode == "backend_status")
+${embed:status.sql}
 #elseif($Mode == "recover_status")
 WHERE EXISTS(SELECT 1 FROM request_status s WHERE s.job_id=j.id AND s.state='sending')
 ORDER BY j.id
 #elseif($Mode == "recover")
 WHERE j.state IN ('processing','querying')
+ORDER BY j.id
+#elseif($Mode == "unstarted")
+WHERE j.state IN ('pending','processing') AND j.turn_id = ''
+AND NOT EXISTS (
+ SELECT 1 FROM conversation_bindings b
+ WHERE b.id = j.binding_id AND b.state IN ('creating','needs_review')
+)
 ORDER BY j.id
 #elseif($Mode == "key")
 WHERE ($ID <> 0 OR $AppID <> '' OR $WorkspaceID <> '' OR $RequestID <> '')

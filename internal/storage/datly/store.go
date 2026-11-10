@@ -194,6 +194,9 @@ func (s *Store) ResolveDelivery(ctx context.Context, id int64, action, ts string
 func (s *Store) Complete(ctx context.Context, id int64, turn, result string, parts []gateway.ReplyPart) error {
 	return s.apply(ctx, &workflow.Input{Action: "complete", ID: id, TurnID: turn, Text: result, Parts: parts})
 }
+func (s *Store) FailUnstarted(ctx context.Context, reason string) error {
+	return s.apply(ctx, &workflow.Input{Action: "fail_unstarted", Text: reason})
+}
 func (s *Store) RecordObservation(ctx context.Context, id int64, state string, at time.Time) error {
 	return s.apply(ctx, &workflow.Input{Action: "observe", ID: id, Text: state, At: at})
 }

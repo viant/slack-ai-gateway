@@ -91,11 +91,37 @@ Cookie-authenticated mutations send the destination's scheme and authority as
 `Origin`, excluding its base path. HTTPS is required outside loopback; redirects
 are disabled and normal TLS verification remains enabled.
 
-Authentication or identity rejection invalidates the clients and stops the runtime.
-There is no automatic relogin, account switching or query replay. Agently owns
-backend token refresh. A successful `/me` check does not prove downstream token
-refresh or tool permissions. `check-agently` verifies only identity and agent
-listing, and can create server authentication state but no conversation.
+One gateway-owned connection manager shares authentication across workers and
+publishes `starting`, `ready`, `recovering` or `blocked`. Slack connectivity and
+outbound delivery continue independently. Readiness requires the expected `/me`
+subject and session provider, protected workspace metadata and the configured
+agent. Healthy sessions are probed every 30 seconds. A successful `/me` alone
+does not establish protected API access or downstream tool permissions.
+
+Recovery first verifies the existing cookie session, allowing Agently's native
+token refresh to run. A protected `401` retains the native refresh cooldown of
+at least 30 seconds; it does not immediately repeat OOB login. A new OOB flow is
+attempted only when `/me` confirms the cookie session is missing. Authentication
+is serialized, and stale worker clients cannot invalidate a newer verified
+generation. A query-specific `403` remains a local access/review error.
+
+Network failures, timeouts, `408`, `429` and server errors retry verification or
+authentication with exponential intervals around 1, 2, 4, 8, 16 and 30 seconds,
+with jitter and any longer `Retry-After` respected. Each attempt is bounded by
+90 seconds. Invalid credentials, identity mismatches and other permanent
+authentication failures enter `blocked`; correct the cause and restart the
+gateway. Invalid local credential references or unreadable credentials fail
+before runtime startup. No account switching or credential hot reload is provided.
+
+Recovery never repeats conversation creation or a chat POST. Unsubmitted questions
+finish locally with a durable Slack notice and never run after recovery. Started
+requests attach/read using the original correlation and 15-minute deadline;
+uncertain creation still requires review. These behaviors are implemented only
+in the gateway; Core session, refresh and SDK contracts are unchanged.
+
+`check-agently` remains a bounded, one-shot identity and protected agent-listing
+diagnostic. It can create server authentication state but no conversation; it
+does not start the recovery loop or contact Slack.
 
 Login is bounded by 90 seconds overall and 30 seconds per HTTP request. JSON
 support/transcript responses are limited to 8 MiB; oversized conversations require

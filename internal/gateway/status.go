@@ -57,6 +57,7 @@ type RequestStatus struct {
 	ObservedState string
 	ObservedAt    time.Time
 	Terminal      bool
+	Submitted     bool
 }
 
 type StatusSender interface {
@@ -76,7 +77,8 @@ type StatusResult struct {
 
 type StatusStore interface {
 	RecordObservation(context.Context, int64, string, time.Time) error
-	// kind is urgent, heartbeat, or terminal (shutdown only).
+	// kind is urgent, heartbeat, backend_recovering, backend_blocked, or
+	// terminal (legacy authentication shutdown only).
 	ClaimStatus(context.Context, time.Time, string) (*RequestStatus, error)
 	GetStatusContext(context.Context, RequestStatus) (*DeliveryContext, error)
 	FinishStatus(context.Context, RequestStatus, StatusResult, time.Time) error
@@ -87,15 +89,18 @@ func StatusText(s RequestStatus, now time.Time) string {
 		"received":           "Received your request. Waiting to start.",
 		"queued":             "Your request is queued behind an earlier request in this thread.",
 		"blocked":            "This request is blocked by an earlier request that needs operator attention.",
-		"contacting":         "Contacting Agently…",
-		"running":            "Agently is working on your request.",
-		"backend_queued":     "Agently has queued your request.",
+		"contacting":         "Contacting Viant Steward…",
+		"running":            "Viant Steward is working on your request.",
+		"backend_queued":     "Viant Steward has queued your request.",
+		"backend_recovering": "Connection to Viant Steward is temporarily unavailable. We are checking your existing request; it will not be submitted again.",
+		"backend_blocked":    "Connection to Viant Steward requires administrator attention. Your existing request will not be submitted again.",
+		"not_submitted":      "This question was not submitted to Viant Steward. Please try again after the connection is restored.",
 		"checking":           "Checking the request status.",
 		"delivering":         "The response is ready. Delivering it to this thread…",
 		"delivered":          "The response has been posted below.",
 		"completed":          "Completed. The response has been posted below.",
-		"failed":             "Agently could not complete this request.",
-		"canceled":           "Agently canceled this request.",
+		"failed":             "Viant Steward could not complete this request.",
+		"canceled":           "Viant Steward canceled this request.",
 		"needs_review":       "This request needs operator attention. It will not be retried automatically.",
 		"delivery_uncertain": "The response could not be fully confirmed as delivered. Operator attention is required.",
 	}[s.Phase]
@@ -113,6 +118,7 @@ type StatusWorker struct {
 	Store           StatusStore
 	Sender          StatusSender
 	Policy          DeliveryPolicy
+	Backend         BackendAvailability
 	Now             func() time.Time
 	RefreshInterval time.Duration
 	OnStatus        func(RequestStatus, StatusResult, time.Time)
@@ -126,6 +132,14 @@ func (w *StatusWorker) now() time.Time {
 }
 
 func (w *StatusWorker) Step(ctx context.Context, kind string) (bool, error) {
+	if w.Backend != nil && kind != "terminal" {
+		switch w.Backend.State() {
+		case BackendStarting, BackendRecovering:
+			kind = "backend_recovering"
+		case BackendBlocked:
+			kind = "backend_blocked"
+		}
+	}
 	s, err := w.Store.ClaimStatus(ctx, w.now(), kind)
 	if err != nil || s == nil {
 		return false, err
@@ -160,8 +174,17 @@ func (w *StatusWorker) Step(ctx context.Context, kind string) (bool, error) {
 		return true, ErrMetadataUnavailable
 	}
 	text := ""
+	visible := *s
+	if w.Backend != nil && s.Submitted && !s.Terminal && s.Phase != "delivering" {
+		switch w.Backend.State() {
+		case BackendStarting, BackendRecovering:
+			visible.Phase = "backend_recovering"
+		case BackendBlocked:
+			visible.Phase = "backend_blocked"
+		}
+	}
 	if s.Target != StatusTargetAgentSession {
-		text = StatusText(*s, w.now())
+		text = StatusText(visible, w.now())
 	}
 	receipt, sendErr := w.Sender.SendStatus(ctx, *s, text)
 	result := StatusResult{State: "ready", SlackTS: receipt.SlackTS, Acknowledged: receipt.Acknowledged, AgentStatus: receipt.AgentStatus, SessionStatus: receipt.SessionStatus, Warning: receipt.Warning}

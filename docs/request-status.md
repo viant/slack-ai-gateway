@@ -1,6 +1,6 @@
 # Request status
 
-The gateway reports progress while waiting for Agently, then sends completed
+The gateway reports progress while waiting for Viant Steward, then sends completed
 answers through the durable outbox. It does not stream answer text to Slack.
 
 ```yaml
@@ -39,6 +39,9 @@ can delay updates.
 | `contacting` | Local work or HTTP request started; no confirmed running state |
 | `backend_queued`, `running` | The correlated Agently turn confirmed this state |
 | `checking` | Observation failed or the last confirmation is over 60 seconds old |
+| `backend_recovering` | Connection unavailable; existing submitted request will be checked without resubmission |
+| `backend_blocked` | Connection requires administrator attention; existing request will not be resubmitted |
+| `not_submitted` | Question finished locally during an outage; it will never execute automatically |
 | `delivering` | Final parts are persisted but not all confirmed delivered |
 | `completed` | Agently succeeded and every final part is delivered |
 | `failed`, `canceled` | Agently confirmed failure or cancellation |
@@ -54,8 +57,15 @@ does not cancel remote execution.
 ## Native agent sessions
 
 `agent_session` uses the Slack SDK's `SetAgentSessionStatusContext` for the channel
-and root thread timestamp. It creates no ordinary progress message, custom phase
-or elapsed text. `hybrid` publishes both the native indicator and the message.
+and root thread timestamp. Normal progress uses the native indicator without an
+ordinary message, custom phase or elapsed text. `hybrid` publishes both the native
+indicator and the message.
+
+A backend connection outage is an exception: an already submitted request also
+gets one ordinary progress message explaining the connection problem. Further
+updates, including completion, edit that same message. Questions that were not
+submitted get an ordinary durable reply in every status mode. This makes the
+required user action visible even when a native indicator cannot explain it.
 
 | Current thread facts | Native state |
 | --- | --- |
@@ -112,10 +122,14 @@ never bypasses authorization. See [access policy](access-policy.md).
 | Deleted/uneditable message or permanent rejection | `failed`; no replacement message |
 | Valid `429` | Persist retry/cooldown across restart |
 | Slack authentication/metadata unavailable | Preserve work and stop safely |
-| Agently authentication rejected | Stop queries; best-effort terminal notices within shutdown grace |
+| Temporary Viant Steward/IdP failure | Keep Slack connected, recover authentication and observe started requests without replay |
+| Permanent Viant Steward authentication/identity failure | Keep Slack connected in `blocked`; administrator fixes the cause and restarts |
+| New/unstarted question while backend unavailable | Persist a not-submitted reply; never run it automatically later |
 
 Status failure or ambiguity does not block the final outbox. Restart reprojects
-current facts instead of replaying missed progress messages. Authentication-failure
-shutdown does not drain queries or final replies or extend the 30-second grace.
+current facts instead of replaying missed progress messages. Backend recovery
+retains each submitted request's original reconciliation deadline and identifiers;
+it does not cancel remote execution or send the prompt again. Outage notices use
+the same policy checks, sender pacing and durable delivery rules as other replies.
 For final delivery ambiguity and job review states, see [operations](operations.md).
 Final answer formatting is described separately in [response presentation](response-presentation.md).

@@ -14,8 +14,9 @@ var (
 	// ErrBackendProtocol marks an unsafe identity/response or permanent API failure.
 	// Transient errors are reconciled by read-only polling, never query replay.
 	ErrBackendProtocol = errors.New("backend response requires review")
-	// ErrBackendAuth is fatal across all workers, unlike a single bad response.
-	ErrBackendAuth         = errors.New("Agently session or execution identity rejected; restart requires authentication")
+	// ErrBackendAuth is handled by the shared backend connection lifecycle.
+	ErrBackendAuth         = errors.New("Viant Steward session or execution identity rejected")
+	ErrBackendUnavailable  = errors.New("Viant Steward is temporarily unavailable")
 	ErrSlackAuth           = errors.New("Slack credentials rejected; runtime stopped")
 	ErrMetadataUnavailable = errors.New("Slack policy metadata unavailable")
 )
@@ -58,6 +59,9 @@ type Message struct {
 	Deleted        bool
 	ExternalShared bool
 	HasAttachments bool
+	// BackendReason is a local intake disposition, never supplied by Slack or
+	// an AI model. Storage persists the terminal notice and event atomically.
+	BackendReason string
 }
 
 type Decision struct {
@@ -165,6 +169,46 @@ type AgentlyClientFactory interface {
 	ForPrincipal(context.Context, string) (AgentlyClient, error)
 }
 
+type BackendState string
+
+const (
+	BackendStarting   BackendState = "starting"
+	BackendReady      BackendState = "ready"
+	BackendRecovering BackendState = "recovering"
+	BackendBlocked    BackendState = "blocked"
+)
+
+type BackendAvailability interface {
+	State() BackendState
+}
+
+// BackendLifecycle owns one shared authentication/recovery flow. WithReady
+// serializes durable start markers against a transition out of readiness;
+// callers never perform network operations inside its callback.
+type BackendLifecycle interface {
+	BackendAvailability
+	AgentlyClientFactory
+	Run(context.Context) error
+	WithReady(func() error) error
+}
+
+func BackendReason(state BackendState) string {
+	if state == BackendReady {
+		return ""
+	}
+	if state == BackendBlocked {
+		return "backend_blocked"
+	}
+	return "backend_unavailable"
+}
+
+func BackendNotice(reason string) string {
+	if reason == "backend_blocked" {
+		return "Viant Steward is currently unavailable. An administrator needs to resolve the connection issue. Your question was not submitted. Please try again after the connection is restored."
+	}
+	return "Viant Steward is temporarily unavailable. Your question was not submitted. Please try again later."
+}
+
 // SlackSender receives a persisted reply, never a model instruction to publish.
 type SlackSender interface {
 	Send(context.Context, Delivery) (string, error)
@@ -175,6 +219,9 @@ type SlackSender interface {
 type Store interface {
 	StatusStore
 	Enqueue(context.Context, Message) (bool, error)
+	// FailUnstarted atomically ends unsubmitted work with a durable Slack notice.
+	// Started/uncertain external operations are left for read-only reconciliation.
+	FailUnstarted(context.Context, string) error
 	GetBinding(context.Context, ThreadKey) (*Binding, error)
 	ClaimJob(context.Context) (*Job, error)
 	BindJob(context.Context, int64, Decision) (*Binding, error)

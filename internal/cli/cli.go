@@ -19,14 +19,16 @@ import (
 )
 
 type dependencies struct {
-	login     func(context.Context, string, string, string, string) (gateway.AgentlyClientFactory, error)
-	connect   func(context.Context, config.SlackTokens, gateway.Route, *slog.Logger) (runner.Source, gateway.SlackSender, error)
-	directory func(config.SlackTokens, gateway.Route) gateway.SlackDirectory
-	openMySQL func(context.Context, string) (storage.Store, error)
+	login          func(context.Context, string, string, string, string) (gateway.AgentlyClientFactory, error)
+	validateSecret func(context.Context, string) error
+	connect        func(context.Context, config.SlackTokens, gateway.Route, *slog.Logger) (runner.Source, gateway.SlackSender, error)
+	directory      func(config.SlackTokens, gateway.Route) gateway.SlackDirectory
+	openMySQL      func(context.Context, string) (storage.Store, error)
 }
 
 func Execute(ctx context.Context, args []string, out io.Writer) error {
 	return execute(ctx, args, out, dependencies{
+		validateSecret: agently.ValidateOOBReference,
 		login: func(ctx context.Context, base, principal, agent, ref string) (gateway.AgentlyClientFactory, error) {
 			return agently.LoginOOB(ctx, base, principal, agent, ref)
 		},
@@ -115,7 +117,7 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(report)
 	}
-	login := func() (gateway.AgentlyClientFactory, error) {
+	login := func(loginCtx context.Context) (gateway.AgentlyClientFactory, error) {
 		if err := c.ValidateAgently(); err != nil {
 			return nil, err
 		}
@@ -123,13 +125,13 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 		if err != nil {
 			return nil, err
 		}
-		return deps.login(ctx, c.Agently.BaseURL, c.Agently.PrincipalID, c.Agently.AgentID, ref)
+		return deps.login(loginCtx, c.Agently.BaseURL, c.Agently.PrincipalID, c.Agently.AgentID, ref)
 	}
 	if command == "check-agently" {
-		if _, err = login(); err != nil {
+		if _, err = login(ctx); err != nil {
 			return err
 		}
-		_, err = fmt.Fprintln(out, "Agently session identity and configured agent verified. No conversation, query or Slack call was made. Tool permissions are not verified.")
+		_, err = fmt.Fprintln(out, "Viant Steward session identity and configured agent verified. No conversation, query or Slack call was made. Tool permissions are not verified.")
 		return err
 	}
 	if err = c.ValidateStorage(); err != nil {
@@ -176,12 +178,19 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 	if err != nil {
 		return err
 	}
-	clients, err := login()
+	ref, err := c.OOBSecretsReference()
 	if err != nil {
 		return err
 	}
+	if deps.validateSecret != nil {
+		if err = deps.validateSecret(ctx, ref); err != nil {
+			return err
+		}
+	}
 	log := slog.New(slog.NewTextHandler(out, nil))
-	log.Info("agently_preflight", "state", "verified")
+	backend := agently.NewManager(login, func(ctx context.Context, state gateway.BackendState) error {
+		return s.FailUnstarted(ctx, gateway.BackendReason(state))
+	}, log)
 	source, sender, err := deps.connect(ctx, tokens, route, log)
 	if err != nil {
 		return err
@@ -190,7 +199,7 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 	if deps.directory != nil {
 		directory = deps.directory(tokens, route)
 	}
-	runtime := runner.Runtime{StatusMode: c.StatusMode(), StatusRefreshInterval: c.StatusRefreshInterval(), Store: s, Route: route, Clients: clients, Source: source, Sender: sender, AgentID: c.Agently.AgentID, Log: log,
+	runtime := runner.Runtime{StatusMode: c.StatusMode(), StatusRefreshInterval: c.StatusRefreshInterval(), Store: s, Route: route, Backend: backend, Source: source, Sender: sender, AgentID: c.Agently.AgentID, Log: log,
 		ResponseMode: c.ResponseMode(), AgentlyBaseURL: c.Agently.BaseURL,
 		Policy: gateway.ConfiguredPolicy{Route: route, PrincipalID: c.Agently.PrincipalID, Directory: directory}}
 	return runtime.Run(ctx)

@@ -13,11 +13,11 @@ import (
 // execution and delivery facts. It does not infer backend progress from time.
 type statusProjection struct {
 	gateway.RequestStatus
-	jobState, outcome, previousPhase string
-	uncertain                        bool
-	refreshAt, sentRevision          int64
-	pending, delivered, bad          int
-	earlier, blocked                 bool
+	jobState, outcome, previousPhase, reason string
+	uncertain                                bool
+	refreshAt, sentRevision                  int64
+	pending, delivered, bad                  int
+	earlier, blocked                         bool
 }
 
 func (p statusProjection) phase(now time.Time) (string, bool) {
@@ -29,6 +29,9 @@ func (p statusProjection) phase(now time.Time) (string, bool) {
 	case "completed":
 		if p.bad > 0 {
 			return "delivery_uncertain", true
+		}
+		if localBackendFailure(p.reason) {
+			return "not_submitted", true
 		}
 		if p.pending > 0 {
 			return "delivering", false
@@ -96,6 +99,11 @@ func (e *execution) recordObservation(ctx context.Context, in *Input, _ *Output)
 	if len(rows) == 0 || rows[0].Status == nil {
 		return nil
 	}
+	if rows[0].State == "completed" && localBackendFailure(rows[0].Reason) {
+		// A stale worker observation cannot convert a local rejection into a
+		// successful remote execution.
+		return gateway.ErrBackendUnavailable
+	}
 	job, status := statusPatch(rows[0].Id)
 	status.SetUpdatedAt(int(in.At.UnixMilli()))
 	if in.Text == "unknown" {
@@ -112,6 +120,11 @@ func (e *execution) recordObservation(ctx context.Context, in *Input, _ *Output)
 }
 
 func (e *execution) claimStatus(ctx context.Context, in *Input, out *Output) error {
+	if backendStatusKind(in.Kind) {
+		var err error
+		out.Status, err = e.claimMessageStatus(ctx, in.At, in.Kind)
+		return err
+	}
 	if in.Kind != "urgent" && in.Kind != "heartbeat" && in.Kind != "terminal" {
 		return gateway.ErrConflict
 	}
@@ -138,11 +151,11 @@ func projectMessageStatus(j *graphread.Job, now time.Time) statusProjection {
 		RequestStatus: gateway.RequestStatus{
 			JobID:     int64(j.Id),
 			ThreadKey: gateway.ThreadKey{WorkspaceID: j.WorkspaceId, ChannelID: j.ChannelId, RootTS: j.RootThreadTs},
-			MessageTS: j.MessageTs, Mode: gateway.StatusMode(s.Mode), Target: gateway.StatusTargetMessage,
+			MessageTS: j.MessageTs, Mode: gateway.StatusMode(s.Mode), Target: gateway.StatusTargetMessage, Submitted: j.TurnId != "",
 			Surface: gateway.MessageSurface(j.MessageSurface), SlackTS: s.SlackTs,
 			Revision: int64(s.Revision), CreatedAt: time.UnixMilli(int64(j.CreatedAt)), ObservedState: s.ObservedState,
 		},
-		jobState: j.State, outcome: s.Outcome, previousPhase: s.Phase,
+		jobState: j.State, outcome: s.Outcome, previousPhase: s.Phase, reason: j.Reason,
 		uncertain: s.ObservationUncertain != 0, refreshAt: int64(s.RefreshAt), sentRevision: int64(s.SentRevision),
 		earlier: j.Earlier != 0, blocked: j.Blocked != 0,
 	}
@@ -166,6 +179,9 @@ func projectMessageStatus(j *graphread.Job, now time.Time) statusProjection {
 func (e *execution) claimMessageStatus(ctx context.Context, now time.Time, kind string) (*gateway.RequestStatus, error) {
 	input := &graphread.Input{}
 	input.SetMode("status")
+	if backendStatusKind(kind) {
+		input.SetMode("backend_status")
+	}
 	input.SetNow(now.UnixMilli())
 	rows, err := e.readJobs(ctx, input, true)
 	if err != nil {
@@ -181,6 +197,12 @@ func (e *execution) claimMessageStatus(ctx context.Context, now time.Time, kind 
 			continue
 		}
 		p := projectMessageStatus(j, now)
+		if backendStatusKind(kind) && !p.Terminal && p.jobState != "completed" {
+			if !p.Submitted {
+				continue
+			}
+			p.Phase = kind
+		}
 		if p.jobState == "rejected" || (p.SlackTS == "" && p.jobState == "completed") {
 			job, status := statusPatch(j.Id)
 			status.SetState("skipped")
@@ -190,6 +212,9 @@ func (e *execution) claimMessageStatus(ctx context.Context, now time.Time, kind 
 			continue
 		}
 		urgent := p.SlackTS == "" || p.Phase != p.previousPhase || p.Revision > p.sentRevision
+		if backendStatusKind(kind) && !urgent && (p.Terminal || p.refreshAt > now.UnixMilli()) {
+			continue
+		}
 		if kind == "terminal" && (!p.Terminal || !urgent) {
 			continue
 		}
@@ -229,7 +254,11 @@ func (e *execution) getStatusContext(ctx context.Context, in *Input, out *Output
 	}
 	switch s.Target {
 	case gateway.StatusTargetMessage:
-		if (s.Mode != gateway.StatusMessage && s.Mode != gateway.StatusHybrid) || j.Status.State != "sending" || int64(j.Status.Revision) != s.Revision || j.Status.SlackTs != s.SlackTS {
+		// The claimed outage phase owns the first fallback publication even
+		// when execution completes before its Slack message is sent.
+		fallback := s.Mode == gateway.StatusAgentSession && (j.Status.SlackTs != "" ||
+			(j.TurnId != "" && backendStatusKind(s.Phase) && j.Status.Phase == s.Phase))
+		if (s.Mode != gateway.StatusMessage && s.Mode != gateway.StatusHybrid && !fallback) || j.Status.State != "sending" || int64(j.Status.Revision) != s.Revision || j.Status.SlackTs != s.SlackTS {
 			return gateway.ErrConflict
 		}
 	case gateway.StatusTargetAgentSession:

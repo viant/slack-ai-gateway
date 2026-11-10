@@ -34,6 +34,9 @@ type Factory struct {
 	http    *http.Client
 	tokens  TokenProvider
 	session *sessionIdentity
+	// Installed before publication by Manager. It prevents a stale worker from
+	// sending a request after the shared connection generation has changed.
+	guard func() error
 }
 
 var _ gateway.AgentlyClientFactory = (*Factory)(nil)
@@ -81,8 +84,9 @@ type Client struct {
 // APIError never includes response bodies, URLs, tokens, prompts or raw transport
 // errors. Permanent response failures require operator review, not another POST.
 type APIError struct {
-	Status    int
-	Permanent bool
+	Status     int
+	Permanent  bool
+	RetryAfter time.Duration
 }
 
 func (e *APIError) Error() string { return "Agently API request failed" }
@@ -164,16 +168,17 @@ type classifiedTransport struct {
 }
 
 func (t classifiedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if guard := t.client.factory.guard; guard != nil {
+		if err := guard(); err != nil {
+			return nil, err
+		}
+	}
 	response, err := t.base.RoundTrip(req)
 	if err != nil {
 		return nil, &APIError{}
 	}
 	c := t.client
 	if c.factory.session != nil {
-		if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
-			response.Body.Close()
-			return nil, c.factory.rejectIdentity()
-		}
 		if c.factory.session.invalid.Load() {
 			response.Body.Close()
 			return nil, gateway.ErrBackendAuth
@@ -183,7 +188,7 @@ func (t classifiedTransport) RoundTrip(req *http.Request) (*http.Response, error
 		code := response.StatusCode
 		response.Body.Close()
 		transient := code >= 500 || code == 408 || code == 429 || (code == 404 && req.Method == http.MethodGet)
-		return nil, &APIError{Status: code, Permanent: !transient}
+		return nil, &APIError{Status: code, Permanent: !transient, RetryAfter: retryAfter(response.Header.Get("Retry-After"), time.Now())}
 	}
 	// Content type belongs to the existing HTTP boundary; the SDK handles framing.
 	if req.Header.Get("Accept") == "text/event-stream" {

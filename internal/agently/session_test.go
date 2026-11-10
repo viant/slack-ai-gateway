@@ -87,6 +87,11 @@ func (f *loginFixture) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.URL.Path {
 	case "/v1/api/auth/oauth/config":
+		if mode == "discovery_unavailable" {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		discovery.ConfigURL = f.configRef
 		write(map[string]any{"data": discovery})
 	case "/authorize":
@@ -111,6 +116,11 @@ func (f *loginFixture) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		if mode == "bad_password" {
 			http.Error(w, "secret-marker-password", 401)
+			return
+		}
+		if mode == "idp_unavailable" {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		f.mu.Lock()
@@ -211,6 +221,18 @@ func (f *loginFixture) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			write(map[string]string{"subject": subject, "provider": provider})
 		case "/v1/workspace/metadata":
+			if mode == "metadata_unauthorized" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if mode == "metadata_unavailable" {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			if mode == "metadata_forbidden" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
 			agent := "steward"
 			if mode == "missing_agent" {
 				agent = "other"
@@ -501,7 +523,7 @@ func TestInlineOAuthConfigAndMalformedSecrets(t *testing.T) {
 }
 
 func TestSessionRejectionPoisonsAllClients(t *testing.T) {
-	for _, mode := range []string{"revoked", "forbidden", "wrong_subject", "wrong_provider", "wrong_owner", "wrong_agent", "expired", "wrong_principal", "smoke"} {
+	for _, mode := range []string{"forbidden", "wrong_subject", "wrong_provider", "wrong_owner", "wrong_agent", "wrong_principal", "smoke"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newLoginFixture(t)
 			factory, err := f.login()
@@ -510,10 +532,6 @@ func TestSessionRejectionPoisonsAllClients(t *testing.T) {
 			storetest.Must(t, err)
 			f.mode.Store(mode)
 			id := "c"
-			if mode == "expired" {
-				u, _ := url.Parse(f.server.URL)
-				factory.http.Jar.SetCookies(u, []*http.Cookie{{Name: "agently_session", Path: "/", MaxAge: -1}})
-			}
 			if mode == "wrong_principal" {
 				_, err = factory.ForPrincipal(context.Background(), "other")
 				if !errors.Is(err, gateway.ErrBackendAuth) {
@@ -570,7 +588,7 @@ func TestSessionWorkerReconcilesAfterRestartWithoutChatReplay(t *testing.T) {
 	}
 }
 
-func TestAGUISessionRejectionStopsChatAndAttachment(t *testing.T) {
+func TestAGUIForbiddenIsRequestLocal(t *testing.T) {
 	for _, attach := range []bool{false, true} {
 		t.Run(fmt.Sprintf("attach=%v", attach), func(t *testing.T) {
 			f := newLoginFixture(t)
@@ -589,14 +607,13 @@ func TestAGUISessionRejectionStopsChatAndAttachment(t *testing.T) {
 			} else {
 				_, err = client.Query(context.Background(), gateway.Query{ConversationID: "c", MessageID: "r", AgentID: "steward", Text: "question"}, nil)
 			}
-			if !errors.Is(err, gateway.ErrBackendAuth) || f.count("/v1/ag-ui/run") != before+1 {
-				t.Fatalf("run rejection not fatal: %v", err)
+			if !errors.Is(err, gateway.ErrBackendProtocol) || errors.Is(err, gateway.ErrBackendAuth) || f.count("/v1/ag-ui/run") != before+1 {
+				t.Fatalf("run rejection not request-local: %v", err)
 			}
 			f.mode.Store("")
-			_, err = client.ReadTurn(context.Background(), "c", "r", nil)
-			if !errors.Is(err, gateway.ErrBackendAuth) || f.count("/v1/ag-ui/run") != before+1 {
-				t.Fatal("poisoned session silently recovered")
-			}
+			storetest.Must(t, factory.Verify(context.Background()))
+			_, err = client.CreateConversation(context.Background(), "steward")
+			storetest.Must(t, err)
 		})
 	}
 }

@@ -25,6 +25,7 @@ type Runtime struct {
 	Route                 gateway.Route
 	Policy                gateway.AccessPolicy
 	Clients               gateway.AgentlyClientFactory
+	Backend               gateway.BackendLifecycle
 	Sender                gateway.SlackSender
 	AgentID               string
 	Log                   *slog.Logger
@@ -40,6 +41,9 @@ func (r *Runtime) Delivered() int64 { return r.delivered.Load() }
 // Run requires exclusive ownership of a migrated Store for its entire lifetime.
 // Workers start only after the transport's identity-verified ready signal.
 func (r *Runtime) Run(ctx context.Context) error {
+	if r.Backend != nil {
+		r.Clients = r.Backend
+	}
 	if err := r.ResponseMode.Validate(); err != nil {
 		return err
 	}
@@ -61,6 +65,27 @@ func (r *Runtime) Run(ctx context.Context) error {
 	if err := r.Store.Recover(ctx); err != nil {
 		return fmt.Errorf("runtime recovery failed")
 	}
+	if r.Backend != nil {
+		// Restart must not replay unsubmitted questions from a previous process.
+		if err := r.Store.FailUnstarted(ctx, "backend_unavailable"); err != nil {
+			return fmt.Errorf("runtime unavailable-work recovery failed")
+		}
+	}
+	fatal := make(chan error, 1)
+	if r.Backend != nil {
+		backendCtx, cancelBackend := context.WithCancel(ctx)
+		backendDone := make(chan struct{})
+		go func() {
+			defer close(backendDone)
+			if err := r.Backend.Run(backendCtx); err != nil && backendCtx.Err() == nil {
+				select {
+				case fatal <- errors.New("Viant Steward connection recovery or storage failed"):
+				default:
+				}
+			}
+		}()
+		defer func() { cancelBackend(); <-backendDone }()
+	}
 	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelWork()
 	sourceCtx, cancelSource := context.WithCancel(context.WithoutCancel(ctx))
@@ -69,15 +94,18 @@ func (r *Runtime) Run(ctx context.Context) error {
 	var once sync.Once
 	sourceDone := make(chan error, 1)
 	go func() {
-		sourceDone <- r.Source.Run(sourceCtx, gateway.Intake{Store: r.Store, Route: r.Route, StatusMode: r.StatusMode}, func() { once.Do(func() { close(ready) }) })
+		sourceDone <- r.Source.Run(sourceCtx, gateway.Intake{Store: r.Store, Route: r.Route, StatusMode: r.StatusMode, Backend: r.Backend}, func() { once.Do(func() { close(ready) }) })
 	}()
-	fatal := make(chan error, 1)
 	var backendAuth atomic.Bool
 	var slackUnavailable atomic.Bool
 	stopClaims := make(chan struct{})
 	var workers sync.WaitGroup
 	report := func(err error) bool {
 		if err == nil {
+			return false
+		}
+		if r.Backend != nil && (errors.Is(err, gateway.ErrBackendAuth) || errors.Is(err, gateway.ErrBackendUnavailable)) {
+			log.Warn("agently_backend_unavailable", "state", r.Backend.State())
 			return false
 		}
 
@@ -161,7 +189,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 	select {
 	case <-ready:
 		for range 4 {
-			w := gateway.Worker{Store: r.Store, Policy: r.Policy, Clients: r.Clients, AgentID: r.AgentID, Execute: execute,
+			w := gateway.Worker{Store: r.Store, Policy: r.Policy, Clients: r.Clients, Backend: r.Backend, AgentID: r.AgentID, Execute: execute,
 				ResponseMode: r.ResponseMode, AgentlyBaseURL: r.AgentlyBaseURL, Log: log,
 				OnReview: func(jobID int64, requestID, reason string) {
 					log.Warn("query_needs_review", "job_id", jobID, "request_id", requestID, "reason", reason)
@@ -172,7 +200,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			r.delivered.Add(1)
 			log.Info("reply_delivered", "delivery_id", d.ID, "workspace_id", d.WorkspaceID, "channel_id", d.ChannelID, "thread_ts", d.RootTS, "slack_ts", d.SlackTS)
 		}}
-		statuses := &gateway.StatusWorker{Store: r.Store, Sender: statusSender, Policy: deliveryPolicy, RefreshInterval: r.StatusRefreshInterval,
+		statuses := &gateway.StatusWorker{Store: r.Store, Sender: statusSender, Policy: deliveryPolicy, Backend: r.Backend, RefreshInterval: r.StatusRefreshInterval,
 			OnStatus: func(s gateway.RequestStatus, result gateway.StatusResult, now time.Time) {
 				attrs := []any{"job_id", s.JobID, "workspace_id", s.WorkspaceID, "channel_id", s.ChannelID, "mode", s.Mode, "target", s.Target, "thread_ts", s.RootTS, "phase", s.Phase, "acknowledged", result.Acknowledged || result.SlackTS != "", "agent_status", result.AgentStatus, "session_status", result.SessionStatus, "warning", result.Warning, "revision", s.Revision, "state", result.State, "reason", result.Reason}
 				if !result.RetryAt.IsZero() {
@@ -197,6 +225,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			runErr = fmt.Errorf("Slack source stopped")
 		}
 	case <-ctx.Done():
+	case runErr = <-fatal:
 	case <-startup.C:
 		runErr = fmt.Errorf("Slack did not become ready within 30 seconds")
 	case <-sourceDone:

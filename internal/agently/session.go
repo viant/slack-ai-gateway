@@ -14,8 +14,8 @@ import (
 	"github.com/viant/agently-slack-gateway/internal/gateway"
 )
 
-// This identity is immutable after login. A confirmed rejection poisons the
-// whole factory; workers never relogin or silently switch execution principals.
+// Identity is immutable after login. Only a confirmed identity mismatch poisons
+// the factory. A temporary 401 can be Core's token-refresh cooldown.
 type sessionIdentity struct {
 	principal, agent string
 	invalid          atomic.Bool
@@ -72,13 +72,20 @@ func (c *Client) verifyIdentity(ctx context.Context) error {
 	}
 	u, _ := url.Parse(f.base + "/v1/api/auth/me")
 	if len(f.http.Jar.Cookies(u)) == 0 {
-		return f.rejectIdentity()
+		return &missingSession{}
 	}
 	var me struct {
 		Subject  string `json:"subject"`
 		Provider string `json:"provider"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/v1/api/auth/me", nil, &me); err != nil {
+		var api *APIError
+		if errors.As(err, &api) && api.Status == http.StatusUnauthorized {
+			return &missingSession{}
+		}
+		if errors.As(err, &api) && api.Status == http.StatusForbidden {
+			return f.rejectIdentity()
+		}
 		return err
 	}
 	if me.Subject != f.session.principal || me.Provider != "session" {
@@ -128,16 +135,52 @@ func LoginOOB(ctx context.Context, base, principal, agent, secretsRef string) (*
 	return loginOOB(ctx, base, principal, agent, secretsRef, loadOAuthConfig, loadBasicSecret, nil)
 }
 
+// Verify reuses the current cookie session and checks a protected endpoint.
+// /auth/me alone can succeed while Core temporarily cannot inject an OAuth token.
+// The probe bypasses only Manager's generation guard, never authentication.
+func (f *Factory) Verify(ctx context.Context) error {
+	if f.session == nil {
+		return gateway.ErrBackendAuth
+	}
+	probe := *f
+	probe.guard = nil
+	c := &Client{factory: &probe, principal: f.session.principal}
+	if err := c.verifyIdentity(ctx); err != nil {
+		return err
+	}
+	var metadata struct {
+		AgentInfos []struct {
+			ID string `json:"id"`
+		} `json:"agentInfos"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/workspace/metadata", nil, &metadata); err != nil {
+		var api *APIError
+		if errors.As(err, &api) && api.Status == http.StatusUnauthorized {
+			copy := *api
+			copy.Permanent = false
+			copy.RetryAfter = max(copy.RetryAfter, 30*time.Second)
+			return &copy
+		}
+		return err
+	}
+	for _, info := range metadata.AgentInfos {
+		if info.ID == f.session.agent {
+			return nil
+		}
+	}
+	return &authFailure{message: "configured Agently agent is not available in workspace metadata", permanent: true}
+}
+
 func loginOOB(ctx context.Context, base, principal, agent, ref string, loadConfig oauthConfigLoader, loadSecret basicSecretLoader, httpClient *http.Client) (*Factory, error) {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	if strings.TrimSpace(principal) == "" || strings.TrimSpace(agent) == "" {
-		return nil, errors.New("Agently identity configuration is incomplete")
+		return nil, &authFailure{message: "Agently identity configuration is incomplete", permanent: true}
 	}
 	// Reuse URL/TLS/redirect validation, but explicitly select session mode.
 	f, err := NewFactory(base, httpClient, unusedCredentials{})
 	if err != nil {
-		return nil, err
+		return nil, &authFailure{message: err.Error(), permanent: true}
 	}
 	f.tokens = nil
 	f.http.Timeout = min(f.http.Timeout, 30*time.Second)
@@ -145,20 +188,20 @@ func loginOOB(ctx context.Context, base, principal, agent, ref string, loadConfi
 	c := &Client{factory: f, principal: principal}
 	var config oauthDiscovery
 	if err = c.do(ctx, http.MethodGet, "/v1/api/auth/oauth/config", nil, &config); err != nil {
-		return nil, errors.New("Agently OAuth configuration request failed")
+		return nil, loginFailure("Agently OAuth configuration request failed", err, nil)
 	}
 	if config.ConfigURL == "" {
-		return nil, errors.New("Agently OAuth configuration is missing")
+		return nil, &authFailure{message: "Agently OAuth configuration is missing", permanent: true}
 	}
 	oauthConfig, err := loadConfig(ctx, config.ConfigURL)
 	if err != nil || oauthConfig == nil {
-		return nil, errors.New("cannot load Agently OAuth configuration")
+		return nil, &authFailure{message: "cannot load Agently OAuth configuration", permanent: true}
 	}
 	clone := *oauthConfig
 	clone.Scopes = config.headlessScopes()
 	secret, err := loadSecret(ctx, ref)
 	if err != nil || secret == nil || secret.Username == "" || secret.Password == "" {
-		return nil, errors.New("cannot load Agently OOB credentials")
+		return nil, &authFailure{message: "cannot load Agently OOB credentials", permanent: true}
 	}
 	// IdP requests use a separate client, never the Agently cookie jar.
 	idpClient := *f.http
@@ -172,29 +215,16 @@ func loginOOB(ctx context.Context, base, principal, agent, ref string, loadConfi
 		// credentials, headers or raw transport error. Do not retry this POST.
 		var apiErr *APIError
 		if errors.As(err, &apiErr) && apiErr.Status != 0 {
-			return nil, fmt.Errorf("Agently session creation failed (POST /v1/api/auth/session, HTTP %d)", apiErr.Status)
+			return nil, loginFailure(fmt.Sprintf("Agently session creation failed (POST /v1/api/auth/session, HTTP %d)", apiErr.Status), err, nil)
 		}
-		return nil, errors.New("Agently session creation failed (POST /v1/api/auth/session, HTTP status unavailable)")
+		return nil, loginFailure("Agently session creation failed (POST /v1/api/auth/session, HTTP status unavailable)", err, nil)
 	}
 	f.session = &sessionIdentity{principal: principal, agent: agent}
-	if err = c.verifyIdentity(ctx); err != nil {
-		return nil, err
+	if err = f.Verify(ctx); err != nil {
+		return nil, loginFailure(err.Error(), err, f)
 	}
-	var metadata struct {
-		AgentInfos []struct {
-			ID string `json:"id"`
-		} `json:"agentInfos"`
-	}
-	if err = c.do(ctx, http.MethodGet, "/v1/workspace/metadata", nil, &metadata); err != nil {
-		return nil, err
-	}
-	for _, info := range metadata.AgentInfos {
-		if info.ID == agent {
-			f.http.Timeout = 120 * time.Second
-			return f, nil
-		}
-	}
-	return nil, errors.New("configured Agently agent is not available in workspace metadata")
+	f.http.Timeout = 120 * time.Second
+	return f, nil
 }
 
 // Only used to validate an HTTP client before selecting session mode. It can

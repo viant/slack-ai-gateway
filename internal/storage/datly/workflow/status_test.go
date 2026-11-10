@@ -21,6 +21,17 @@ func (f statusInvoker) Invoke(ctx context.Context, r handler.ComponentRequest) (
 }
 func statusPointer[T any](v T) *T { return &v }
 
+func TestLocalBackendFailureNeverProjectsRemoteSuccess(t *testing.T) {
+	for _, reason := range []string{"backend_unavailable", "backend_blocked"} {
+		for _, delivery := range []string{"pending", "delivered"} {
+			p := projectMessageStatus(&jr.Job{State: "completed", Reason: reason, Status: &jr.RequestStatus{Outcome: "failed"}, Outbox: []*jr.Outbox{{State: delivery}}}, time.Now())
+			if p.Phase != "not_submitted" || !p.Terminal || p.Submitted {
+				t.Fatalf("local failure projected as remote completion: %+v", p)
+			}
+		}
+	}
+}
+
 func TestObservationUsesSparseGraphWritesAndPreservesLegacyRows(t *testing.T) {
 	now := time.Unix(100, 0)
 	for _, state := range []string{"unknown", "running", "completed"} {

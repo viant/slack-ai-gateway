@@ -102,6 +102,13 @@ func terminalTurn(t gateway.Turn) bool {
 	return t.State == "completed" || t.State == "failed" || t.State == "canceled"
 }
 func observationError(err error) error {
+	if errors.Is(err, gateway.ErrBackendUnavailable) {
+		return gateway.ErrBackendUnavailable
+	}
+	var missing *missingSession
+	if errors.As(err, &missing) {
+		return missing
+	}
 	if errors.Is(err, gateway.ErrBackendAuth) {
 		return gateway.ErrBackendAuth
 	}

@@ -10,10 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/viant/agently-slack-gateway/internal/agently"
 	"github.com/viant/agently-slack-gateway/internal/config"
 	"github.com/viant/agently-slack-gateway/internal/gateway"
 	runner "github.com/viant/agently-slack-gateway/internal/runtime"
@@ -142,6 +144,8 @@ access:
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	backend := &routedBackend{}
+	backendReady := make(chan struct{})
+	out := &backendStateWriter{state: "ready", reached: backendReady}
 	directory := &routedDirectory{}
 	sender := &routedSender{cancel: cancel, wantResponse: "[View full response in Agently](http://127.0.0.1:9191/conversation/offline-conversation)\n\noffline reply"}
 	deps := dependencies{
@@ -154,6 +158,12 @@ access:
 				t.Fatal("runtime used legacy single-channel route")
 			}
 			return idleSource(func(ctx context.Context, sink gateway.EventSink, ready func()) error {
+				ready()
+				select {
+				case <-backendReady:
+				case <-ctx.Done():
+					return nil
+				}
 				for i, author := range []string{"alice", "bob", "mallory"} {
 					m := storetest.Message(author, author, author)
 					if i != 0 {
@@ -164,13 +174,12 @@ access:
 						return err
 					}
 				}
-				ready()
 				<-ctx.Done()
 				return nil
 			}), sender, nil
 		},
 	}
-	storetest.Must(t, execute(ctx, []string{"run", "--config", path}, &bytes.Buffer{}, deps))
+	storetest.Must(t, execute(ctx, []string{"run", "--config", path}, out, deps))
 	if backend.queries.Load() != 2 || sender.calls.Load() != 2 || directory.fresh.Load() != 2+sender.statuses.Load() {
 		t.Fatalf("queries=%d sends=%d statuses=%d fresh=%d", backend.queries.Load(), sender.calls.Load(), sender.statuses.Load(), directory.fresh.Load())
 	}
@@ -225,9 +234,24 @@ func (unusedBackend) ForPrincipal(context.Context, string) (gateway.AgentlyClien
 	return nil, errors.New("unexpected query")
 }
 
-func TestRunPreflightBeforeSlackAndQueueRecovery(t *testing.T) {
-	for _, fail := range []bool{true, false} {
-		t.Run(map[bool]string{true: "rejected", false: "verified"}[fail], func(t *testing.T) {
+// Waiting on a logged transition keeps wiring tests independent of scheduler
+// timing while exercising the production Manager and runtime together.
+type backendStateWriter struct {
+	state   string
+	reached chan struct{}
+	once    sync.Once
+}
+
+func (w *backendStateWriter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "msg=agently_backend state="+w.state) {
+		w.once.Do(func() { close(w.reached) })
+	}
+	return len(p), nil
+}
+
+func TestRunConnectsSlackDuringBackendFailureAndClosesUnstartedWork(t *testing.T) {
+	for _, blocked := range []bool{true, false} {
+		t.Run(map[bool]string{true: "blocked", false: "temporarily_unavailable"}[blocked], func(t *testing.T) {
 			t.Setenv("TEST_GATEWAY_OOB_REF", "/unused/synthetic-secret-reference")
 			t.Setenv("SLACK_APP_TOKEN", "xapp-synthetic")
 			t.Setenv("SLACK_BOT_TOKEN", "xoxb-synthetic")
@@ -249,47 +273,66 @@ slack:
 			storetest.Must(t, err)
 			_, err = s.Enqueue(ctx, storetest.Message("event", "root", "alice"))
 			storetest.Must(t, err)
-			_, err = s.ClaimJob(ctx) // failed preflight must not recover this claim
+			_, err = s.ClaimJob(ctx)
 			storetest.Must(t, err)
 			storetest.Must(t, s.Close())
-			loggedIn, connected := false, false
+			connected := false
+			attempted := make(chan struct{})
+			var attemptedOnce sync.Once
+			state := "starting"
+			if blocked {
+				state = "blocked"
+			}
+			reached := make(chan struct{})
+			out := &backendStateWriter{state: state, reached: reached}
 			deps := dependencies{
 				login: func(context.Context, string, string, string, string) (gateway.AgentlyClientFactory, error) {
-					if fail {
+					attemptedOnce.Do(func() { close(attempted) })
+					if blocked {
 						return nil, gateway.ErrBackendAuth
 					}
-					loggedIn = true
-					return unusedBackend{}, nil
+					return nil, &agently.APIError{Status: 503}
 				},
 				connect: func(_ context.Context, tokens config.SlackTokens, route gateway.Route, _ *slog.Logger) (runner.Source, gateway.SlackSender, error) {
-					if !loggedIn || route.AppID != "A" {
-						t.Fatal("Slack before verified Agently identity")
+					if route.AppID != "A" {
+						t.Fatal("wrong Slack route")
 					}
 					connected = true
-					return idleSource(func(ctx context.Context, _ gateway.EventSink, _ func()) error { cancel(); <-ctx.Done(); return nil }), unusedSender{}, nil
+					return idleSource(func(ctx context.Context, sink gateway.EventSink, ready func()) error {
+						// Do not start outbound workers: inspect the durable notice.
+						select {
+						case <-reached:
+						case <-ctx.Done():
+							return nil
+						}
+						select {
+						case <-attempted:
+						case <-ctx.Done():
+							return nil
+						}
+						_, acceptErr := sink.Accept(ctx, storetest.Message("during-outage", "new-root", "alice"))
+						cancel()
+						return acceptErr
+					}), unusedSender{}, nil
 				},
 			}
-			err = execute(ctx, []string{"run", "--config", path}, &bytes.Buffer{}, deps)
-			if fail && (!errors.Is(err, gateway.ErrBackendAuth) || connected) {
-				t.Fatalf("preflight was bypassed: %v", err)
-			}
-			if !fail {
-				storetest.Must(t, err)
-				if !connected {
-					t.Fatal("runtime not connected")
-				}
+			err = execute(ctx, []string{"run", "--config", path}, out, deps)
+			storetest.Must(t, err)
+			if !connected {
+				t.Fatal("Slack not connected during backend failure")
 			}
 			s, err = sqlite.Open(context.Background(), dbPath, false)
 			storetest.Must(t, err)
 			defer s.Close()
 			status, err := s.Status(context.Background(), 10)
 			storetest.Must(t, err)
-			want := "pending"
-			if fail {
-				want = "processing"
-			}
-			if status.Jobs[0].State != want || len(status.Deliveries) != 0 {
+			if len(status.Jobs) != 2 || len(status.Deliveries) != 2 {
 				t.Fatalf("unexpected recovery: %+v", status.Jobs)
+			}
+			for _, job := range status.Jobs {
+				if job.State != "completed" || job.TurnID != "" {
+					t.Fatalf("unstarted work could replay: %+v", job)
+				}
 			}
 		})
 	}

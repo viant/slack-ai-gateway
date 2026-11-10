@@ -150,7 +150,7 @@ func authorizeOOB(ctx context.Context, config *oauth2.Config, basic *cred.Basic,
 	}
 	response.Body.Close() // Location is all we need; never read/log the login page.
 	if response.StatusCode/100 != 3 {
-		return nil, oobFailure("authorization endpoint", response.StatusCode)
+		return nil, oobResponseFailure("authorization endpoint", response)
 	}
 	location, err := url.Parse(response.Header.Get("Location"))
 	if err != nil || location.Scheme != "https" || location.Host != "localhost" || location.Path != "/callback.html" || location.User != nil || location.Fragment != "" {
@@ -171,7 +171,7 @@ func authorizeOOB(ctx context.Context, config *oauth2.Config, basic *cred.Basic,
 	if err != nil || token == nil {
 		var responseErr *oauth2.RetrieveError
 		if errors.As(err, &responseErr) && responseErr.Response != nil {
-			return nil, oobFailure("token exchange", responseErr.Response.StatusCode)
+			return nil, oobResponseFailure("token exchange", responseErr.Response)
 		}
 		return nil, oobFailure("token exchange, HTTP status unavailable", 0)
 	}
@@ -189,8 +189,19 @@ func authorizeOOB(ctx context.Context, config *oauth2.Config, basic *cred.Basic,
 // Stage must be an internal literal, never data from the IdP or its libraries.
 // Raw errors, URLs, response bodies and headers can all contain credentials.
 func oobFailure(stage string, status int) error {
+	failure := &authFailure{permanent: true}
+	// An absent HTTP status is transient only at an actual HTTP exchange.
+	failure.permanent = !(status >= 500 || status == 408 || status == 429 || status == 0 && (stage == "authorization request, HTTP status unavailable" || stage == "token exchange, HTTP status unavailable"))
 	if status != 0 {
-		return fmt.Errorf("Agently OOB authorization failed (%s, HTTP %d)", stage, status)
+		failure.message = fmt.Sprintf("Agently OOB authorization failed (%s, HTTP %d)", stage, status)
+	} else {
+		failure.message = fmt.Sprintf("Agently OOB authorization failed (%s)", stage)
 	}
-	return fmt.Errorf("Agently OOB authorization failed (%s)", stage)
+	return failure
+}
+
+func oobResponseFailure(stage string, response *http.Response) error {
+	failure := oobFailure(stage, response.StatusCode).(*authFailure)
+	failure.retryAfter = retryAfter(response.Header.Get("Retry-After"), time.Now())
+	return failure
 }

@@ -49,6 +49,8 @@ func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, o
 		return x.existingEvent(ctx, in, out)
 	case "enqueue":
 		return x.enqueue(ctx, in, out)
+	case "fail_unstarted":
+		return x.failUnstarted(ctx, in, out)
 	case "claim_job", "bind_job", "begin_query", "schedule_poll", "complete", "review", "reject":
 		return x.jobs(ctx, in, out)
 	case "get_binding", "begin_create", "set_conversation":

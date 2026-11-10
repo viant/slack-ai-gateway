@@ -110,7 +110,7 @@ are Unix time. `status` neither changes work state nor runs recovery.
 | Job `pending` | Accepted, awaiting a worker |
 | Job `processing` | Claimed local work or an in-flight transcript read |
 | Job `querying` | Query in flight or durable read reconciliation scheduled |
-| Job `completed` | Result and reply parts persisted; not proof of Slack delivery |
+| Job `completed` | Result or local not-submitted notice persisted; not proof of Slack delivery or backend execution |
 | Job `needs_review` | Automation stopped for this query; later queries in its thread are blocked |
 | Job `rejected` | Current policy denied execution before a turn was submitted |
 | Delivery `pending` | Stored reply awaiting sending or a known-safe retry |
@@ -120,7 +120,7 @@ are Unix time. `status` neither changes work state nor runs recovery.
 | Delivery `delivered` | Confirmed send, or operator assertion with a Slack timestamp |
 
 Examples of review reasons are `creation_unknown`, `reconciliation_deadline`,
-`backend_protocol_or_access_error`, `backend_auth_or_identity_rejected`, `turn_identity_mismatch` and
+`backend_protocol_or_access_error`, `turn_identity_mismatch` and
 `interaction_requires_review`. A query timeout/deadline does not cancel backend
 execution. Do not send the same question again as an attempted recovery.
 Other reasons include `policy_denied`/`policy_unavailable` and `slack_auth_rejected`.
@@ -142,14 +142,53 @@ state into the question's status message, subject to current policy and Slack
 availability. Startup recovery can also quarantine jobs;
 inspect `status` for the complete persisted state.
 
-`backend_auth_or_identity_rejected` additionally stops the whole runtime. Check
-the account/session and ownership configuration before restarting. A restart can
-establish a new session, but does not clear `needs_review` or replay its query.
-Already in-flight remote operations cannot be recalled. Other queued work stays
-in gateway storage; it is not drained during the authentication failure.
-Within the remaining shutdown grace, healthy Slack may receive terminal
-authentication-failure status notices. This best-effort attempt never drains
-queries or final replies, bypasses policy or extends the 30-second window.
+## Viant Steward connection recovery
+
+The Slack connection and backend readiness have separate lifecycles. A backend
+restart, temporary network failure or IdP outage does not terminate the gateway.
+No configuration switch or schema migration is needed for this behavior.
+
+| `agently_backend` state | Meaning / action |
+| --- | --- |
+| `starting` | Initial authentication/verification is in progress; transient failures retry |
+| `ready` | Expected session identity, protected metadata and configured agent verified |
+| `recovering` | A previously ready connection failed; the existing session is checked first |
+| `blocked` | Permanent authentication/identity problem; correct the cause and restart |
+
+Wait for both `slack_connection state=ready` and `agently_backend state=ready`
+before sending a new question. `agently_backend_retry` logs the fixed error
+category and `retry_after_ms`; `agently_backend_blocked` records a redacted
+permanent failure. Raw server bodies, credentials and question text are excluded.
+Retry intervals grow to approximately 30 seconds, with jitter and longer
+`Retry-After` delays respected. Native session/token refresh is reused. A missing
+session can trigger a new OOB login; a query-specific access rejection does not
+invalidate everyone else's connection.
+
+During `starting`, `recovering` or `blocked`, accepted Slack questions finish
+locally with reason `backend_unavailable` or `backend_blocked`, plus an ordinary
+durable Slack reply explaining that the question was not submitted. This also
+closes previously accepted but unstarted questions, including on gateway restart.
+These questions **never execute automatically after recovery**; the user may
+submit a new question after readiness returns. A locally completed notice is not
+a successful Viant Steward execution. Deduplication, access checks, ordering and
+uncertain-delivery rules still apply in every status mode, including `agent_session`.
+
+Started requests retain their stored conversation/run/turn identifiers. Recovery
+attaches/reads the existing request without repeating a create or query POST;
+the original 15-minute reconciliation deadline is retained across outages and
+restarts. Status messages explain that the connection is unavailable without
+claiming that remote work stopped. Unknown conversation creation remains
+`creation_unknown`; expired or otherwise uncertain execution requires review.
+Already prepared final replies continue through the outbox while the backend is
+unavailable. Existing `needs_review` rows, including older
+`backend_auth_or_identity_rejected` records, are not automatically released.
+
+For `blocked`, check the configured identity, account credentials, IdP and agent
+permissions, correct the cause, then restart. There is no credential hot reload.
+Invalid local secrets, invalid static configuration, unusable storage and Slack
+authentication failures retain their startup/stop behavior. `check-agently` is
+a bounded one-shot diagnostic and exits on a failed check; it does not start the
+runtime's recovery loop. It is optional before `run`.
 
 ## Resolve one uncertain delivery
 
@@ -208,8 +247,9 @@ The one-second sender pacing and durable 429 cooldown apply across all channels.
 
 Unlike the storage operator commands, `check-agently` contacts the IdP and Agently
 to create and validate an authentication session. It does not use gateway storage
-or Slack, and does not create/query a conversation. `run` additionally connects to
-Slack, recovers Gateway work and executes real queries/deliveries. Neither command
+or Slack, and does not create/query a conversation. `run` independently connects
+Slack and recovers backend readiness, then executes admitted real queries and
+durable deliveries. Neither command
 connects directly to Agently's database. Agently retains control of its own storage.
 
 Verify live failure/recovery scenarios and downstream tool permissions in the

@@ -18,6 +18,7 @@ type Worker struct {
 	Store          Store
 	Policy         AccessPolicy
 	Clients        AgentlyClientFactory
+	Backend        BackendLifecycle
 	AgentID        string
 	Timing         QueryTiming
 	ResponseMode   slackpresentation.ResponseMode
@@ -60,6 +61,13 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 	if err != nil || j == nil {
 		return false, err
 	}
+	// Preserve the original deadline even while the shared connection is down.
+	if j.TurnID != "" && !j.QueryStartedAt.IsZero() && time.Since(j.QueryStartedAt) >= w.Timing.defaults().MaxWait {
+		return true, w.review(ctx, j, "reconciliation_deadline")
+	}
+	if paused, err := w.pauseUnavailable(ctx, j); paused {
+		return true, err
+	}
 	b, err := w.Store.GetBinding(ctx, j.ThreadKey)
 	if err != nil {
 		return true, err
@@ -67,25 +75,32 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 	d, err := w.Policy.Authorize(ctx, j.Message, b)
 	if err != nil {
 		if errors.Is(err, ErrSlackAuth) {
-			return true, errors.Join(err, w.review(ctx, j, "slack_auth_rejected"))
+			return true, errors.Join(err, w.finishBeforeSubmission(ctx, j, func() error { return w.review(ctx, j, "slack_auth_rejected") }))
 		}
 		if errors.Is(err, ErrDenied) && j.TurnID == "" {
-			return true, w.Store.Reject(ctx, j.ID, "policy_denied")
+			return true, w.finishBeforeSubmission(ctx, j, func() error { return w.Store.Reject(ctx, j.ID, "policy_denied") })
 		}
 		if errors.Is(err, ErrDenied) {
 			return true, w.review(ctx, j, "policy_denied")
 		}
-		return true, w.review(ctx, j, "policy_unavailable")
+		return true, w.finishBeforeSubmission(ctx, j, func() error { return w.review(ctx, j, "policy_unavailable") })
 	}
 	if strings.TrimSpace(j.Text) == "" {
 		text := "Mention the bot and include a question."
 		if j.HasAttachments {
 			text += " Attachments are not read; paste the relevant text."
 		}
-		return true, w.Store.Complete(ctx, j.ID, "", text, RenderText(text))
+		return true, w.finishBeforeSubmission(ctx, j, func() error { return w.Store.Complete(ctx, j.ID, "", text, RenderText(text)) })
 	}
-	b, err = w.Store.BindJob(ctx, j.ID, d)
+	err = w.withReady(func() error {
+		var bindErr error
+		b, bindErr = w.Store.BindJob(ctx, j.ID, d)
+		return bindErr
+	})
 	if err != nil {
+		if errors.Is(err, ErrBackendUnavailable) {
+			return true, w.deferUnavailable(ctx, j)
+		}
 		if errors.Is(err, ErrConflict) {
 			return true, w.review(ctx, j, "binding_conflict")
 		}
@@ -93,6 +108,12 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 	}
 	client, err := w.Clients.ForPrincipal(ctx, b.PrincipalID)
 	if err != nil {
+		if w.Backend != nil && (errors.Is(err, ErrBackendAuth) || errors.Is(err, ErrBackendUnavailable)) {
+			if j.TurnID != "" {
+				return true, w.poll(ctx, j)
+			}
+			return true, w.deferUnavailable(ctx, j)
+		}
 		if errors.Is(err, ErrBackendAuth) {
 			return true, w.authReview(ctx, j, err)
 		}
@@ -114,7 +135,10 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 		})
 	}
 	if b.ConversationID == "" {
-		if err = w.Store.BeginCreate(ctx, b.ID); err != nil {
+		if err = w.withReady(func() error { return w.Store.BeginCreate(ctx, b.ID) }); err != nil {
+			if errors.Is(err, ErrBackendUnavailable) {
+				err = w.deferUnavailable(ctx, j)
+			}
 			return true, err
 		}
 		createCtx, cancel := context.WithTimeout(ctx, timing.Timeout)
@@ -123,7 +147,7 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 		persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer persistCancel()
 		if createErr != nil || id == "" {
-			if errors.Is(createErr, ErrBackendAuth) {
+			if errors.Is(createErr, ErrBackendAuth) && w.Backend == nil {
 				return true, w.authReview(ctx, j, createErr)
 			}
 			return true, w.review(persistCtx, j, "creation_unknown")
@@ -135,7 +159,10 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 	}
 	// The durable marker precedes the external side effect. Never blindly replay
 	// an interrupted query; stable MessageID is correlation, not idempotency.
-	if err = w.Store.BeginQuery(ctx, j.ID); err != nil {
+	if err = w.withReady(func() error { return w.Store.BeginQuery(ctx, j.ID) }); err != nil {
+		if errors.Is(err, ErrBackendUnavailable) {
+			err = w.deferUnavailable(ctx, j)
+		}
 		return true, err
 	}
 	j.QueryStartedAt = time.Now()
@@ -146,6 +173,49 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 		turn, err := client.Query(queryCtx, Query{ConversationID: b.ConversationID, MessageID: j.RequestID, AgentID: w.AgentID, Text: j.Text}, w.observer(ctx, j))
 		return w.settle(ctx, j, b.ConversationID, turn, err)
 	})
+}
+
+func (w Worker) withReady(fn func() error) error {
+	if w.Backend != nil {
+		return w.Backend.WithReady(fn)
+	}
+	return fn()
+}
+
+func (w Worker) pauseUnavailable(ctx context.Context, j *Job) (bool, error) {
+	if w.Backend == nil || w.Backend.State() == BackendReady {
+		return false, nil
+	}
+	return true, w.deferUnavailable(ctx, j)
+}
+
+func (w Worker) deferUnavailable(ctx context.Context, j *Job) error {
+	if j.TurnID != "" {
+		return w.poll(ctx, j)
+	}
+	// An in-flight create can succeed after the transition's sweep skipped its
+	// uncertain binding. Close only this still-unsubmitted question; a repeated
+	// global sweep could close new questions admitted after recovery.
+	reason := "backend_unavailable"
+	if w.Backend != nil && w.Backend.State() == BackendBlocked {
+		reason = "backend_blocked"
+	}
+	err := w.Store.Reject(ctx, j.ID, reason)
+	if errors.Is(err, ErrBackendUnavailable) {
+		return nil // The transition already closed this exact question.
+	}
+	return err
+}
+
+func (w Worker) finishBeforeSubmission(ctx context.Context, j *Job, fn func() error) error {
+	if w.Backend == nil || j.TurnID != "" {
+		return fn()
+	}
+	err := w.withReady(fn)
+	if errors.Is(err, ErrBackendUnavailable) {
+		return w.deferUnavailable(ctx, j)
+	}
+	return err
 }
 
 func (w Worker) execute(task func() error) error {
@@ -169,6 +239,12 @@ func (w Worker) settle(ctx context.Context, j *Job, conversationID string, turn 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	if err != nil {
+		if w.Backend != nil && (errors.Is(err, ErrBackendAuth) || errors.Is(err, ErrBackendUnavailable)) {
+			if saveErr := w.Store.RecordObservation(ctx, j.ID, "unknown", time.Now()); saveErr != nil {
+				return saveErr
+			}
+			return w.poll(ctx, j)
+		}
 		if errors.Is(err, ErrBackendAuth) {
 			return w.authReview(ctx, j, err)
 		}

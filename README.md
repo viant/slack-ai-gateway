@@ -74,10 +74,20 @@ Configure the account's data and tool permissions accordingly.
    ./bin/agently-slack-gateway run --config "$HOME/.agently-slack-gateway/config/gateway.local.yaml"
    ```
 
-`validate-config` is entirely offline. `check-agently` logs in and verifies the
-session identity and agent listing, without gateway storage, Slack or a conversation/query;
-it does not verify downstream tool permissions. Wait for `slack_connection
-state=ready` before mentioning the bot on an allowed channel.
+`validate-config` is entirely offline. `check-agently` is an optional, bounded,
+one-shot diagnostic: it logs in and verifies the session identity and protected
+agent listing, without gateway storage, Slack or a conversation/query. It does
+not verify downstream tool permissions.
+
+`run` connects Slack and establishes the Viant Steward session independently.
+Wait for both `slack_connection state=ready` and `agently_backend state=ready`
+before testing a new question. Temporary backend or IdP failures keep Slack
+connected while authentication recovers. Questions received before readiness or
+during an outage get a durable notice that they were not submitted; they never
+run automatically after recovery. Started requests are observed using their
+original identifiers without submitting another prompt. Invalid local secrets,
+configuration, storage or Slack setup still prevent normal startup. See
+[connection recovery](docs/operations.md#viant-steward-connection-recovery).
 
 The bot needs `app_mentions:read`, `chat:write` and `channels:read`. Private channels
 also need `groups:read`; `members_only` needs `users:read`. DM needs `im:read`,

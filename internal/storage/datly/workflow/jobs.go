@@ -43,10 +43,19 @@ func (x *execution) enqueue(ctx context.Context, in *Input, out *Output) error {
 		mode = gateway.StatusMessage
 	}
 	row := &jw.Job{AppId: m.AppID, WorkspaceId: m.WorkspaceID, ChannelId: m.ChannelID, RootThreadTs: m.RootTS, EventId: m.EventID, AuthorId: m.AuthorID, MessageTs: m.MessageTS, QueryText: m.Text, HasAttachments: boolInt(m.HasAttachments), RequestId: hex.EncodeToString(token[:]), State: "pending", CreatedAt: now, UpdatedAt: now, MessageSurface: string(m.MessageSurface()), Status: &jw.RequestStatus{State: "ready", Mode: string(mode), UpdatedAt: now}}
+	if m.BackendReason != "" {
+		if !localBackendFailure(m.BackendReason) {
+			return gateway.ErrConflict
+		}
+		closeUnstarted(row, m.BackendReason, now)
+		// New graph nodes are full inserts, unlike the sparse patches used by
+		// FailUnstarted for existing jobs.
+		row.Has, row.Status.Has = nil, nil
+	}
 	if err = x.writeJobs(ctx, []*jw.Job{row}); err != nil {
 		return err
 	}
-	if mode == gateway.StatusAgentSession || mode == gateway.StatusHybrid {
+	if m.BackendReason == "" && (mode == gateway.StatusAgentSession || mode == gateway.StatusHybrid) {
 		query := &sr.Input{}
 		query.SetMode("key")
 		query.SetWorkspaceID(m.WorkspaceID)
@@ -109,6 +118,9 @@ func (x *execution) jobs(ctx context.Context, in *Input, out *Output) error {
 	if err != nil {
 		return err
 	}
+	if j.State == "completed" && localBackendFailure(j.Reason) {
+		return gateway.ErrBackendUnavailable
+	}
 	row := jobUpdate(j)
 	switch in.Action {
 	case "bind_job":
@@ -155,6 +167,19 @@ func (x *execution) jobs(ctx context.Context, in *Input, out *Output) error {
 		row.SetState("needs_review")
 		row.SetReason(in.Text)
 	case "reject":
+		if localBackendFailure(in.Text) {
+			if (j.State != "pending" && j.State != "processing") || j.TurnId != "" ||
+				(j.Binding != nil && (j.Binding.State == "creating" || j.Binding.State == "needs_review")) {
+				return gateway.ErrConflict
+			}
+			row.WorkspaceId, row.ChannelId, row.RootThreadTs = j.WorkspaceId, j.ChannelId, j.RootThreadTs
+			closeUnstarted(row, in.Text, int(time.Now().UnixMilli()))
+			if j.Status == nil {
+				row.Status = nil
+				row.Has.Status = false
+			}
+			break
+		}
 		if j.State != "processing" {
 			return gateway.ErrConflict
 		}
