@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/viant/slack-ai-gateway/internal/gateway"
@@ -74,8 +76,8 @@ func setup(t *testing.T) (*runner.Runtime, storage.Store, *backend) {
 	integrationID := storetest.RegisterDefault(t, s)
 	scope := s.Scope(integrationID)
 	b := &backend{}
-	r := &runner.Runtime{Store: scope, Clients: b, AgentID: "steward", Route: gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"},
-		Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "shared"},
+	r := &runner.Runtime{Store: scope, Clients: b, AgentID: "steward", Route: storetest.Route("A", "T", "C"),
+		Policy: storetest.Policy("A", "T", "shared", "C"),
 		Source: sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error { ready(); <-ctx.Done(); return nil }),
 		Sender: senderFunc(func(context.Context, gateway.SlackOutgoingMessage) (string, error) { return "2.000001", nil }),
 		Log:    slog.New(slog.NewTextHandler(io.Discard, nil))}
@@ -168,6 +170,7 @@ func TestShutdownFinishesQueryButDoesNotDrainQueue(t *testing.T) {
 		storetest.Must(t, err)
 	}
 	queryStarted := make(chan struct{})
+	var queryStartedOnce sync.Once
 	release := make(chan struct{})
 	sourceStopped := make(chan struct{})
 	r.Source = sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error {
@@ -177,7 +180,7 @@ func TestShutdownFinishesQueryButDoesNotDrainQueue(t *testing.T) {
 		return nil
 	})
 	b.query = func(ctx context.Context, q gateway.Query) (gateway.Turn, error) {
-		close(queryStarted)
+		queryStartedOnce.Do(func() { close(queryStarted) })
 		select {
 		case <-release:
 		case <-ctx.Done():
@@ -193,7 +196,7 @@ func TestShutdownFinishesQueryButDoesNotDrainQueue(t *testing.T) {
 	close(release)
 	storetest.Must(t, finished(t, done))
 	if b.queries.Load() != 1 {
-		t.Fatal("shutdown drained next query")
+		t.Fatalf("shutdown drained next query: got %d backend queries, want 1", b.queries.Load())
 	}
 	d, err := s.ClaimDelivery(context.Background())
 	storetest.Must(t, err)
@@ -249,21 +252,23 @@ func TestShutdownPersistsInFlightDelivery(t *testing.T) {
 }
 
 func TestCredentialRejectionStopsRuntimeWithoutLosingReply(t *testing.T) {
-	r, s, _ := setup(t)
-	seedReply(t, s, "first", "one")
-	r.Sender = senderFunc(func(context.Context, gateway.SlackOutgoingMessage) (string, error) {
-		return "", &gateway.SendError{Kind: gateway.SendCredentials}
+	synctest.Test(t, func(t *testing.T) {
+		r, s, _ := setup(t)
+		seedReply(t, s, "first", "one")
+		r.Sender = senderFunc(func(context.Context, gateway.SlackOutgoingMessage) (string, error) {
+			return "", &gateway.SendError{Kind: gateway.SendCredentials}
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.Run(ctx); err == nil || !strings.Contains(err.Error(), "credentials rejected") {
+			t.Fatalf("runtime did not surface credential failure: %v", err)
+		}
+		d, err := s.ClaimDelivery(context.Background())
+		storetest.Must(t, err)
+		if d == nil || d.Attempts != 2 {
+			t.Fatal("definitely rejected reply not preserved")
+		}
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := r.Run(ctx); err == nil || !strings.Contains(err.Error(), "credentials rejected") {
-		t.Fatalf("runtime did not surface credential failure: %v", err)
-	}
-	d, err := s.ClaimDelivery(context.Background())
-	storetest.Must(t, err)
-	if d == nil || d.Attempts != 2 {
-		t.Fatal("definitely rejected reply not preserved")
-	}
 }
 
 func TestBackendIdentityRejectionStopsIntakeAndPreservesPendingWork(t *testing.T) {
@@ -346,31 +351,33 @@ func TestQueryReviewLogsPersistedMetadataWithoutContent(t *testing.T) {
 }
 
 func TestUncertainDeliveryDoesNotBlockOtherThreads(t *testing.T) {
-	r, s, _ := setup(t)
-	seedReply(t, s, "first", "one")
-	seedReply(t, s, "second", "two")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	sent := make(chan struct{}, 1)
-	r.Sender = senderFunc(func(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
-		if d.RootTS == "one" {
-			return "", &gateway.SendError{Kind: gateway.SendUnknown}
+	synctest.Test(t, func(t *testing.T) {
+		r, s, _ := setup(t)
+		seedReply(t, s, "first", "one")
+		seedReply(t, s, "second", "two")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		sent := make(chan struct{}, 1)
+		r.Sender = senderFunc(func(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
+			if d.RootTS == "one" {
+				return "", &gateway.SendError{Kind: gateway.SendUnknown}
+			}
+			sent <- struct{}{}
+			return "2", nil
+		})
+		done := make(chan error, 1)
+		go func() { done <- r.Run(ctx) }()
+		await(t, sent)
+		cancel()
+		storetest.Must(t, finished(t, done))
+		if r.Delivered() != 1 {
+			t.Fatal("other thread did not progress")
 		}
-		sent <- struct{}{}
-		return "2", nil
+		storetest.Must(t, s.Recover(context.Background()))
+		if d, err := s.ClaimDelivery(context.Background()); err != nil || d != nil {
+			t.Fatal("unknown delivery automatically retried")
+		}
 	})
-	done := make(chan error, 1)
-	go func() { done <- r.Run(ctx) }()
-	await(t, sent)
-	cancel()
-	storetest.Must(t, finished(t, done))
-	if r.Delivered() != 1 {
-		t.Fatal("other thread did not progress")
-	}
-	storetest.Must(t, s.Recover(context.Background()))
-	if d, err := s.ClaimDelivery(context.Background()); err != nil || d != nil {
-		t.Fatal("unknown delivery automatically retried")
-	}
 }
 
 type brokenStore struct {

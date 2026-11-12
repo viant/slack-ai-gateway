@@ -59,9 +59,12 @@ func (x *execution) deliveries(ctx context.Context, in *Input, out *Output) erro
 		if d.SlackDeliveryState != "pending" {
 			return nil
 		}
+		if d.GatewayJob == nil {
+			return gateway.ErrConflict
+		}
 		row.SetSlackDeliveryState("sending")
 		row.SetSlackDeliveryAttempts(d.SlackDeliveryAttempts + 1)
-		out.SlackOutgoingMessage = &gateway.SlackOutgoingMessage{ID: int64(d.Id), JobID: int64(d.JobId), ThreadKey: gateway.ThreadKey{WorkspaceID: d.SlackWorkspaceId, ChannelID: d.SlackChannelId, RootTS: d.SlackThreadRootMessageId}, Part: d.SlackMessageIndex, Kind: d.SlackMessageKind, Text: deref(d.SlackMessageText), Format: gateway.ReplyFormat(d.SlackMessageFormat), State: "sending", SlackTS: d.SlackMessageId, Attempts: d.SlackDeliveryAttempts + 1}
+		out.SlackOutgoingMessage = &gateway.SlackOutgoingMessage{ID: int64(d.Id), JobID: int64(d.JobId), ThreadKey: gateway.ThreadKey{WorkspaceID: d.SlackWorkspaceId, ChannelID: d.SlackChannelId, RootTS: d.SlackThreadRootMessageId}, Surface: gateway.MessageSurface(d.GatewayJob.SlackConversationType), Part: d.SlackMessageIndex, Kind: d.SlackMessageKind, Text: deref(d.SlackMessageText), Format: gateway.ReplyFormat(d.SlackMessageFormat), State: "sending", SlackTS: d.SlackMessageId, Attempts: d.SlackDeliveryAttempts + 1}
 	case "delivered":
 		if d.SlackDeliveryState != "sending" || in.Text == "" {
 			return gateway.ErrConflict

@@ -208,7 +208,7 @@ func TestStartupGuardRejectsChangedSlackIdentity(t *testing.T) {
 			storetest.Must(t, err)
 			_, err = db.Exec("UPDATE integration SET slack_app_id=? WHERE id=?", b.AppID, a.ID)
 			storetest.Must(t, err)
-			if err := store.CheckRunBindings(ctx, gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}, "shared"); err == nil {
+			if err := store.CheckRunBindings(ctx, storetest.Route("A", "T", "C"), "shared"); err == nil {
 				t.Fatal("startup accepted a question from another installation")
 			}
 		})

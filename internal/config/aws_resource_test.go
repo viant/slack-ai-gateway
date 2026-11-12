@@ -97,8 +97,8 @@ func TestSlackTokensUseNativeAWSBinaryPublication(t *testing.T) {
 		t.Setenv(name, value)
 	}
 
-	c := Config{Storage: Storage{Driver: "sqlite", Path: "slack-smoke.sqlite"}, Transport: "socket", AccessMode: "shared_channel"}
-	c.Slack.AppID, c.Slack.WorkspaceID, c.Slack.ChannelID = "A", "T", "C"
+	c := Config{Storage: Storage{Driver: "sqlite", Path: "slack-smoke.sqlite"}, Transport: "socket"}
+	c.Slack.AppID, c.Slack.WorkspaceID = "A", "T"
 	c.Slack.AppTokenSecret = &scy.Resource{URL: "aws://secretmanager/us-east-1/secret/synthetic/app-token.enc", Key: keyRef, MaxRetry: 1}
 	c.Slack.BotTokenSecret = &scy.Resource{URL: "aws://secretmanager/us-east-1/secret/synthetic/bot-token.enc", Key: keyRef, MaxRetry: 1}
 	if _, err := c.LoadSlackTokens(ctx); err == nil || strings.Contains(err.Error(), "synthetic/") || strings.Contains(err.Error(), appToken) {

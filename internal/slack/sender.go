@@ -61,9 +61,9 @@ func (s *Sender) SendStatus(ctx context.Context, status gateway.GatewayJobProgre
 
 func (s *Sender) sendMessageStatus(ctx context.Context, status gateway.GatewayJobProgress, text string) (string, error) {
 	if status.SlackTS == "" {
-		return s.Send(ctx, gateway.SlackOutgoingMessage{ThreadKey: status.ThreadKey, Text: text, Format: gateway.ReplyPlain})
+		return s.Send(ctx, gateway.SlackOutgoingMessage{ThreadKey: status.ThreadKey, Surface: status.Surface, Text: text, Format: gateway.ReplyPlain})
 	}
-	if !s.route.AllowsChannel(status.WorkspaceID, status.ChannelID) || status.RootTS == "" || text == "" {
+	if !s.route.Allows(gateway.Message{AppID: s.route.AppID, ThreadKey: status.ThreadKey, Surface: status.Surface}) || status.RootTS == "" || text == "" {
 		return "", &gateway.SendError{Kind: gateway.SendRejected}
 	}
 	api, ok := s.api.(updateAPI)
@@ -85,7 +85,7 @@ func (s *Sender) sendMessageStatus(ctx context.Context, status gateway.GatewayJo
 }
 
 func (s *Sender) Send(ctx context.Context, d gateway.SlackOutgoingMessage) (string, error) {
-	if !s.route.AllowsChannel(d.WorkspaceID, d.ChannelID) || d.RootTS == "" || d.Text == "" {
+	if !s.route.Allows(gateway.Message{AppID: s.route.AppID, ThreadKey: d.ThreadKey, Surface: d.Surface}) || d.RootTS == "" || d.Text == "" {
 		return "", &gateway.SendError{Kind: gateway.SendRejected}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

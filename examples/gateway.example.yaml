@@ -1,64 +1,47 @@
-# Copy to ~/.slack-ai-gateway/config/gateway.local.yaml; replace the IDs.
-# This is the runtime configuration for a real Agently backend.
-# Create the config/ and db/ directories first; see ../README.md for shell commands.
+# Copy to ~/.slack-ai-gateway/config/gateway.local.yaml and replace placeholders.
+# Create the config and database directories first; see ../README.md.
+# Both user scopes require users:read. Reinstall the Slack app after adding scopes.
 storage:
-  # SQLite initializes a missing file on run; its parent directory must exist.
-  # For provisioned MySQL, replace this section with the mixed DSN and
-  # credential resource in docs/mysql.md; omit path.
   driver: sqlite
-  # A separate Gateway database, never the smoke-test or Agently database.
-  # Resolved from this YAML's directory, including after copying to config/.
   path: ../db/gateway.sqlite
 
-transport: socket
-access_mode: shared_channel
-slack:
-  response:
-    # Every mode starts with a link to the full response in Agently.
-    # Default/raw preserves the source output, including Forge.
-    # Alternatives: cli_compatible, summary, normalized_summary, report_text.
-    # Restart to change future finalizations; persisted outbox parts are immutable.
-    # See the repository's docs/response-presentation.md.
-    mode: raw
-  status:
-    # message (default): phase/time; agent_session: native indicator; hybrid: both.
-    # Restart at any time; existing questions keep their mode. See docs/request-status.md.
-    mode: message
-    # Message refresh in message/hybrid: periodic status refresh in whole seconds (default: 30; must be positive).
-    # One setting for the gateway; changes require restart.
-    # Phase changes and completion are published independently.
-    refresh_interval_sec: 30
-  app_id: A_TEST
-  workspace_id: T_TEST
-  channels:
-    mode: selected
-    allowlist: [C_TEST]
-    denylist: []
-    allow_private: false
-  app_token_secret:
-    URL: file:///absolute/path/slack-app-token.enc
-    Key: blowfish://default
-  bot_token_secret:
-    URL: file:///absolute/path/slack-bot-token.enc
-    Key: blowfish://default
-access:
-  defaults:
-    users:
-      mode: channel_members
-  # DM is disabled unless explicitly enabled; independent of channel defaults.
-  # direct_messages:
-  #   users:
-  #     mode: channel_members
-  # DM needs message.im + im:history + im:read; see docs/direct-messages.md.
-  # global adds hard user restrictions; channel_overrides replace local fields.
-  # See docs/access-policy.md before opening workspace-wide routing.
-agently:
-  base_url: http://127.0.0.1:9191
-  agent_id: steward
-  principal_id: agently_steward
-  auth:
-    mode: oob_session
-    # Use an existing Scy basic credential file; see docs/secrets.md.
-    secret:
-      URL: file:///absolute/path/agently-service.json
-      Key: blowfish://default
+integrations:
+  - name: steward
+    transport: socket
+    slack:
+      app_id: A_TEST
+      workspace_id: T_TEST
+      app_token_secret:
+        URL: file:///absolute/path/slack-app-token.enc
+        Key: blowfish://default
+      bot_token_secret:
+        URL: file:///absolute/path/slack-bot-token.enc
+        Key: blowfish://default
+      response:
+        # raw, cli_compatible, summary, normalized_summary, or report_text.
+        # Already-persisted answer parts keep their original content on retry.
+        mode: raw
+      status:
+        # message, agent_session, or hybrid. Existing jobs keep their saved mode.
+        mode: message
+        refresh_interval_sec: 30
+    backend:
+      type: agently
+      base_url: http://127.0.0.1:9191
+      agent_id: steward
+      principal_id: shared-steward
+      auth:
+        mode: oob_session
+        secret:
+          URL: file:///absolute/path/agently-service.json
+          Key: blowfish://default
+    access:
+      channels:
+        enabled: true
+        scope: selected
+        allowlist: [C_TEST]
+        allow_private: false
+        users:
+          scope: workspace_members_only
+      direct_messages:
+        enabled: false

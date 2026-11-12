@@ -33,12 +33,12 @@ func (d *multiDirectory) User(_ context.Context, w, u string) (gateway.UserInfo,
 
 func multiPolicy(t *testing.T, channels []string, denyChannels, denyUsers []string, d *multiDirectory) gateway.ConfiguredPolicy {
 	t.Helper()
-	mode := "channel_members"
-	scope := gateway.ChannelScope{Mode: "selected", Allowlist: channels, Denylist: denyChannels}
+	mode := "workspace_members_and_guests"
+	scope := gateway.ChannelScope{Enabled: true, Scope: "selected", Allowlist: channels, Denylist: denyChannels}
 	if channels == nil {
-		scope.Mode = "workspace"
+		scope.Scope = "workspace_channels_with_bot"
 	}
-	r, err := gateway.NewChannelPolicyResolver(scope, gateway.AccessRules{Defaults: &gateway.UserRule{Mode: &mode}, GlobalDenylist: &denyUsers})
+	r, err := gateway.NewChannelPolicyResolver(scope, gateway.AccessRules{Users: &gateway.UserRule{Scope: mode, Denylist: denyUsers}})
 	storetest.Must(t, err)
 	return gateway.ConfiguredPolicy{Route: gateway.Route{AppID: "A", WorkspaceID: "T", Resolver: r}, PrincipalID: "shared", Directory: d}
 }
@@ -127,7 +127,7 @@ func TestWorkspaceRoutingAndUnconfiguredChannelIgnore(t *testing.T) {
 			t.Fatal("workspace route incorrect")
 		}
 	}
-	r, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Mode: "workspace"}, gateway.AccessRules{})
+	r, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{}, gateway.AccessRules{})
 	storetest.Must(t, err)
 	in.Route.Resolver = r
 	m := storetest.Message("no-policy", "2", "alice")

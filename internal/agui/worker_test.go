@@ -15,6 +15,7 @@ import (
 	"github.com/viant/slack-ai-gateway/internal/gateway"
 	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 type workerDatabase struct {
@@ -96,7 +97,7 @@ func workerMessage(eventID, root, timestamp, prompt string) gateway.Message {
 
 func enqueueWorkerMessage(t *testing.T, store gateway.Store, message gateway.Message) {
 	t.Helper()
-	result, err := (gateway.Intake{Store: store, Route: gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}}).Accept(context.Background(), message)
+	result, err := (gateway.Intake{Store: store, Route: storetest.Route("A", "T", "C")}).Accept(context.Background(), message)
 	if err != nil || !result.Accepted || result.Duplicate {
 		t.Fatalf("intake=%+v err=%v", result, err)
 	}
@@ -108,9 +109,7 @@ func workerFor(t *testing.T, store gateway.Store, server *httptest.Server) gatew
 	if err != nil {
 		t.Fatal(err)
 	}
-	return gateway.Worker{Store: store, Clients: factory, Policy: gateway.SharedChannelPolicy{
-		AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "shared",
-	}}
+	return gateway.Worker{Store: store, Clients: factory, Policy: storetest.Policy("A", "T", "shared", "C")}
 }
 
 func workerStep(t *testing.T, worker gateway.Worker, expected bool) {

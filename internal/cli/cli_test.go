@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/viant/scy"
@@ -28,7 +29,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentlyTestConfig = `agently:
+const agentlyTestConfig = `backend:
+  type: agently
   base_url: http://127.0.0.1:9191
   agent_id: steward
   principal_id: agently_steward
@@ -43,18 +45,19 @@ func TestValidateConfigIsOfflineAndReportsEffectivePolicy(t *testing.T) {
 	t.Setenv("AGENTLY_OOB_SECRETS", "/unused/ignored-env-secret-marker")
 	path := writeConfig(t, `storage: {driver: sqlite, path: nonexistent.sqlite}
 transport: socket
-access_mode: shared_channel
-slack: {app_id: A, workspace_id: T, channels: {mode: workspace}}
+slack: {app_id: A, workspace_id: T}
 access:
-  global: {users: {denylist: [blocked]}}
-  defaults: {users: {mode: channel_members}}
-  channel_overrides:
-    C: {users: {allowlist: []}}
+  channels:
+    enabled: true
+    scope: workspace_channels_with_bot
+    users: {scope: workspace_members_only, denylist: [blocked]}
+    channel_overrides:
+      C: {enabled: true, users: {scope: workspace_members_only, allowlist: []}}
 `+agentlyTestConfig)
 	for _, id := range []string{"C", "OTHER"} {
 		var out bytes.Buffer
 		// Nil dependencies panic if validation unexpectedly logs in or connects.
-		storetest.Must(t, execute(context.Background(), []string{"validate-config", "--config", path, "--channel-id", id}, &out, dependencies{}))
+		storetest.Must(t, execute(context.Background(), []string{"validate-config", "--config", path, "--integration", "steward", "--channel-id", id}, &out, dependencies{}))
 		var report struct {
 			Valid        bool                             `json:"valid"`
 			ResponseMode string                           `json:"response_mode"`
@@ -75,6 +78,10 @@ access:
 		if strings.Contains(out.String(), "secrets") || strings.Contains(out.String(), "base_url") {
 			t.Fatal("unnecessary configuration disclosure")
 		}
+		if !strings.Contains(out.String(), `"scope": "workspace_channels_with_bot"`) || !strings.Contains(out.String(), `"user_scope": "workspace_members_only"`) || !strings.Contains(out.String(), `"rule_source"`) || strings.Contains(out.String(), `"user_mode"`) {
+			t.Fatal("policy diagnostics use obsolete field names")
+		}
+
 	}
 }
 
@@ -105,8 +112,8 @@ func (d *routedDirectory) Channel(_ context.Context, w, c string, f bool) (gatew
 	}
 	return gateway.ChannelInfo{WorkspaceID: w, ID: c, Member: true}, nil
 }
-func (*routedDirectory) User(context.Context, string, string) (gateway.UserInfo, error) {
-	return gateway.UserInfo{}, errors.New("unexpected users.info")
+func (*routedDirectory) User(_ context.Context, workspace, user string) (gateway.UserInfo, error) {
+	return gateway.UserInfo{WorkspaceID: workspace, ID: user}, nil
 }
 
 type routedSender struct {
@@ -130,67 +137,76 @@ func (s *routedSender) Send(_ context.Context, d gateway.SlackOutgoingMessage) (
 }
 
 func TestRunWiresMultiChannelPolicyForQueriesAndReplies(t *testing.T) {
-	path := writeConfigWithTokens(t, `storage: {driver: sqlite, path: real.sqlite}
+	synctest.Test(t, func(t *testing.T) {
+		path := writeConfigWithTokens(t, `storage: {driver: sqlite, path: real.sqlite}
 transport: socket
-access_mode: shared_channel
-slack: {app_id: A, workspace_id: T, channels: {mode: selected, allowlist: [C, C2]}, response: {mode: summary}}
+slack: {app_id: A, workspace_id: T, response: {mode: summary}}
 access:
-  global: {users: {denylist: [mallory]}}
-  defaults: {users: {mode: channel_members}}
+  channels:
+    enabled: true
+    scope: selected
+    allowlist: [C, C2]
+    users: {scope: workspace_members_only, denylist: [mallory]}
 `+agentlyTestConfig)
-	storetest.Must(t, Execute(context.Background(), []string{"migrate", "--config", path}, &bytes.Buffer{}))
-	// Both replies and their statuses share one-second pacing. This is a wiring
-	// check, so leave room for race-instrumented SQLite rather than timing it.
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	backend := &routedBackend{}
-	backendReady := make(chan struct{})
-	out := &backendStateWriter{state: "ready", reached: backendReady}
-	directory := &routedDirectory{}
-	sender := &routedSender{cancel: cancel, wantResponse: "[View full response in Agently](http://127.0.0.1:9191/conversation/offline-conversation)\n\noffline reply"}
-	deps := dependencies{
-		login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
-			return backend, nil
-		},
-		directory: func(config.SlackTokens, gateway.Route) gateway.SlackDirectory { return directory },
-		connect: func(_ context.Context, _ config.SlackTokens, route gateway.Route, _ *slog.Logger) (runner.Source, gateway.SlackSender, error) {
-			if route.Resolver == nil {
-				t.Fatal("runtime used legacy single-channel route")
-			}
-			return idleSource(func(ctx context.Context, sink gateway.EventSink, ready func()) error {
-				ready()
-				select {
-				case <-backendReady:
-				case <-ctx.Done():
+		storetest.Must(t, Execute(context.Background(), []string{"migrate", "--config", path}, &bytes.Buffer{}))
+		// Both replies and their statuses share one-second pacing. This is a wiring
+		// check, so leave room for race-instrumented SQLite rather than timing it.
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		backend := &routedBackend{}
+		backendReady := make(chan struct{})
+		out := &backendStateWriter{state: "ready", reached: backendReady}
+		directory := &routedDirectory{}
+		sender := &routedSender{cancel: cancel, wantResponse: "[View full response in Agently](http://127.0.0.1:9191/conversation/offline-conversation)\n\noffline reply"}
+		deps := dependencies{
+			login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
+				return backend, nil
+			},
+			directory: func(config.SlackTokens, gateway.Route) gateway.SlackDirectory { return directory },
+			connect: func(_ context.Context, _ config.SlackTokens, route gateway.Route, _ *slog.Logger) (runner.Source, gateway.SlackSender, error) {
+				if route.Resolver == nil {
+					t.Fatal("runtime used legacy single-channel route")
+				}
+				return idleSource(func(ctx context.Context, sink gateway.EventSink, ready func()) error {
+					ready()
+					select {
+					case <-backendReady:
+					case <-ctx.Done():
+						return nil
+					}
+					for i, author := range []string{"alice", "bob", "mallory"} {
+						m := storetest.Message(author, author, author)
+						if i != 0 {
+							m.ChannelID = "C2"
+						}
+						_, err := sink.Accept(ctx, m)
+						if err != nil {
+							return err
+						}
+					}
+					<-ctx.Done()
 					return nil
-				}
-				for i, author := range []string{"alice", "bob", "mallory"} {
-					m := storetest.Message(author, author, author)
-					if i != 0 {
-						m.ChannelID = "C2"
-					}
-					_, err := sink.Accept(ctx, m)
-					if err != nil {
-						return err
-					}
-				}
-				<-ctx.Done()
-				return nil
-			}), sender, nil
-		},
-	}
-	storetest.Must(t, execute(ctx, []string{"run", "--config", path}, out, deps))
-	if backend.queries.Load() != 2 || sender.calls.Load() != 2 || directory.fresh.Load() != 2+sender.statuses.Load() {
-		t.Fatalf("queries=%d sends=%d statuses=%d fresh=%d", backend.queries.Load(), sender.calls.Load(), sender.statuses.Load(), directory.fresh.Load())
-	}
-	s, err := sqlite.Open(context.Background(), filepath.Join(filepath.Dir(path), "real.sqlite"), false)
-	storetest.Must(t, err)
-	defer s.Close()
-	status, err := s.Status(context.Background(), 10)
-	storetest.Must(t, err)
-	if status.Counts["gateway_job.gateway_execution_state"]["rejected"] != 1 || status.Counts["slack_outgoing_message.slack_delivery_state"]["delivered"] != 2 {
-		t.Fatal("policy not applied to durable runtime")
-	}
+				}), sender, nil
+			},
+		}
+
+		runStarted := time.Now()
+		if err := execute(ctx, []string{"run", "--config", path}, out, deps); err != nil {
+			t.Fatalf("runtime failed after %s: %v\nruntime logs:\n%s", time.Since(runStarted), err, out.String())
+		}
+		if backend.queries.Load() != 2 || sender.calls.Load() != 2 || directory.fresh.Load() != 2+sender.statuses.Load() {
+			t.Fatalf("queries=%d sends=%d statuses=%d fresh=%d", backend.queries.Load(), sender.calls.Load(), sender.statuses.Load(), directory.fresh.Load())
+		}
+		s, err := sqlite.Open(context.Background(), filepath.Join(filepath.Dir(path), "real.sqlite"), false)
+		storetest.Must(t, err)
+		defer s.Close()
+		status, err := s.Status(context.Background(), 10)
+		storetest.Must(t, err)
+		if status.Counts["gateway_job.gateway_execution_state"]["rejected"] != 1 || status.Counts["slack_outgoing_message.slack_delivery_state"]["delivered"] != 2 {
+			t.Fatal("policy not applied to durable runtime")
+		}
+
+	})
 }
 
 func TestCheckAgentlyNeedsNoStorageOrSlack(t *testing.T) {
@@ -240,13 +256,24 @@ type backendStateWriter struct {
 	state   string
 	reached chan struct{}
 	once    sync.Once
+	mu      sync.Mutex
+	logs    bytes.Buffer
 }
 
 func (w *backendStateWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	_, _ = w.logs.Write(p)
+	w.mu.Unlock()
 	if strings.Contains(string(p), "msg=agently_backend") && strings.Contains(string(p), "state="+w.state) {
 		w.once.Do(func() { close(w.reached) })
 	}
 	return len(p), nil
+}
+
+func (w *backendStateWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.logs.String()
 }
 
 func TestRunConnectsSlackDuringBackendFailureAndClosesUnstartedWork(t *testing.T) {
@@ -256,14 +283,16 @@ func TestRunConnectsSlackDuringBackendFailureAndClosesUnstartedWork(t *testing.T
   driver: sqlite
   path: real.sqlite
 transport: socket
-access_mode: shared_channel
+access: {channels: {enabled: true, scope: selected, allowlist: [C], users: {scope: workspace_members_only}}}
 slack:
   app_id: A
   workspace_id: T
-  channel_id: C
 `+agentlyTestConfig)
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
+
+			// Provisioning is outside the bounded runtime exercise. Under race
+			// instrumentation native SQLite startup can consume several seconds.
+			setupStarted := time.Now()
+			ctx := context.Background()
 			storetest.Must(t, Execute(ctx, []string{"migrate", "--config", path}, &bytes.Buffer{}))
 			dbPath := filepath.Join(filepath.Dir(path), "real.sqlite")
 			s, err := sqlite.Open(ctx, dbPath, false)
@@ -280,6 +309,9 @@ slack:
 			_, err = scope.ClaimJob(ctx)
 			storetest.Must(t, err)
 			storetest.Must(t, s.Close())
+			setupElapsed := time.Since(setupStarted)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
 			connected := false
 			attempted := make(chan struct{})
 			var attemptedOnce sync.Once
@@ -320,8 +352,13 @@ slack:
 					}), unusedSender{}, nil
 				},
 			}
+
+			t.Logf("setup completed in %s; bounded runtime starts after provisioning", setupElapsed)
+			runStarted := time.Now()
 			err = execute(ctx, []string{"run", "--config", path}, out, deps)
-			storetest.Must(t, err)
+			if err != nil {
+				t.Fatalf("runtime failed after %s (setup %s): %v\nruntime logs:\n%s", time.Since(runStarted), setupElapsed, err, out.String())
+			}
 			if !connected {
 				t.Fatal("Slack not connected during backend failure")
 			}
@@ -331,7 +368,7 @@ slack:
 			status, err := s.Status(context.Background(), 10)
 			storetest.Must(t, err)
 			if len(status.GatewayJobs) != 2 || len(status.SlackOutgoingMessages) != 2 {
-				t.Fatalf("unexpected recovery: %+v", status.GatewayJobs)
+				t.Fatalf("unexpected recovery after %s (setup %s, context error %v): %+v\nruntime logs:\n%s", time.Since(runStarted), setupElapsed, ctx.Err(), status.GatewayJobs, out.String())
 			}
 			for _, job := range status.GatewayJobs {
 				if job.State != "completed" || job.BackendSubmissionStartedAt != 0 {
@@ -346,10 +383,29 @@ func writeConfig(t *testing.T, body string) string {
 	t.Helper()
 	var document map[string]any
 	storetest.Must(t, yaml.Unmarshal([]byte(body), &document))
-	if slack, ok := document["slack"].(map[string]any); ok {
-		slack["app_token_secret"] = map[string]any{"URL": "/unused/app-token.enc", "Key": "blowfish://default"}
-		slack["bot_token_secret"] = map[string]any{"URL": "/unused/bot-token.enc", "Key": "blowfish://default"}
+
+	// Most wiring tests author one integration fragment alongside storage. Build
+	// the complete public document before passing it to the production loader.
+	integration := map[string]any{"name": "steward"}
+	for _, key := range []string{"transport", "slack", "access", "backend"} {
+		if value, ok := document[key]; ok {
+			integration[key] = value
+			delete(document, key)
+		}
 	}
+	if len(integration) > 1 {
+		document["integrations"] = []any{integration}
+	}
+	if values, ok := document["integrations"].([]any); ok {
+		for _, value := range values {
+			item := value.(map[string]any)
+			if slack, ok := item["slack"].(map[string]any); ok {
+				slack["app_token_secret"] = map[string]any{"URL": "/unused/app-token.enc", "Key": "blowfish://default"}
+				slack["bot_token_secret"] = map[string]any{"URL": "/unused/bot-token.enc", "Key": "blowfish://default"}
+			}
+		}
+	}
+
 	encoded, err := yaml.Marshal(document)
 	storetest.Must(t, err)
 	path := filepath.Join(t.TempDir(), "config.yaml")
@@ -364,7 +420,7 @@ func writeConfigWithTokens(t *testing.T, body string) string {
 	storetest.Must(t, err)
 	var document map[string]any
 	storetest.Must(t, yaml.Unmarshal(encoded, &document))
-	slack := document["slack"].(map[string]any)
+	slack := document["integrations"].([]any)[0].(map[string]any)["slack"].(map[string]any)
 	for field, value := range map[string]string{"app_token_secret": "xapp-synthetic", "bot_token_secret": "xoxb-synthetic"} {
 		resource := &scy.Resource{URL: "file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "token.enc")), Key: "blowfish://default"}
 		storetest.Must(t, scy.New().Store(context.Background(), scy.NewSecret(value, resource)))
@@ -588,11 +644,15 @@ func TestMySQLStorageFailureIsRedactedAndNeverFallsBack(t *testing.T) {
 }
 
 const runStorageTestConfig = `transport: socket
-access_mode: shared_channel
+access:
+  channels:
+    enabled: true
+    scope: selected
+    allowlist: [C]
+    users: {scope: workspace_members_only}
 slack:
   app_id: A
   workspace_id: T
-  channel_id: C
 ` + agentlyTestConfig
 
 func TestRunInitializesMissingDatabaseAndRequiresRealCredentials(t *testing.T) {
@@ -755,8 +815,7 @@ func (unusedSender) SendStatus(_ context.Context, s gateway.GatewayJobProgress, 
 func TestBackendCredentialFailureStillStartsSlackTransport(t *testing.T) {
 	path := writeConfigWithTokens(t, `storage: {driver: sqlite, path: credential-failure.sqlite}
 transport: socket
-access_mode: shared_channel
-slack: {app_id: A, workspace_id: T, channel_id: C}
+slack: {app_id: A, workspace_id: T}
 `+agentlyTestConfig)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -835,5 +894,30 @@ func TestStatusJSONMergedRequestMetadata(t *testing.T) {
 		if _, ok := requests[0][forbidden]; ok {
 			t.Errorf("unexpected diagnostic field %s", forbidden)
 		}
+	}
+}
+
+func TestCheckAgentlyValidatesSelectedBackendAndNamesBeforeLogin(t *testing.T) {
+	for _, tc := range []struct{ name, body, selected string }{
+		{"missing_name", "integrations: [{backend: {type: agently}}]", ""},
+		{"duplicate_name", "integrations: [{name: steward, backend: {type: agently}}, {name: steward, backend: {type: agently}}]", ""},
+		{"unknown_selection", agentlyTestConfig, "other"},
+		{"unexpected_endpoint", agentlyTestConfig + "  endpoint: https://unexpected.example.test/run\n", ""},
+		{"empty_integrations", "integrations: []", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, tc.body)
+			args := []string{"check-agently", "--config", path}
+			if tc.selected != "" {
+				args = append(args, "--integration", tc.selected)
+			}
+			deps := dependencies{login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
+				t.Fatal("invalid configuration reached backend login")
+				return nil, nil
+			}}
+			if err := execute(context.Background(), args, &bytes.Buffer{}, deps); err == nil {
+				t.Fatal("invalid backend-only configuration accepted")
+			}
+		})
 	}
 }

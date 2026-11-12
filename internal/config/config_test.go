@@ -28,8 +28,8 @@ func configureOfflineSecrets(c *Config) {
 }
 
 func TestSlackTokenResourcesAndSmokeValidation(t *testing.T) {
-	c := Config{Storage: Storage{Driver: "sqlite", Path: "slack-smoke.sqlite"}, Transport: "socket", AccessMode: "shared_channel"}
-	c.Slack.AppID, c.Slack.WorkspaceID, c.Slack.ChannelID = "A", "T", "C"
+	c := Config{Storage: Storage{Driver: "sqlite", Path: "slack-smoke.sqlite"}, Transport: "socket"}
+	c.Slack.AppID, c.Slack.WorkspaceID = "A", "T"
 	configureOfflineSecrets(&c)
 	if err := c.ValidateSlack(); err != nil {
 		t.Fatal(err)
@@ -64,8 +64,8 @@ func TestSlackTokenResourcesAndSmokeValidation(t *testing.T) {
 func TestSlackTokenResourceFailuresAreRedacted(t *testing.T) {
 	for _, broken := range []bool{false, true} {
 		t.Run(fmt.Sprint(broken), func(t *testing.T) {
-			c := Config{Storage: Storage{Driver: "sqlite", Path: "gateway.sqlite"}, Transport: "socket", AccessMode: "shared_channel"}
-			c.Slack.AppID, c.Slack.WorkspaceID, c.Slack.ChannelID = "A", "T", "C"
+			c := Config{Storage: Storage{Driver: "sqlite", Path: "gateway.sqlite"}, Transport: "socket"}
+			c.Slack.AppID, c.Slack.WorkspaceID = "A", "T"
 			configureOfflineSecrets(&c)
 			location := filepath.Join(t.TempDir(), "sensitive-location-marker.enc")
 			c.Slack.AppTokenSecret = &scy.Resource{URL: "file://" + filepath.ToSlash(location), Key: "blowfish://default"}
@@ -147,30 +147,23 @@ func TestSecretResourceYAMLIsOfflineAndPreserved(t *testing.T) {
 	body := `storage:
   driver: mysql
   dsn: '${Username}:${Password}@tcp(mysql.invalid:3306)/gateway?parseTime=true'
-  secret:
-    URL: aws://secretmanager/us-east-1/secret/synthetic-mysql
-    Key: blowfish://default
-transport: socket
-access_mode: shared_channel
-slack:
-  app_id: A
-  workspace_id: T
-  channel_id: C
-  app_token_secret:
-    URL: aws://secretmanager/us-east-1/secret/synthetic-app
-    Key: blowfish://default
-  bot_token_secret:
-    URL: aws://secretmanager/us-east-1/secret/synthetic-bot
-    Key: blowfish://default
-agently:
-  base_url: https://agently.invalid
-  agent_id: example
-  principal_id: example-user
-  auth:
-    mode: oob_session
-    secret:
-      URL: aws://secretmanager/us-east-1/secret/synthetic-oob
-      Key: blowfish://default
+  secret: {URL: aws://secretmanager/us-east-1/secret/synthetic-mysql, Key: 'blowfish://default'}
+integrations:
+  - name: steward
+    transport: socket
+    slack:
+      app_id: A
+      workspace_id: T
+      app_token_secret: {URL: aws://secretmanager/us-east-1/secret/synthetic-app, Key: 'blowfish://default'}
+      bot_token_secret: {URL: aws://secretmanager/us-east-1/secret/synthetic-bot, Key: 'blowfish://default'}
+    backend:
+      type: agently
+      base_url: https://agently.invalid
+      agent_id: example
+      principal_id: example-user
+      auth:
+        mode: oob_session
+        secret: {URL: aws://secretmanager/us-east-1/secret/synthetic-oob, Key: 'blowfish://default'}
 `
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
@@ -186,7 +179,7 @@ agently:
 	if c.Storage.DSN != "${Username}:${Password}@tcp(mysql.invalid:3306)/gateway?parseTime=true" {
 		t.Fatal("DSN template was changed")
 	}
-	for _, resource := range []*scy.Resource{c.Storage.Secret, c.Slack.AppTokenSecret, c.Slack.BotTokenSecret, c.Agently.Auth.Secret} {
+	for _, resource := range []*scy.Resource{c.Storage.Secret, c.Integrations[0].Slack.AppTokenSecret, c.Integrations[0].Slack.BotTokenSecret, c.Integrations[0].Backend.Auth.Secret} {
 		if resource == nil || !strings.HasPrefix(resource.URL, "aws://secretmanager/") || resource.Key != "blowfish://default" {
 			t.Fatal("native secret configuration was not preserved")
 		}
@@ -225,16 +218,18 @@ func TestLoadStrictAndConfigRelativePath(t *testing.T) {
 }
 
 func TestRunConfiguration(t *testing.T) {
-	c := Config{Storage: Storage{Driver: "sqlite", Path: "gateway.sqlite"}, Transport: "socket", AccessMode: "shared_channel"}
+	c := Config{Storage: Storage{Driver: "sqlite", Path: "gateway.sqlite"}, Transport: "socket"}
 	c.Slack.AppID = "A"
 	c.Slack.WorkspaceID = "T"
-	c.Slack.ChannelID = "C"
 	configureOfflineSecrets(&c)
 	c.Agently.AgentID = "steward"
 	c.Agently.PrincipalID = "shared"
 	c.Agently.BaseURL = "http://127.0.0.1:9191"
 	c.Agently.Auth.Mode = "oob_session"
-	if err := c.ValidateRun(); err != nil {
+	if err := c.ValidateSlack(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.ValidateAgently(); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -242,7 +237,6 @@ func TestRunConfiguration(t *testing.T) {
 		change func(*Config)
 	}{
 		{"http_future", func(c *Config) { c.Transport = "http" }},
-		{"per_user_future", func(c *Config) { c.AccessMode = "per_user" }},
 		{"missing_owner", func(c *Config) { c.Agently.PrincipalID = "" }},
 		{"missing_auth", func(c *Config) { c.Agently.Auth.Mode = "" }},
 		{"insecure_remote", func(c *Config) { c.Agently.BaseURL = "http://example.invalid" }},
@@ -255,6 +249,9 @@ func TestRunConfiguration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			changed := c
 			tc.change(&changed)
+
+			backend := Backend{Type: "agently", BaseURL: changed.Agently.BaseURL, AgentID: changed.Agently.AgentID, PrincipalID: changed.Agently.PrincipalID, Auth: changed.Agently.Auth}
+			changed.Integrations = []Integration{{Name: "steward", Transport: changed.Transport, Access: changed.Access, Slack: changed.Slack, Backend: backend}}
 			err := changed.ValidateRun()
 			if err == nil {
 				t.Fatal("invalid run config accepted")
@@ -291,18 +288,15 @@ func TestStatusRefreshIntervalSeconds(t *testing.T) {
 		{"duration_overflow", "9223372037", 0}, {"integer_overflow", "9223372036854775808", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := "storage:\n  driver: sqlite\n  path: test.sqlite\ntransport: socket\naccess_mode: shared_channel\nslack:\n  app_id: A\n  workspace_id: T\n  channel_id: C\n  app_token_secret: {URL: /unused/app.enc, Key: 'blowfish://default'}\n  bot_token_secret: {URL: /unused/bot.enc, Key: 'blowfish://default'}\n"
+			body := "slack:\n  app_id: A\n  workspace_id: T\n  app_token_secret: {URL: /unused/app.enc, Key: 'blowfish://default'}\n  bot_token_secret: {URL: /unused/bot.enc, Key: 'blowfish://default'}\n"
 			if tc.value != "" {
 				body += "  status:\n    refresh_interval_sec: " + tc.value + "\n"
 			}
 			path := filepath.Join(t.TempDir(), "config.yaml")
-			if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			if err := os.WriteFile(path, []byte(testIntegrationYAML(body)), 0600); err != nil {
 				t.Fatal(err)
 			}
-			c, err := Load(path)
-			if err == nil {
-				err = c.ValidateSlack()
-			}
+			c, err := loadRuntimeConfig(path)
 			if tc.seconds == 0 {
 				if err == nil {
 					t.Fatal("invalid interval accepted")
@@ -334,18 +328,15 @@ func TestStatusPresentationModes(t *testing.T) {
 		{"unknown", ""}, {"null", ""}, {"''", ""}, {"true", ""}, {"42", ""},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
-			body := "storage:\n  driver: sqlite\n  path: test.sqlite\ntransport: socket\naccess_mode: shared_channel\nslack:\n  app_id: A\n  workspace_id: T\n  channel_id: C\n  app_token_secret: {URL: /unused/app.enc, Key: 'blowfish://default'}\n  bot_token_secret: {URL: /unused/bot.enc, Key: 'blowfish://default'}\n  status:\n    refresh_interval_sec: 15\n"
+			body := "slack:\n  app_id: A\n  workspace_id: T\n  app_token_secret: {URL: /unused/app.enc, Key: 'blowfish://default'}\n  bot_token_secret: {URL: /unused/bot.enc, Key: 'blowfish://default'}\n  status:\n    refresh_interval_sec: 15\n"
 			if tc.value != "" {
 				body += "    mode: " + tc.value + "\n"
 			}
 			path := filepath.Join(t.TempDir(), "config.yaml")
-			if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			if err := os.WriteFile(path, []byte(testIntegrationYAML(body)), 0600); err != nil {
 				t.Fatal(err)
 			}
-			c, err := Load(path)
-			if err == nil {
-				err = c.ValidateSlack()
-			}
+			c, err := loadRuntimeConfig(path)
 			if tc.want == "" {
 				if err == nil {
 					t.Fatal("invalid mode accepted")

@@ -45,8 +45,9 @@ func TestWorkerDoesNotSweepNewQuestionsAfterRecovery(t *testing.T) {
 		ThreadKey: ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1"},
 		AppID:     "A", AuthorID: "alice", Text: "old question",
 	}}}
-	w := Worker{Store: s, Backend: staleBackend{}, Policy: SharedChannelPolicy{
-		AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "shared",
+	w := Worker{Store: s, Backend: staleBackend{}, Policy: ConfiguredPolicy{
+		Route:       Route{AppID: "A", WorkspaceID: "T", Resolver: resolver(t, ChannelScope{Enabled: true, Scope: "selected", Allowlist: []string{"C"}}, AccessRules{Users: &UserRule{Scope: "workspace_members_only"}})},
+		PrincipalID: "shared", Directory: &policyDirectory{channel: ChannelInfo{WorkspaceID: "T", ID: "C", Member: true}, user: UserInfo{WorkspaceID: "T", ID: "alice"}},
 	}}
 	worked, err := w.Step(context.Background())
 	if err != nil || !worked || s.sweeps != 0 || s.review != "" || s.rejected != s.job.ID {
@@ -56,7 +57,7 @@ func TestWorkerDoesNotSweepNewQuestionsAfterRecovery(t *testing.T) {
 
 func TestIntakePreservesUnavailableDispositionAfterRecovery(t *testing.T) {
 	s := &interruptedStore{}
-	i := Intake{Store: s, Backend: staleBackend{}, Route: Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}}
+	i := Intake{Store: s, Backend: staleBackend{}, Route: Route{AppID: "A", WorkspaceID: "T", Resolver: resolver(t, ChannelScope{Enabled: true, Scope: "selected", Allowlist: []string{"C"}}, AccessRules{Users: &UserRule{Scope: "workspace_members_only"}})}}
 	result, err := i.Accept(context.Background(), Message{
 		ThreadKey: ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1"},
 		AppID:     "A", EventID: "event", MessageTS: "1", AuthorID: "alice", Mentioned: true, Text: "outage question",

@@ -41,12 +41,12 @@ func database(t *testing.T) (storage.Store, func() storage.Store) {
 	}
 }
 
-func policy() gateway.SharedChannelPolicy {
-	return gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "shared"}
+func policy() gateway.ConfiguredPolicy {
+	return storetest.Policy("A", "T", "shared", "C")
 }
 
 func intake(s gateway.Store) gateway.Intake {
-	return gateway.Intake{Store: s, Route: gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}}
+	return gateway.Intake{Store: s, Route: storetest.Route("A", "T", "C")}
 }
 
 func accept(t *testing.T, s gateway.Store, m gateway.Message) gateway.AcceptResult {
@@ -191,7 +191,7 @@ func TestIntakeFilteringAndNoBindingForHelp(t *testing.T) {
 	})
 }
 
-func TestSharedPolicyAndConfigurationChange(t *testing.T) {
+func TestConfiguredPolicyAndConfigurationChange(t *testing.T) {
 	ctx := context.Background()
 	p := policy()
 	m := storetest.Message("a", "one", "alice")
@@ -208,7 +208,7 @@ func TestSharedPolicyAndConfigurationChange(t *testing.T) {
 	if _, err = p.Authorize(ctx, m, b); !errors.Is(err, gateway.ErrDenied) {
 		t.Fatal("owner change accepted")
 	}
-	p = gateway.SharedChannelPolicy{}
+	p = gateway.ConfiguredPolicy{}
 	if _, err = p.Authorize(ctx, m, nil); !errors.Is(err, gateway.ErrDenied) {
 		t.Fatal("empty policy accepted")
 	}

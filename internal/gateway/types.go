@@ -110,6 +110,8 @@ type SlackOutgoingMessage struct {
 	ID    int64
 	JobID int64
 	ThreadKey
+	// Surface is reconstructed from the original persisted job, never from an ID prefix.
+	Surface  MessageSurface
 	Part     int
 	Text     string
 	Format   ReplyFormat

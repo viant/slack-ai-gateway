@@ -1,0 +1,43 @@
+# All non-guest members in channels, a smaller DM pilot.
+# Copy outside the repository and replace the placeholder IDs and secret references.
+storage:
+  driver: sqlite
+  path: ../db/gateway.sqlite
+
+integrations:
+  - name: steward
+    transport: socket
+    slack:
+      app_id: A_STEWARD
+      workspace_id: T_COMPANY
+      app_token_secret:
+        URL: file:///absolute/path/steward-app-token.enc
+        Key: blowfish://default
+      bot_token_secret:
+        URL: file:///absolute/path/steward-bot-token.enc
+        Key: blowfish://default
+      status:
+        mode: message
+        refresh_interval_sec: 30
+    backend:
+      type: agently
+      base_url: http://127.0.0.1:9191
+      agent_id: steward
+      principal_id: shared-steward
+      auth:
+        mode: oob_session
+        secret:
+          URL: file:///absolute/path/steward-backend.json
+          Key: blowfish://default
+    access:
+      channels:
+        enabled: true
+        scope: workspace_channels_with_bot
+        allow_private: false
+        users:
+          scope: workspace_members_only
+      direct_messages:
+        enabled: true
+        users:
+          scope: workspace_members_only
+          allowlist: [U_ALICE, U_BOB]

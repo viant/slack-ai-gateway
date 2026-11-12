@@ -631,7 +631,7 @@ func TestSessionSharedThreadFollowupUsesExistingConversation(t *testing.T) {
 	defer s.Close()
 	storetest.Must(t, s.Migrate(ctx))
 	scoped := sessionWorkerScope(t, s, f.server.URL)
-	w := gateway.Worker{Store: scoped, Clients: factory, AgentID: "steward", Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "agently_scheduler"}}
+	w := gateway.Worker{Store: scoped, Clients: factory, AgentID: "steward", Policy: storetest.Policy("A", "T", "agently_scheduler", "C")}
 	for i, author := range []string{"alice", "bob"} {
 		_, err = scoped.Enqueue(ctx, storetest.Message(fmt.Sprintf("event-%d", i), "123.456", author))
 		storetest.Must(t, err)
@@ -665,7 +665,7 @@ func testSessionWorkerReconciliation(t *testing.T, mode string) {
 	scoped := sessionWorkerScope(t, s, f.server.URL)
 	_, err = scoped.Enqueue(ctx, storetest.Message("event", "123.456", "alice"))
 	storetest.Must(t, err)
-	w := gateway.Worker{Store: scoped, Clients: factory, AgentID: "steward", Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "agently_scheduler"}, Timing: gateway.QueryTiming{PollInitial: time.Millisecond}}
+	w := gateway.Worker{Store: scoped, Clients: factory, AgentID: "steward", Policy: storetest.Policy("A", "T", "agently_scheduler", "C"), Timing: gateway.QueryTiming{PollInitial: time.Millisecond}}
 	f.mode.Store(mode)
 	_, err = w.Step(ctx)
 	storetest.Must(t, err)

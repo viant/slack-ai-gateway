@@ -6,34 +6,47 @@ import (
 	"strings"
 )
 
-// ChannelScope controls routing, not conversation ownership.
+// ChannelScope selects the general channel rule, not conversation ownership.
 type ChannelScope struct {
-	Mode         string   `json:"mode"`
+	Enabled      bool     `json:"enabled"`
+	Scope        string   `json:"scope"`
 	Allowlist    []string `json:"allowlist"`
 	Denylist     []string `json:"denylist"`
 	AllowPrivate bool     `json:"allow_private"`
 }
 
-// Pointers distinguish inheritance from an explicit empty allow/deny list.
+// A nil allowlist is unrestricted; a nonnil empty allowlist permits nobody.
 type UserRule struct {
-	Mode      *string
-	Allowlist *[]string
-	Denylist  *[]string
+	Scope     string
+	Allowlist []string
+	Denylist  []string
+}
+
+// ChannelRule replaces the complete general rule for one exact channel ID.
+type ChannelRule struct {
+	Enabled      bool
+	AllowPrivate bool
+	Users        *UserRule
+}
+
+type DirectMessageRule struct {
+	Enabled bool
+	Users   *UserRule
 }
 
 type AccessRules struct {
-	GlobalAllowlist *[]string
-	GlobalDenylist  *[]string
-	Defaults        *UserRule
-	DirectMessages  *UserRule
-	Channels        map[string]UserRule
+	Users            *UserRule
+	DirectMessages   *DirectMessageRule
+	ChannelOverrides map[string]ChannelRule
 }
 
 type EffectiveChannelPolicy struct {
 	ChannelID    string `json:"channel_id"`
+	Enabled      bool   `json:"enabled"`
+	RuleSource   string `json:"rule_source"`
 	RouteAllowed bool   `json:"route_allowed"`
 	Present      bool   `json:"policy_present"`
-	UserMode     string `json:"user_mode,omitempty"`
+	UserScope    string `json:"user_scope,omitempty"`
 	// nil means unrestricted; [] means nobody. Do not use omitempty.
 	Allowlist    []string `json:"allowlist"`
 	Denylist     []string `json:"denylist"`
@@ -48,13 +61,10 @@ type ChannelPolicyResolver struct {
 }
 
 func NewChannelPolicyResolver(scope ChannelScope, rules AccessRules) (*ChannelPolicyResolver, error) {
-	if scope.Mode != "selected" && scope.Mode != "workspace" {
-		return nil, fmt.Errorf("slack.channels.mode must be selected or workspace")
+	if (scope.Enabled || scope.Scope != "") && scope.Scope != "selected" && scope.Scope != "workspace_channels_with_bot" {
+		return nil, fmt.Errorf("access.channels.scope must be selected or workspace_channels_with_bot")
 	}
-	if scope.Mode == "workspace" && scope.Allowlist != nil {
-		return nil, fmt.Errorf("workspace routing does not accept a channel allowlist")
-	}
-	if scope.Mode == "selected" && scope.Allowlist == nil {
+	if scope.Enabled && scope.Scope == "selected" && scope.Allowlist == nil {
 		return nil, fmt.Errorf("selected routing requires an explicit allowlist (possibly empty)")
 	}
 	for _, list := range [][]string{scope.Allowlist, scope.Denylist} {
@@ -62,50 +72,32 @@ func NewChannelPolicyResolver(scope ChannelScope, rules AccessRules) (*ChannelPo
 			return nil, err
 		}
 	}
-	for _, list := range []*[]string{rules.GlobalAllowlist, rules.GlobalDenylist} {
-		if list != nil {
-			if err := validateIDs(*list); err != nil {
-				return nil, err
-			}
-		}
-	}
-	if rules.Defaults != nil {
-		if err := validateRule(*rules.Defaults, true); err != nil {
-			return nil, err
-		}
+	if err := validateRule(rules.Users, scope.Enabled); err != nil {
+		return nil, fmt.Errorf("access.channels: %w", err)
 	}
 	if rules.DirectMessages != nil {
-		if err := validateRule(*rules.DirectMessages, true); err != nil {
-			return nil, err
+		if err := validateRule(rules.DirectMessages.Users, rules.DirectMessages.Enabled); err != nil {
+			return nil, fmt.Errorf("access.direct_messages: %w", err)
 		}
 	}
-	for channel, rule := range rules.Channels {
+	for channel, rule := range rules.ChannelOverrides {
 		if err := validateIDs([]string{channel}); err != nil {
 			return nil, err
 		}
-		if scope.Mode == "selected" && !slices.Contains(scope.Allowlist, channel) {
-			return nil, fmt.Errorf("channel override is outside the selected channel allowlist")
-		}
-		if err := validateRule(rule, rules.Defaults == nil); err != nil {
-			return nil, err
+		if err := validateRule(rule.Users, rule.Enabled); err != nil {
+			return nil, fmt.Errorf("channel override %s: %w", channel, err)
 		}
 	}
 	r := &ChannelPolicyResolver{scope: scope, rules: rules}
-	r.scope.Allowlist = slices.Clone(scope.Allowlist)
-	r.scope.Denylist = slices.Clone(scope.Denylist)
-	r.rules.GlobalAllowlist = cloneList(rules.GlobalAllowlist)
-	r.rules.GlobalDenylist = cloneList(rules.GlobalDenylist)
+	r.scope.Allowlist, r.scope.Denylist = slices.Clone(scope.Allowlist), slices.Clone(scope.Denylist)
+	r.rules.Users = cloneRule(rules.Users)
 	if rules.DirectMessages != nil {
-		d := cloneRule(*rules.DirectMessages)
-		r.rules.DirectMessages = &d
+		r.rules.DirectMessages = &DirectMessageRule{Enabled: rules.DirectMessages.Enabled, Users: cloneRule(rules.DirectMessages.Users)}
 	}
-	if rules.Defaults != nil {
-		d := cloneRule(*rules.Defaults)
-		r.rules.Defaults = &d
-	}
-	r.rules.Channels = make(map[string]UserRule, len(rules.Channels))
-	for key, rule := range rules.Channels {
-		r.rules.Channels[key] = cloneRule(rule)
+	r.rules.ChannelOverrides = make(map[string]ChannelRule, len(rules.ChannelOverrides))
+	for key, rule := range rules.ChannelOverrides {
+		rule.Users = cloneRule(rule.Users)
+		r.rules.ChannelOverrides[key] = rule
 	}
 	return r, nil
 }
@@ -121,41 +113,29 @@ func validateIDs(ids []string) error {
 	return nil
 }
 
-func validateRule(rule UserRule, requireMode bool) error {
-	if requireMode && rule.Mode == nil {
-		return fmt.Errorf("a policy without defaults must specify users.mode")
+func validateRule(rule *UserRule, required bool) error {
+	if rule == nil {
+		if required {
+			return fmt.Errorf("an enabled rule requires users with an explicit scope")
+		}
+		return nil
 	}
-	if rule.Mode != nil && *rule.Mode != "channel_members" && *rule.Mode != "members_only" {
-		return fmt.Errorf("users.mode must be channel_members or members_only")
+	if rule.Scope != "workspace_members_only" && rule.Scope != "workspace_members_and_guests" {
+		return fmt.Errorf("users.scope must be workspace_members_only or workspace_members_and_guests")
 	}
-	if rule.Mode == nil && rule.Allowlist == nil && rule.Denylist == nil {
-		return fmt.Errorf("empty channel policies are not supported")
-	}
-	for _, list := range []*[]string{rule.Allowlist, rule.Denylist} {
-		if list != nil {
-			if err := validateIDs(*list); err != nil {
-				return err
-			}
+	for _, list := range [][]string{rule.Allowlist, rule.Denylist} {
+		if err := validateIDs(list); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func cloneList(in *[]string) *[]string {
+func cloneRule(in *UserRule) *UserRule {
 	if in == nil {
 		return nil
 	}
-	v := append([]string{}, (*in)...)
-	return &v
-}
-
-func cloneRule(in UserRule) UserRule {
-	out := UserRule{Allowlist: cloneList(in.Allowlist), Denylist: cloneList(in.Denylist)}
-	if in.Mode != nil {
-		mode := *in.Mode
-		out.Mode = &mode
-	}
-	return out
+	return &UserRule{Scope: in.Scope, Allowlist: slices.Clone(in.Allowlist), Denylist: slices.Clone(in.Denylist)}
 }
 
 func (r *ChannelPolicyResolver) Scope() ChannelScope {
@@ -166,7 +146,12 @@ func (r *ChannelPolicyResolver) Scope() ChannelScope {
 
 func (r *ChannelPolicyResolver) ChannelIDs() []string {
 	ids := slices.Clone(r.scope.Allowlist)
-	for id := range r.rules.Channels {
+	for _, id := range r.scope.Denylist {
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	for id := range r.rules.ChannelOverrides {
 		if !slices.Contains(ids, id) {
 			ids = append(ids, id)
 		}
@@ -176,72 +161,45 @@ func (r *ChannelPolicyResolver) ChannelIDs() []string {
 }
 
 func (r *ChannelPolicyResolver) Resolve(channel string) EffectiveChannelPolicy {
-	p := EffectiveChannelPolicy{ChannelID: channel, AllowPrivate: r.scope.AllowPrivate}
+	p := EffectiveChannelPolicy{ChannelID: channel, Enabled: r.scope.Enabled, RuleSource: "disabled", AllowPrivate: r.scope.AllowPrivate}
+	if !r.scope.Enabled {
+		return resolveUsers(p, r.rules.Users)
+	}
+	if override, ok := r.rules.ChannelOverrides[channel]; ok {
+		p.Enabled, p.AllowPrivate = override.Enabled, override.AllowPrivate
+		if override.Enabled {
+			p.RuleSource, p.RouteAllowed = "channel_override", channel != ""
+		}
+		return resolveUsers(p, override.Users)
+	}
+	p.RuleSource = "general"
 	p.RouteAllowed = channel != "" && !slices.Contains(r.scope.Denylist, channel) &&
-		(r.scope.Mode == "workspace" || slices.Contains(r.scope.Allowlist, channel))
-	var local UserRule
-	if r.rules.Defaults != nil {
-		local = *r.rules.Defaults
-	}
-	if override, ok := r.rules.Channels[channel]; ok {
-		if override.Mode != nil {
-			local.Mode = override.Mode
-		}
-		if override.Allowlist != nil {
-			local.Allowlist = override.Allowlist
-		}
-		if override.Denylist != nil {
-			local.Denylist = override.Denylist
-		}
-	}
-	return r.resolveUsers(p, local)
+		(r.scope.Allowlist == nil || slices.Contains(r.scope.Allowlist, channel))
+	return resolveUsers(p, r.rules.Users)
 }
 
-// DM has its own explicit policy; channel defaults and overrides never apply.
+// DM has its own complete rule; channel rules and overrides never apply.
 func (r *ChannelPolicyResolver) ResolveDirectMessages() EffectiveChannelPolicy {
-	p := EffectiveChannelPolicy{RouteAllowed: true}
-	var local UserRule
-	if r.rules.DirectMessages != nil {
-		local = *r.rules.DirectMessages
+	p := EffectiveChannelPolicy{RuleSource: "disabled"}
+	if rule := r.rules.DirectMessages; rule != nil {
+		p.Enabled, p.RouteAllowed = rule.Enabled, rule.Enabled
+		if rule.Enabled {
+			p.RuleSource = "general"
+		}
+		return resolveUsers(p, rule.Users)
 	}
-	return r.resolveUsers(p, local)
+	return p
 }
 
-func (r *ChannelPolicyResolver) resolveUsers(p EffectiveChannelPolicy, local UserRule) EffectiveChannelPolicy {
-	if local.Mode != nil {
-		p.Present, p.UserMode = true, *local.Mode
-	}
-	if local.Allowlist != nil {
-		p.Allowlist = append([]string{}, (*local.Allowlist)...)
-	}
-	if r.rules.GlobalAllowlist != nil {
-		global := *r.rules.GlobalAllowlist
-		if p.Allowlist == nil {
-			p.Allowlist = append([]string{}, global...)
-		} else {
-			allowed := []string{}
-			for _, id := range p.Allowlist {
-				if slices.Contains(global, id) {
-					allowed = append(allowed, id)
-				}
-			}
-			p.Allowlist = allowed
-		}
-	}
-	p.Denylist = []string{}
-	for _, list := range []*[]string{r.rules.GlobalDenylist, local.Denylist} {
-		if list != nil {
-			for _, id := range *list {
-				if !slices.Contains(p.Denylist, id) {
-					p.Denylist = append(p.Denylist, id)
-				}
-			}
-		}
+func resolveUsers(p EffectiveChannelPolicy, rule *UserRule) EffectiveChannelPolicy {
+	if rule != nil {
+		p.Present, p.UserScope = true, rule.Scope
+		p.Allowlist, p.Denylist = slices.Clone(rule.Allowlist), slices.Clone(rule.Denylist)
 	}
 	return p
 }
 
 func (p EffectiveChannelPolicy) AllowsUser(id string) bool {
-	return p.RouteAllowed && p.Present && id != "" && !slices.Contains(p.Denylist, id) &&
+	return p.Enabled && p.RouteAllowed && p.Present && id != "" && !slices.Contains(p.Denylist, id) &&
 		(p.Allowlist == nil || slices.Contains(p.Allowlist, id))
 }

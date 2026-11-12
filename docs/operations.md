@@ -21,8 +21,9 @@ go run ./cmd/slack-ai-gateway validate-config --config examples/gateway.example.
 This command needs the complete runtime configuration, not just storage. It is
 entirely offline: no database, lock, token loading, login or API calls, including
 when the runtime is active. It reports static policy, not verified membership or
-granted scopes. See [access policy](access-policy.md) for inheritance and legacy
-compatibility.
+granted scopes. The report names the chosen general/override/disabled rule and
+its effective user scope. See [access policy](access-policy.md) for complete-rule
+selection and the one-time configuration rewrite.
 
 ## SQLite commands
 

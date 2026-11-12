@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/viant/slack-ai-gateway/internal/gateway"
@@ -21,65 +22,67 @@ func (s statusRuntimeSender) SendStatus(ctx context.Context, status gateway.Gate
 }
 
 func TestMoreThanFourObservationsAndIndependentStatusAcknowledgment(t *testing.T) {
-	r, s, b := setup(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	started := make(chan struct{}, 8)
-	release := make(chan struct{})
-	b.query = func(ctx context.Context, q gateway.Query) (gateway.Turn, error) {
-		started <- struct{}{}
-		select {
-		case <-release:
-			return gateway.Turn{ID: q.MessageID, State: "completed", Content: "reply"}, nil
-		case <-ctx.Done():
-			return gateway.Turn{}, ctx.Err()
+	synctest.Test(t, func(t *testing.T) {
+		r, s, b := setup(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		started := make(chan struct{}, 8)
+		release := make(chan struct{})
+		b.query = func(ctx context.Context, q gateway.Query) (gateway.Turn, error) {
+			started <- struct{}{}
+			select {
+			case <-release:
+				return gateway.Turn{ID: q.MessageID, State: "completed", Content: "reply"}, nil
+			case <-ctx.Done():
+				return gateway.Turn{}, ctx.Err()
+			}
 		}
-	}
-	for i := 0; i < 4; i++ {
-		_, err := s.Enqueue(ctx, storetest.Message(fmt.Sprint(i), fmt.Sprint(i), "alice"))
+		for i := 0; i < 4; i++ {
+			_, err := s.Enqueue(ctx, storetest.Message(fmt.Sprint(i), fmt.Sprint(i), "alice"))
+			storetest.Must(t, err)
+		}
+		statuses := make(chan gateway.GatewayJobProgress, 20)
+		r.Sender = statusRuntimeSender{senderFunc: func(context.Context, gateway.SlackOutgoingMessage) (string, error) { return "4.000001", nil }, status: func(_ context.Context, status gateway.GatewayJobProgress, _ string) (string, error) {
+			statuses <- status
+			if status.SlackTS != "" {
+				return status.SlackTS, nil
+			}
+			return "3.000001", nil
+		}}
+		done := make(chan error, 1)
+		go func() { done <- r.Run(ctx) }()
+		for range 4 {
+			await(t, started)
+		}
+		_, err := s.Enqueue(ctx, storetest.Message("fifth", "fifth", "bob"))
 		storetest.Must(t, err)
-	}
-	statuses := make(chan gateway.GatewayJobProgress, 20)
-	r.Sender = statusRuntimeSender{senderFunc: func(context.Context, gateway.SlackOutgoingMessage) (string, error) { return "4.000001", nil }, status: func(_ context.Context, status gateway.GatewayJobProgress, _ string) (string, error) {
-		statuses <- status
-		if status.SlackTS != "" {
-			return status.SlackTS, nil
+		timer := time.NewTimer(8 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case status := <-statuses:
+				if status.RootTS != "fifth" {
+					continue
+				}
+				if (status.Phase != "received" && status.Phase != "contacting") || r.Delivered() != 0 {
+					t.Fatal("acknowledgment depends on a query worker or counts as final delivery")
+				}
+				await(t, started) // Fifth query started without releasing the first four.
+				if b.queries.Load() != 5 {
+					t.Fatal("long observations blocked admission")
+				}
+				cancel()
+				close(release)
+				storetest.Must(t, finished(t, done))
+				return
+			case <-timer.C:
+				cancel()
+				close(release)
+				finished(t, done)
+				t.Fatal("no acknowledgment while query workers were occupied")
+			}
 		}
-		return "3.000001", nil
-	}}
-	done := make(chan error, 1)
-	go func() { done <- r.Run(ctx) }()
-	for range 4 {
-		await(t, started)
-	}
-	_, err := s.Enqueue(ctx, storetest.Message("fifth", "fifth", "bob"))
-	storetest.Must(t, err)
-	timer := time.NewTimer(8 * time.Second)
-	defer timer.Stop()
-	for {
-		select {
-		case status := <-statuses:
-			if status.RootTS != "fifth" {
-				continue
-			}
-			if (status.Phase != "received" && status.Phase != "contacting") || r.Delivered() != 0 {
-				t.Fatal("acknowledgment depends on a query worker or counts as final delivery")
-			}
-			await(t, started) // Fifth query started without releasing the first four.
-			if b.queries.Load() != 5 {
-				t.Fatal("long observations blocked admission")
-			}
-			cancel()
-			close(release)
-			storetest.Must(t, finished(t, done))
-			return
-		case <-timer.C:
-			cancel()
-			close(release)
-			finished(t, done)
-			t.Fatal("no acknowledgment while query workers were occupied")
-		}
-	}
+	})
 }
 
 func TestBackendAuthenticationShutdownAttemptsOnlyTerminalStatus(t *testing.T) {

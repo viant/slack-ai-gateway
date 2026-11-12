@@ -1,3 +1,4 @@
+# Independent integrations require distinct Slack app IDs.
 storage:
   driver: sqlite
   path: gateway-multi.sqlite
@@ -5,29 +6,30 @@ storage:
 integrations:
   - name: steward
     transport: socket
-    access_mode: shared_channel
     slack:
       app_id: A_STEWARD
       workspace_id: T_EXAMPLE
-      channels:
-        mode: selected
-        allowlist: [C_CAMPAIGNS]
       status:
         mode: hybrid
         refresh_interval_sec: 30
       app_token_secret:
-        URL: /absolute/path/steward-app-token.enc
+        URL: file:///absolute/path/steward-app-token.enc
         Key: blowfish://default
       bot_token_secret:
-        URL: /absolute/path/steward-bot-token.enc
+        URL: file:///absolute/path/steward-bot-token.enc
         Key: blowfish://default
     access:
-      defaults:
+      channels:
+        enabled: true
+        scope: selected
+        allowlist: [C_CAMPAIGNS]
+        allow_private: false
         users:
-          mode: channel_members
+          scope: workspace_members_only
       direct_messages:
+        enabled: true
         users:
-          mode: members_only
+          scope: workspace_members_only
           allowlist: [U_EXAMPLE]
     backend:
       type: agently
@@ -37,30 +39,32 @@ integrations:
       auth:
         mode: oob_session
         secret:
-          URL: /absolute/path/agently.enc
+          URL: file:///absolute/path/agently.enc
           Key: blowfish://default
 
   - name: support
     transport: socket
-    access_mode: shared_channel
     slack:
       app_id: A_SUPPORT
       workspace_id: T_EXAMPLE
-      channels:
-        mode: selected
-        allowlist: [C_SUPPORT]
       status:
         mode: message
       app_token_secret:
-        URL: /absolute/path/support-app-token.enc
+        URL: file:///absolute/path/support-app-token.enc
         Key: blowfish://default
       bot_token_secret:
-        URL: /absolute/path/support-bot-token.enc
+        URL: file:///absolute/path/support-bot-token.enc
         Key: blowfish://default
     access:
-      defaults:
+      channels:
+        enabled: true
+        scope: selected
+        allowlist: [C_SUPPORT]
+        allow_private: false
         users:
-          mode: channel_members
+          scope: workspace_members_only
+      direct_messages:
+        enabled: false
     backend:
       type: agui
       endpoint: http://127.0.0.1:9292/v1/ag-ui/run

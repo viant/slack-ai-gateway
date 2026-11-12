@@ -17,8 +17,8 @@ type Intake struct {
 // Route is a local allowlist, independent of conversation authorization. A
 // future per-user policy/IdP must never be called on the transport ACK path.
 type Route struct {
-	AppID, WorkspaceID, ChannelID string
-	Resolver                      *ChannelPolicyResolver
+	AppID, WorkspaceID string
+	Resolver           *ChannelPolicyResolver
 }
 
 func (r Route) AllowsChannel(workspace, channel string) bool {
@@ -29,7 +29,7 @@ func (r Route) AllowsChannel(workspace, channel string) bool {
 		p := r.Resolver.Resolve(channel)
 		return p.RouteAllowed && p.Present
 	}
-	return r.ChannelID != "" && channel == r.ChannelID
+	return false
 }
 
 func (r Route) Allows(m Message) bool {
@@ -40,7 +40,11 @@ func (r Route) Allows(m Message) bool {
 	case SurfaceChannel:
 		return r.AllowsChannel(m.WorkspaceID, m.ChannelID)
 	case SurfaceDirectMessage:
-		return r.Resolver != nil && r.Resolver.ResolveDirectMessages().Present
+		if r.Resolver != nil {
+			p := r.Resolver.ResolveDirectMessages()
+			return p.Enabled && p.RouteAllowed && p.Present
+		}
+		return false
 	default:
 		return false
 	}

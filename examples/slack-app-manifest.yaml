@@ -17,6 +17,7 @@ oauth_config:
       - app_mentions:read
       - chat:write
       - channels:read
+      - users:read
       - groups:read
       - im:read
       - im:history

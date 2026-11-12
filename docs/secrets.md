@@ -34,7 +34,7 @@ scy secure --target basic --key blowfish://default \
 ```
 
 Use the execution account for `agently-service.json`; its authenticated subject
-must match `agently.principal_id`. An existing compatible OOB credential file can
+must match `integrations[].backend.principal_id`. An existing compatible OOB credential file can
 be referenced directly. Create `mysql.json` only when using MySQL, with the actual
 credentials of that database. The standard local E2E fixture uses `root`/`dev`;
 an existing volume retains its original password.
@@ -56,29 +56,33 @@ Replace the example locations in the YAML with absolute paths. The resource
 keys are the native, case-sensitive Scy names `URL` and `Key`:
 
 ```yaml
-slack:
-  app_token_secret:
-    URL: file:///absolute/path/slack-app-token.enc
-    Key: blowfish://default
-  bot_token_secret:
-    URL: file:///absolute/path/slack-bot-token.enc
-    Key: blowfish://default
-agently:
-  auth:
-    mode: oob_session
-    secret:
-      URL: file:///absolute/path/agently-service.json
-      Key: blowfish://default
 storage:
   driver: mysql
   dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true&loc=UTC'
   secret:
     URL: file:///absolute/path/mysql.json
     Key: blowfish://default
+integrations:
+  - name: steward
+    slack:
+      app_token_secret:
+        URL: file:///absolute/path/slack-app-token.enc
+        Key: blowfish://default
+      bot_token_secret:
+        URL: file:///absolute/path/slack-bot-token.enc
+        Key: blowfish://default
+    backend:
+      auth:
+        mode: oob_session
+        secret:
+          URL: file:///absolute/path/agently-service.json
+          Key: blowfish://default
 ```
 
-This fragment supplements the IDs, agent, access policy and other settings in
-the [runtime example](../examples/gateway.example.yaml). With SQLite, keep its
+This is a fragment: replace these fields inside the existing named integration,
+retaining its transport, IDs, backend/agent settings and access policy from
+the [runtime example](../examples/gateway.example.yaml). Do not create duplicate
+`slack`, `backend` or `integrations` keys. With SQLite, keep its
 `storage.driver` and `storage.path`; no MySQL resource is needed. A complete MySQL
 DSN without `storage.secret` is also supported for local development. Datly owns
 the native `${Username}`/`${Password}` substitution; these are not environment

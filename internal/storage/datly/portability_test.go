@@ -59,7 +59,7 @@ func TestSmokeNamespacePreservesDatabaseComparisons(t *testing.T) {
 			storetest.Must(t, err)
 			binding, err := s.BindJob(ctx, job.ID, gateway.Decision{Mode: "shared_channel", PrincipalID: "shared", OwnerID: "shared"})
 			storetest.Must(t, err)
-			route := gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}
+			route := storetest.Route("A", "T", "C")
 			for _, test := range []struct {
 				conversation string
 				smoke        bool
@@ -155,7 +155,7 @@ func TestSharedStoreWithoutSources(t *testing.T) {
 			defer cancel()
 			_, err := s.Enqueue(ctx, storetest.Message("compiled", "thread", "alice"))
 			storetest.Must(t, err)
-			storetest.Must(t, s.CheckRunBindings(ctx, gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}, "shared"))
+			storetest.Must(t, s.CheckRunBindings(ctx, storetest.Route("A", "T", "C"), "shared"))
 			until, err := s.DeliveryNotBefore(ctx, "T")
 			storetest.Must(t, err)
 			if until.UnixMilli() != 0 {

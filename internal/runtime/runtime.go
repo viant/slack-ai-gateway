@@ -275,13 +275,13 @@ func (r *Runtime) runPrepared(ctx context.Context) error {
 	// and persist their results, but shutdown never drains the entire queue.
 	close(stopClaims)
 	cancelSource()
-	shutdownDeadline := time.Now().Add(30 * time.Second)
+	shutdownDeadline := time.Now().Add(15 * time.Second)
 	if runErr != nil {
 		cancelWork()
 	}
 	joined := make(chan struct{})
 	go func() { workers.Wait(); close(joined) }()
-	grace := time.NewTimer(30 * time.Second)
+	grace := time.NewTimer(15 * time.Second)
 	select {
 	case <-joined:
 	case <-grace.C:

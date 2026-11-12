@@ -61,14 +61,15 @@ func (p ConfiguredPolicy) authorize(ctx context.Context, m Message, b *Conversat
 	} else if channel.IM || !channel.Member || channel.Archived || (channel.Private && !policy.AllowPrivate) {
 		return Decision{}, ErrDenied
 	}
-	if policy.UserMode == "members_only" {
-		user, err := p.Directory.User(ctx, m.WorkspaceID, m.AuthorID)
-		if err != nil {
-			return Decision{}, err
-		}
-		if user.ID != m.AuthorID || user.WorkspaceID != m.WorkspaceID || user.Deleted || user.Bot || user.Guest || user.SingleChannelGuest {
-			return Decision{}, ErrDenied
-		}
+	user, err := p.Directory.User(ctx, m.WorkspaceID, m.AuthorID)
+	if err != nil {
+		return Decision{}, err
+	}
+	if user.ID != m.AuthorID || user.WorkspaceID != m.WorkspaceID || user.Deleted || user.Bot {
+		return Decision{}, ErrDenied
+	}
+	if policy.UserScope == "workspace_members_only" && (user.Guest || user.SingleChannelGuest) {
+		return Decision{}, ErrDenied
 	}
 	return d, nil
 }

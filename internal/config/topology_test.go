@@ -44,7 +44,6 @@ func TestTopologyRejectsAmbiguousAndUnresolvedRoutes(t *testing.T) {
 		name string
 		edit func(*Config)
 	}{
-		{"mixed_shapes", func(c *Config) { c.Transport = "socket" }},
 		{"missing_name", func(c *Config) { c.Integrations[0].Name = "" }},
 		{"missing_backend", func(c *Config) { c.Integrations[0].Backend = Backend{} }},
 		{"missing_slack", func(c *Config) { c.Integrations[0].Slack = SlackSettings{} }},
@@ -71,7 +70,7 @@ func TestTopologyLoaderPreservesNativeStrictSecurityAndStatusPresence(t *testing
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ name, from, to string }{
-		{"null_access", "    access:\n      defaults:", "    access: null\n    unused_access:\n      defaults:"},
+		{"null_access", "    access:\n      channels:", "    access: null\n    unused_access:\n      channels:"},
 		{"null_slack", "    slack:\n      app_id:", "    slack: null\n    unused_slack:\n      app_id:"},
 		{"status_seconds_string", "refresh_interval_sec: 30", "refresh_interval_sec: '30'"},
 		{"null_mode", "mode: hybrid", "mode: null"},
@@ -122,12 +121,25 @@ func TestExplicitEmptyIntegrationsAreDifferentFromAbsentAndNull(t *testing.T) {
 	}
 }
 
-func TestLegacyTopologyKeepsDefaultLogicalName(t *testing.T) {
-	c := topologyExample(t)
-	first := c.Integrations[0]
-	c = Config{Storage: c.Storage, Transport: first.Transport, AccessMode: first.AccessMode, Access: first.Access, Slack: first.Slack, Agently: AgentlySettings{BaseURL: first.Backend.BaseURL, AgentID: first.Backend.AgentID, PrincipalID: first.Backend.PrincipalID, Auth: first.Backend.Auth}}
-	resolved, err := c.Topology()
-	if err != nil || len(resolved) != 1 || resolved[0].Name != "default" || resolved[0].Backend.AgentID != "steward" {
-		t.Fatalf("legacy normalization: %#v %v", resolved, err)
+func TestLoaderRejectsAllLegacyConfigurationFields(t *testing.T) {
+	for _, body := range []string{
+		"transport: socket\n", "access_mode: shared_channel\n", "slack: {app_id: A}\n",
+		"agently: {base_url: http://127.0.0.1:9191}\n", "access: {}\n",
+		"integrations: [{name: steward, access_mode: shared_channel}]\n",
+		"integrations: [{name: steward, slack: {channel_id: C}}]\n",
+		"integrations: [{name: steward, slack: {channels: {mode: selected, allowlist: [C]}}}]\n",
+	} {
+		path := filepath.Join(t.TempDir(), "legacy.yaml")
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := Load(path)
+		if err == nil {
+			t.Fatalf("legacy configuration accepted: %s", body)
+		}
+		if !strings.Contains(err.Error(), "obsolete access configuration; use integrations[].access") {
+			t.Fatalf("migration guidance missing: %v", err)
+		}
 	}
 }

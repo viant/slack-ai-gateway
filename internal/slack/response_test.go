@@ -116,7 +116,7 @@ func TestResponsePresentationThroughHTTPAndDurableOutbox(t *testing.T) {
 				m := storetest.Message("example-event", "1.000001", "example-user")
 				_, err = (gateway.Intake{Store: s, Route: testRoute}).Accept(ctx, m)
 				storetest.Must(t, err)
-				policy := gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "shared"}
+				policy := storetest.Policy("A", "T", "shared", "C")
 				worker := gateway.Worker{Store: s, Clients: factory, Policy: policy, AgentID: "example", ResponseMode: mode, AgentlyBaseURL: baseURL,
 					Timing: gateway.QueryTiming{PollInitial: time.Millisecond, Timeout: time.Second}}
 				step := func() {

@@ -21,12 +21,11 @@ import (
 )
 
 type Config struct {
-	Storage    Storage         `yaml:"storage"`
-	Transport  string          `yaml:"transport"`
-	AccessMode string          `yaml:"access_mode"`
-	Access     *Access         `yaml:"access"`
-	Slack      SlackSettings   `yaml:"slack"`
-	Agently    AgentlySettings `yaml:"agently"`
+	Storage   Storage         `yaml:"storage"`
+	Transport string          `yaml:"-"`
+	Access    *Access         `yaml:"-"`
+	Slack     SlackSettings   `yaml:"-"`
+	Agently   AgentlySettings `yaml:"-"`
 
 	Integrations []Integration `yaml:"integrations"`
 }
@@ -34,8 +33,6 @@ type Config struct {
 type SlackSettings struct {
 	AppID          string        `yaml:"app_id"`
 	WorkspaceID    string        `yaml:"workspace_id"`
-	ChannelID      string        `yaml:"channel_id"`
-	Channels       *Channels     `yaml:"channels"`
 	Status         Status        `yaml:"status"`
 	Response       Response      `yaml:"response"`
 	AppTokenSecret *scy.Resource `yaml:"app_token_secret"`
@@ -88,82 +85,75 @@ func (c Config) StatusRefreshInterval() time.Duration {
 	return time.Duration(*c.Slack.Status.RefreshIntervalSec) * time.Second
 }
 
+// Channels controls the channel surface. An omitted block is disabled; a
+// present block requires enabled to make that choice explicit.
 type Channels struct {
-	Mode         string    `yaml:"mode"`
-	Allowlist    *[]string `yaml:"allowlist"`
-	Denylist     []string  `yaml:"denylist"`
-	AllowPrivate bool      `yaml:"allow_private"`
+	Enabled          *bool                  `yaml:"enabled"`
+	Scope            string                 `yaml:"scope"`
+	Allowlist        []string               `yaml:"allowlist"`
+	Denylist         []string               `yaml:"denylist"`
+	AllowPrivate     bool                   `yaml:"allow_private"`
+	Users            *Users                 `yaml:"users"`
+	ChannelOverrides map[string]ChannelRule `yaml:"channel_overrides"`
 }
 
 type Users struct {
-	Mode      *string   `yaml:"mode"`
-	Allowlist *[]string `yaml:"allowlist"`
-	Denylist  *[]string `yaml:"denylist"`
+	Scope     string   `yaml:"scope"`
+	Allowlist []string `yaml:"allowlist"`
+	Denylist  []string `yaml:"denylist"`
 }
 
-type Policy struct {
-	Users Users `yaml:"users"`
+type ChannelRule struct {
+	Enabled      *bool  `yaml:"enabled"`
+	AllowPrivate bool   `yaml:"allow_private"`
+	Users        *Users `yaml:"users"`
 }
 
-type Global struct {
-	Users struct {
-		Allowlist *[]string `yaml:"allowlist"`
-		Denylist  *[]string `yaml:"denylist"`
-	} `yaml:"users"`
+type DirectMessages struct {
+	Enabled *bool  `yaml:"enabled"`
+	Users   *Users `yaml:"users"`
 }
 
 type Access struct {
-	Global           *Global           `yaml:"global"`
-	Defaults         *Policy           `yaml:"defaults"`
-	DirectMessages   *Policy           `yaml:"direct_messages"`
-	ChannelOverrides map[string]Policy `yaml:"channel_overrides"`
+	Channels       *Channels       `yaml:"channels"`
+	DirectMessages *DirectMessages `yaml:"direct_messages"`
 }
 
 func (c Config) Route() (gateway.Route, error) {
-	if c.Slack.ChannelID != "" && c.Slack.Channels != nil {
-		return gateway.Route{}, fmt.Errorf("slack.channel_id and slack.channels are mutually exclusive")
-	}
 	scope := gateway.ChannelScope{}
-	if c.Slack.Channels != nil {
-		s := c.Slack.Channels
-		scope = gateway.ChannelScope{Mode: s.Mode, Denylist: s.Denylist, AllowPrivate: s.AllowPrivate}
-		if s.Allowlist != nil {
-			scope.Allowlist = append([]string{}, (*s.Allowlist)...)
+	rules := gateway.AccessRules{ChannelOverrides: make(map[string]gateway.ChannelRule)}
+	convert := func(users *Users) *gateway.UserRule {
+		if users == nil {
+			return nil
 		}
-	} else if c.Slack.ChannelID != "" {
-		// Legacy routing was not restricted to public channels.
-		scope = gateway.ChannelScope{Mode: "selected", Allowlist: []string{c.Slack.ChannelID}, AllowPrivate: true}
-	} else {
-		return gateway.Route{}, fmt.Errorf("Slack requires channel_id or channels")
-	}
-	rules := gateway.AccessRules{Channels: make(map[string]gateway.UserRule)}
-	convert := func(u Users) gateway.UserRule {
-		return gateway.UserRule{Mode: u.Mode, Allowlist: u.Allowlist, Denylist: u.Denylist}
+		return &gateway.UserRule{Scope: users.Scope, Allowlist: users.Allowlist, Denylist: users.Denylist}
 	}
 	if c.Access != nil {
-		if c.Access.Global != nil {
-			rules.GlobalAllowlist, rules.GlobalDenylist = c.Access.Global.Users.Allowlist, c.Access.Global.Users.Denylist
+		if channels := c.Access.Channels; channels != nil {
+			if channels.Enabled == nil {
+				return gateway.Route{}, fmt.Errorf("access.channels.enabled is required")
+			}
+			scope = gateway.ChannelScope{Enabled: *channels.Enabled, Scope: channels.Scope, Allowlist: channels.Allowlist, Denylist: channels.Denylist, AllowPrivate: channels.AllowPrivate}
+			rules.Users = convert(channels.Users)
+			for id, rule := range channels.ChannelOverrides {
+				if rule.Enabled == nil {
+					return gateway.Route{}, fmt.Errorf("channel override enabled is required")
+				}
+				rules.ChannelOverrides[id] = gateway.ChannelRule{Enabled: *rule.Enabled, AllowPrivate: rule.AllowPrivate, Users: convert(rule.Users)}
+			}
 		}
-		if c.Access.Defaults != nil {
-			d := convert(c.Access.Defaults.Users)
-			rules.Defaults = &d
+		if dm := c.Access.DirectMessages; dm != nil {
+			if dm.Enabled == nil {
+				return gateway.Route{}, fmt.Errorf("access.direct_messages.enabled is required")
+			}
+			rules.DirectMessages = &gateway.DirectMessageRule{Enabled: *dm.Enabled, Users: convert(dm.Users)}
 		}
-		if c.Access.DirectMessages != nil {
-			d := convert(c.Access.DirectMessages.Users)
-			rules.DirectMessages = &d
-		}
-		for id, p := range c.Access.ChannelOverrides {
-			rules.Channels[id] = convert(p.Users)
-		}
-	} else if c.Slack.Channels == nil {
-		mode := "channel_members"
-		rules.Channels[c.Slack.ChannelID] = gateway.UserRule{Mode: &mode}
 	}
 	resolver, err := gateway.NewChannelPolicyResolver(scope, rules)
 	if err != nil {
 		return gateway.Route{}, err
 	}
-	return gateway.Route{AppID: c.Slack.AppID, WorkspaceID: c.Slack.WorkspaceID, ChannelID: c.Slack.ChannelID, Resolver: resolver}, nil
+	return gateway.Route{AppID: c.Slack.AppID, WorkspaceID: c.Slack.WorkspaceID, Resolver: resolver}, nil
 }
 
 type Storage struct {
@@ -271,17 +261,8 @@ func (c Config) ValidateStorage() error {
 }
 
 func (c Config) ValidateRun() error {
-	if c.hasTopology() {
-		_, err := c.Topology()
-		return err
-	}
-	if err := c.ValidateSlack(); err != nil {
-		return err
-	}
-	if filepath.Base(c.Storage.Path) == "slack-smoke.sqlite" {
-		return fmt.Errorf("run requires a separate SQLite database, not slack-smoke.sqlite")
-	}
-	return c.ValidateAgently()
+	_, err := c.Topology()
+	return err
 }
 
 // ValidateAgently deliberately requires neither Slack nor storage configuration.
@@ -325,9 +306,6 @@ func (c Config) ValidateSlack() error {
 	}
 	if c.Transport != "socket" {
 		return fmt.Errorf("only transport: socket is planned for v1")
-	}
-	if c.AccessMode != "shared_channel" {
-		return fmt.Errorf("only access_mode: shared_channel is planned for v1")
 	}
 	for _, value := range []string{c.Slack.AppID, c.Slack.WorkspaceID} {
 		if strings.TrimSpace(value) == "" || strings.TrimSpace(value) != value || strings.ContainsAny(value, " \r\n\t") {

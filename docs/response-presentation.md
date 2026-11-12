@@ -1,6 +1,7 @@
 # Response presentation
 
-Select how completed Agently answers are shown on Slack:
+Select how completed Agently answers are shown on Slack. Put this fragment inside
+the chosen `integrations[]` entry:
 
 ```yaml
 slack:
@@ -9,7 +10,8 @@ slack:
 ```
 
 Omitting this section selects `raw`. The setting is
-global for channels and DM. Restart the gateway after changing it. It applies to
+shared by channels and DM of that integration. Other integrations have independent
+presentation settings. Restart the gateway after changing it. It applies to
 answers finalized by the new process, including queries recovered after restart.
 Already-persisted outbox messages retain their original content through retries.
 `validate-config` reports
@@ -54,7 +56,7 @@ report bounds and the gateway's Markdown chunker still apply.
 All five modes begin with `[View full response in Agently](URL)`, including
 ordinary greetings and empty answers. The link occurs once, before chunking,
 so it is in the first Slack message even for long reports. The URL
-uses `agently.base_url` and the bound conversation ID, preserving a deployment
+uses the integration's `backend.base_url` and the bound conversation ID, preserving a deployment
 path prefix. Recipients need browser access to that deployment to open it; a
 localhost URL refers to the recipient's own computer. No new public URL setting
 is introduced here.

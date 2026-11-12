@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/viant/scy"
@@ -36,7 +37,7 @@ func TestSmokeConfigOffline(t *testing.T) {
 	if path == "" {
 		path = "testdata/channels.yaml"
 	}
-	c, err := config.Load(path)
+	c, err := loadSmokeConfig(path, os.Getenv("SLACK_AI_GATEWAY_INTEGRATION"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +45,7 @@ func TestSmokeConfigOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("Smoke configuration valid: routing=%s, %d explicit channel IDs. No tokens, database, Slack or Agently calls.", p.Route.Resolver.Scope().Mode, len(p.Route.Resolver.ChannelIDs()))
+	t.Logf("Smoke configuration valid: routing=%s, %d explicit channel IDs. No tokens, database, Slack or Agently calls.", p.Route.Resolver.Scope().Scope, len(p.Route.Resolver.ChannelIDs()))
 }
 
 type smokeDirectory struct {
@@ -66,14 +67,41 @@ func (d *smokeDirectory) User(_ context.Context, workspace, user string) (gatewa
 	return gateway.UserInfo{WorkspaceID: workspace, ID: user, Guest: d.guest}, nil
 }
 
+// Select one public integration without authenticating or initializing its
+// configured backend. Only the live harness substitutes the test backend.
+func loadSmokeConfig(path, selected string) (config.Config, error) {
+	root, err := config.Load(path)
+	if err != nil {
+		return config.Config{}, err
+	}
+	if err := root.ValidateIntegrationNames(); err != nil {
+		return config.Config{}, err
+	}
+	var chosen *config.Integration
+	for index := range root.Integrations {
+		integration := &root.Integrations[index]
+		if selected != "" && integration.Name != selected {
+			continue
+		}
+		if chosen != nil {
+			return config.Config{}, fmt.Errorf("select exactly one smoke integration with SLACK_AI_GATEWAY_INTEGRATION")
+		}
+		chosen = integration
+	}
+	if chosen == nil {
+		return config.Config{}, fmt.Errorf("no matching smoke integration")
+	}
+	return config.Config{Storage: root.Storage, Transport: chosen.Transport, Access: chosen.Access, Slack: chosen.Slack}, nil
+}
+
 func smokeConfig(t *testing.T, body string) config.Config {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "smoke.yaml")
-	yaml := "storage: {driver: sqlite, path: slack-smoke.sqlite}\ntransport: socket\naccess_mode: shared_channel\n" + body
-	if err := os.WriteFile(path, []byte(yaml), 0600); err != nil {
+	body = "storage: {driver: sqlite, path: slack-smoke.sqlite}\nintegrations:\n  - name: smoke\n    transport: socket\n    " + strings.ReplaceAll(strings.TrimSuffix(body, "\n"), "\n", "\n    ") + "\n"
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	c, err := config.Load(path)
+	c, err := loadSmokeConfig(path, "smoke")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +111,7 @@ func smokeConfig(t *testing.T, body string) config.Config {
 }
 
 func TestSmokeDirectMessageUsesNormalPolicyWithoutMention(t *testing.T) {
-	c := smokeConfig(t, "slack: {app_id: A, workspace_id: T, channels: {mode: selected, allowlist: []}}\naccess: {direct_messages: {users: {mode: channel_members}}}\n")
+	c := smokeConfig(t, "slack: {app_id: A, workspace_id: T}\naccess: {channels: {enabled: false}, direct_messages: {enabled: true, users: {scope: workspace_members_and_guests}}}\n")
 	d := &smokeDirectory{im: true, peer: "U"}
 	p, err := smokePolicy(c, d)
 	if err != nil {
@@ -97,7 +125,7 @@ func TestSmokeDirectMessageUsesNormalPolicyWithoutMention(t *testing.T) {
 	if err = p.AuthorizeDelivery(context.Background(), gateway.DeliveryContext{Message: m, ConversationBinding: &gateway.ConversationBinding{ThreadKey: m.ThreadKey, Decision: decision}}, true); err != nil {
 		t.Fatal(err)
 	}
-	if d.channels != 2 || d.users != 0 || !d.fresh {
+	if d.channels != 2 || d.users != 2 || !d.fresh {
 		t.Fatalf("unexpected DM directory calls: %+v", d)
 	}
 	c.Access.DirectMessages = nil
@@ -111,39 +139,32 @@ func TestSmokeDirectMessageUsesNormalPolicyWithoutMention(t *testing.T) {
 }
 
 func TestSmokePolicyUsesCompiledRulesForQueriesAndReplies(t *testing.T) {
-	for _, legacy := range []bool{false, true} {
-		t.Run(fmt.Sprintf("legacy=%t", legacy), func(t *testing.T) {
-			body := "slack: {app_id: A, workspace_id: T, channels: {mode: selected, allowlist: [C]}}\naccess: {channel_overrides: {C: {users: {mode: channel_members}}}}\n"
-			if legacy {
-				body = "slack: {app_id: A, workspace_id: T, channel_id: C}\n"
-			}
-			d := &smokeDirectory{guest: true}
-			p, err := smokePolicy(smokeConfig(t, body), d)
-			if err != nil {
-				t.Fatal(err)
-			}
-			m := gateway.Message{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.0"}, AppID: "A", AuthorID: "U", Mentioned: true}
-			decision, err := p.Authorize(context.Background(), m, nil)
-			if err != nil || decision.PrincipalID != smokePrincipal || decision.OwnerID != smokePrincipal {
-				t.Fatalf("authorization=%+v, error=%v", decision, err)
-			}
-			b := &gateway.ConversationBinding{ThreadKey: m.ThreadKey, Decision: decision}
-			if err := p.AuthorizeDelivery(context.Background(), gateway.DeliveryContext{Message: m, ConversationBinding: b}, true); err != nil {
-				t.Fatal(err)
-			}
-			if d.channels != 2 || d.users != 0 || !d.fresh {
-				t.Fatalf("directory calls: %+v", d)
-			}
-			m.ChannelID = "OTHER"
-			if _, err := p.Authorize(context.Background(), m, nil); !errors.Is(err, gateway.ErrDenied) || d.channels != 2 {
-				t.Fatal("unconfigured channel must be denied before directory lookup")
-			}
-		})
+	body := "slack: {app_id: A, workspace_id: T}\naccess: {channels: {enabled: true, scope: selected, allowlist: [], users: {scope: workspace_members_only}, channel_overrides: {C: {enabled: true, users: {scope: workspace_members_and_guests}}}}}\n"
+	d := &smokeDirectory{guest: true}
+	p, err := smokePolicy(smokeConfig(t, body), d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := gateway.Message{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.0"}, AppID: "A", AuthorID: "U", Mentioned: true}
+	decision, err := p.Authorize(context.Background(), m, nil)
+	if err != nil || decision.PrincipalID != smokePrincipal || decision.OwnerID != smokePrincipal {
+		t.Fatalf("authorization=%+v error=%v", decision, err)
+	}
+	b := &gateway.ConversationBinding{ThreadKey: m.ThreadKey, Decision: decision}
+	if err = p.AuthorizeDelivery(context.Background(), gateway.DeliveryContext{Message: m, ConversationBinding: b}, true); err != nil {
+		t.Fatal(err)
+	}
+	if d.channels != 2 || d.users != 2 || !d.fresh {
+		t.Fatalf("directory calls: %+v", d)
+	}
+	m.ChannelID = "OTHER"
+	if _, err = p.Authorize(context.Background(), m, nil); !errors.Is(err, gateway.ErrDenied) || d.channels != 2 {
+		t.Fatal("unconfigured channel must be denied before directory lookup")
 	}
 }
 
 func TestSmokePolicyDoesNotBypassRolesOrMissingMetadata(t *testing.T) {
-	c := smokeConfig(t, "slack: {app_id: A, workspace_id: T, channels: {mode: workspace}}\naccess: {defaults: {users: {mode: members_only}}, global: {users: {denylist: [BLOCKED]}}}\n")
+	c := smokeConfig(t, "slack: {app_id: A, workspace_id: T}\naccess: {channels: {enabled: true, scope: workspace_channels_with_bot, users: {scope: workspace_members_only, denylist: [BLOCKED]}}}\n")
 	d := &smokeDirectory{guest: true}
 	p, err := smokePolicy(c, d)
 	if err != nil {
@@ -151,7 +172,7 @@ func TestSmokePolicyDoesNotBypassRolesOrMissingMetadata(t *testing.T) {
 	}
 	m := gateway.Message{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.0"}, AppID: "A", AuthorID: "U", Mentioned: true}
 	if _, err := p.Authorize(context.Background(), m, nil); !errors.Is(err, gateway.ErrDenied) || d.users != 1 {
-		t.Fatal("members_only must reject a guest using directory facts")
+		t.Fatal("workspace_members_only must reject a guest using directory facts")
 	}
 	d.guest = false
 	if _, err := p.Authorize(context.Background(), m, nil); err != nil {
@@ -160,7 +181,7 @@ func TestSmokePolicyDoesNotBypassRolesOrMissingMetadata(t *testing.T) {
 	m.AuthorID = "BLOCKED"
 	before := d.channels
 	if err := p.AuthorizeDelivery(context.Background(), gateway.DeliveryContext{Message: m}, true); !errors.Is(err, gateway.ErrDenied) || d.channels != before {
-		t.Fatal("outbound must enforce global denial of the original author")
+		t.Fatal("outbound must enforce selected user rule denial of the original author")
 	}
 	m.AuthorID = "U"
 	p.Directory = nil
@@ -170,5 +191,44 @@ func TestSmokePolicyDoesNotBypassRolesOrMissingMetadata(t *testing.T) {
 	c.Storage.Path = filepath.Join(t.TempDir(), "gateway.sqlite")
 	if _, err := smokePolicy(c, d); err == nil {
 		t.Fatal("smoke must reject the real integration database")
+	}
+}
+
+func TestSmokeFixturesUsePublicIntegrationFormat(t *testing.T) {
+	for _, name := range []string{"channels", "direct-messages"} {
+		t.Run(name, func(t *testing.T) {
+			c, err := loadSmokeConfig(filepath.Join("testdata", name+".yaml"), "smoke")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = smokePolicy(c, nil); err != nil {
+				t.Fatal(err)
+			}
+			route, err := c.Route()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if route.Resolver.ResolveDirectMessages().RouteAllowed != (name == "direct-messages") {
+				t.Fatal("fixture selected the wrong surface")
+			}
+		})
+	}
+}
+
+func TestSmokeConfigRequiresUnambiguousIntegrationSelection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "smoke.yaml")
+	body := "storage: {driver: sqlite, path: slack-smoke.sqlite}\nintegrations:\n  - {name: first, transport: socket, slack: {app_id: A, workspace_id: T}}\n  - {name: second, transport: socket, slack: {app_id: B, workspace_id: T}}\n"
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadSmokeConfig(path, ""); err == nil {
+		t.Fatal("ambiguous smoke integration accepted")
+	}
+	if _, err := loadSmokeConfig(path, "unknown"); err == nil {
+		t.Fatal("unknown smoke integration accepted")
+	}
+	c, err := loadSmokeConfig(path, "second")
+	if err != nil || c.Slack.AppID != "B" {
+		t.Fatalf("incorrect selected integration: %v", err)
 	}
 }

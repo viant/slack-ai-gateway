@@ -28,8 +28,8 @@ func TestDeliveryOriginRejectsForgedDestinationAndInconsistentBinding(t *testing
 	if origin.Message.AuthorID != "alice" || origin.Message.Text != "" || origin.ConversationBinding.ID != b.ID {
 		t.Fatal("origin was synthesized or text loaded")
 	}
-	mode := "channel_members"
-	resolver, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Mode: "selected", Allowlist: []string{"C"}}, gateway.AccessRules{Defaults: &gateway.UserRule{Mode: &mode}})
+	scope := "workspace_members_and_guests"
+	resolver, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Enabled: true, Scope: "selected", Allowlist: []string{"C"}}, gateway.AccessRules{Users: &gateway.UserRule{Scope: scope}})
 	storetest.Must(t, err)
 	route := gateway.Route{AppID: "A", WorkspaceID: "T", Resolver: resolver}
 	directory := &deliveryIdentityDirectory{}
@@ -80,8 +80,8 @@ func TestRemovedHistoricalChannelDoesNotBlockStartupButIdentityStillDoes(t *test
 	storetest.Must(t, err)
 	_, err = s.BindJob(ctx, j.ID, gateway.Decision{Mode: "shared_channel", PrincipalID: "shared", OwnerID: "shared"})
 	storetest.Must(t, err)
-	mode := "channel_members"
-	r, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Mode: "selected", Allowlist: []string{"NEW"}}, gateway.AccessRules{Defaults: &gateway.UserRule{Mode: &mode}})
+	scope := "workspace_members_and_guests"
+	r, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Enabled: true, Scope: "selected", Allowlist: []string{"NEW"}}, gateway.AccessRules{Users: &gateway.UserRule{Scope: scope}})
 	storetest.Must(t, err)
 	route := gateway.Route{AppID: "A", WorkspaceID: "T", Resolver: r}
 	before, err := s.Status(ctx, 10)
@@ -112,6 +112,6 @@ func (d *deliveryIdentityDirectory) Channel(_ context.Context, workspace, channe
 	return gateway.ChannelInfo{WorkspaceID: workspace, ID: channel, Member: true}, nil
 }
 
-func (*deliveryIdentityDirectory) User(context.Context, string, string) (gateway.UserInfo, error) {
-	return gateway.UserInfo{}, errors.New("unexpected users.info for channel_members policy")
+func (*deliveryIdentityDirectory) User(_ context.Context, workspace, id string) (gateway.UserInfo, error) {
+	return gateway.UserInfo{WorkspaceID: workspace, ID: id}, nil
 }

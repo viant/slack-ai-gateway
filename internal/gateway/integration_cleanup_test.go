@@ -24,9 +24,9 @@ func (*cleanupDirectory) User(_ context.Context, workspace, user string) (UserIn
 
 func cleanupPolicy(t *testing.T, d *cleanupDirectory, denied []string) ConfiguredPolicy {
 	t.Helper()
-	mode := "channel_members"
-	r, err := NewChannelPolicyResolver(ChannelScope{Mode: "selected", Allowlist: []string{"C"}}, AccessRules{
-		Defaults: &UserRule{Mode: &mode}, DirectMessages: &UserRule{Mode: &mode}, GlobalDenylist: &denied,
+	mode := "workspace_members_and_guests"
+	r, err := NewChannelPolicyResolver(ChannelScope{Enabled: true, Scope: "selected", Allowlist: []string{"C"}}, AccessRules{
+		Users: &UserRule{Scope: mode, Denylist: denied}, DirectMessages: &DirectMessageRule{Enabled: true, Users: &UserRule{Scope: mode, Denylist: denied}},
 	})
 	if err != nil {
 		t.Fatal(err)

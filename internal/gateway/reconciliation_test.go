@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/viant/agently-core/sdk"
@@ -369,23 +370,29 @@ func TestPollingReviewAndDeadline(t *testing.T) {
 		})
 	}
 	t.Run("deadline_does_not_reset_after_restart", func(t *testing.T) {
-		s, reopen := database(t)
-		backend := &reconcilingBackend{fakeAgently: fakeAgently{state: "queued"}, readState: "running"}
-		accept(t, s, storetest.Message("a", "one", "alice"))
-		w := gateway.Worker{Store: s, Policy: policy(), Clients: backend, AgentID: "steward", Timing: gateway.QueryTiming{PollInitial: time.Millisecond, MaxWait: 200 * time.Millisecond}}
-		work(t, w)
-		s = reopen()
-		w.Store = s
-		time.Sleep(250 * time.Millisecond)
-		work(t, w)
-		status, err := s.Status(context.Background(), 10)
-		storetest.Must(t, err)
-		if status.GatewayJobs[0].Reason != "reconciliation_deadline" || backend.readCalls != 0 {
-			t.Fatal("deadline ignored or reset")
-		}
-		if len(status.SlackOutgoingMessages) != 0 {
-			t.Fatal("timeout incorrectly published as completion")
-		}
+		// Keep the submission budget and restart delay on the same native clock.
+		// Real SQLite/Datly work under -race must not consume this test's 200ms.
+		synctest.Test(t, func(t *testing.T) {
+			s, reopen := database(t)
+			backend := &reconcilingBackend{fakeAgently: fakeAgently{state: "queued"}, readState: "running"}
+			accept(t, s, storetest.Message("a", "one", "alice"))
+			w := gateway.Worker{Store: s, Policy: policy(), Clients: backend, AgentID: "steward", Timing: gateway.QueryTiming{PollInitial: time.Millisecond, MaxWait: 200 * time.Millisecond}}
+			work(t, w)
+			time.Sleep(150 * time.Millisecond)
+			s = reopen()
+			w.Store = s
+			// The original deadline expires; a deadline reset at reopen would not.
+			time.Sleep(100 * time.Millisecond)
+			work(t, w)
+			status, err := s.Status(context.Background(), 10)
+			storetest.Must(t, err)
+			if status.GatewayJobs[0].Reason != "reconciliation_deadline" || backend.readCalls != 0 {
+				t.Fatal("deadline ignored or reset")
+			}
+			if len(status.SlackOutgoingMessages) != 0 {
+				t.Fatal("timeout incorrectly published as completion")
+			}
+		})
 	})
 }
 

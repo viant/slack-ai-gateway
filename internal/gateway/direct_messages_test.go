@@ -12,7 +12,7 @@ import (
 
 func dmPolicy(t *testing.T, directory *multiDirectory, mode string) gateway.ConfiguredPolicy {
 	t.Helper()
-	r, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Mode: "selected", Allowlist: []string{}}, gateway.AccessRules{DirectMessages: &gateway.UserRule{Mode: &mode}})
+	r, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{}, gateway.AccessRules{DirectMessages: &gateway.DirectMessageRule{Enabled: true, Users: &gateway.UserRule{Scope: mode}}})
 	storetest.Must(t, err)
 	return gateway.ConfiguredPolicy{Route: gateway.Route{AppID: "A", WorkspaceID: "T", Resolver: r}, PrincipalID: "shared", Directory: directory}
 }
@@ -27,7 +27,7 @@ func TestDirectMessageThreadsPersistAcrossRestart(t *testing.T) {
 	ctx := context.Background()
 	s, reopen := database(t)
 	directory := &multiDirectory{im: true, peer: "alice"}
-	p := dmPolicy(t, directory, "channel_members")
+	p := dmPolicy(t, directory, "workspace_members_and_guests")
 	in := gateway.Intake{Store: s, Route: p.Route}
 	messages := []gateway.Message{dmMessage("root", "1"), dmMessage("reply", "1"), dmMessage("new-root", "2"), dmMessage("unknown-thread-reply", "3")}
 	for _, m := range messages {
@@ -56,8 +56,8 @@ func TestDirectMessageThreadsPersistAcrossRestart(t *testing.T) {
 			t.Fatal("Slack author became execution principal")
 		}
 	}
-	if len(directory.users) != 0 {
-		t.Fatal("channel_members requires no users.info")
+	if len(directory.users) != len(messages) {
+		t.Fatal("each DM query must verify the workspace account")
 	}
 	s = reopen()
 	sender := &fakeSlack{}
@@ -86,7 +86,7 @@ func TestDirectMessageStatusAndDeliveryRecheckPeerAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	s, reopen := database(t)
 	directory := &multiDirectory{im: true, peer: "alice"}
-	p := dmPolicy(t, directory, "channel_members")
+	p := dmPolicy(t, directory, "workspace_members_and_guests")
 	_, err := (gateway.Intake{Store: s, Route: p.Route}).Accept(ctx, dmMessage("dm", "1"))
 	storetest.Must(t, err)
 	now := time.Now()
@@ -130,12 +130,12 @@ func TestDirectMessagePolicyUsesRolesAndRejectsWrongMetadata(t *testing.T) {
 		directory  multiDirectory
 		denied     bool
 	}{
-		{"guest_allowed", "channel_members", multiDirectory{im: true, peer: "alice", guest: true}, false},
-		{"guest_denied", "members_only", multiDirectory{im: true, peer: "alice", guest: true}, true},
-		{"member_allowed", "members_only", multiDirectory{im: true, peer: "alice"}, false},
-		{"channel_not_dm", "channel_members", multiDirectory{peer: "alice"}, true},
-		{"wrong_peer", "channel_members", multiDirectory{im: true, peer: "bob"}, true},
-		{"external", "channel_members", multiDirectory{im: true, peer: "alice", external: true}, true},
+		{"guest_allowed", "workspace_members_and_guests", multiDirectory{im: true, peer: "alice", guest: true}, false},
+		{"guest_denied", "workspace_members_only", multiDirectory{im: true, peer: "alice", guest: true}, true},
+		{"member_allowed", "workspace_members_only", multiDirectory{im: true, peer: "alice"}, false},
+		{"channel_not_dm", "workspace_members_and_guests", multiDirectory{peer: "alice"}, true},
+		{"wrong_peer", "workspace_members_and_guests", multiDirectory{im: true, peer: "bob"}, true},
+		{"external", "workspace_members_and_guests", multiDirectory{im: true, peer: "alice", external: true}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := dmPolicy(t, &tc.directory, tc.mode)
@@ -143,8 +143,8 @@ func TestDirectMessagePolicyUsesRolesAndRejectsWrongMetadata(t *testing.T) {
 			if tc.denied && !errors.Is(err, gateway.ErrDenied) || !tc.denied && err != nil {
 				t.Fatalf("authorization: %v", err)
 			}
-			if tc.mode == "channel_members" && len(tc.directory.users) != 0 {
-				t.Fatal("unnecessary user lookup")
+			if !tc.denied && len(tc.directory.users) != 1 {
+				t.Fatal("workspace account was not verified")
 			}
 		})
 	}

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/viant/scy"
@@ -144,72 +145,83 @@ func (integrationSender) SendStatus(_ context.Context, status gateway.GatewayJob
 }
 
 func TestRunUsesOneDatabaseAndKeepsDifferentIntegrationsSeparate(t *testing.T) {
-	path := writeTopology(t, true)
-	body, err := os.ReadFile(path)
-	storetest.Must(t, err)
-	var document map[string]any
-	storetest.Must(t, yaml.Unmarshal(body, &document))
-	integrations := document["integrations"].([]any)
-	integrations[1].(map[string]any)["backend"] = map[string]any{"type": "agently", "base_url": "http://127.0.0.1:9192", "principal_id": "second-principal", "agent_id": "support-agent", "auth": map[string]any{"mode": "oob_session", "secret": map[string]any{"URL": "/unused/synthetic-oob", "Key": "blowfish://default"}}}
-	for _, value := range integrations {
-		installation := value.(map[string]any)["slack"].(map[string]any)
-		installation["channels"] = map[string]any{"mode": "selected", "allowlist": []string{"C"}}
-		installation["status"] = map[string]any{"mode": "message"}
-	}
-	body, err = yaml.Marshal(document)
-	storetest.Must(t, err)
-	storetest.Must(t, os.WriteFile(path, body, 0600))
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	states := &integrationStateWriter{ready: map[string]chan struct{}{"steward": make(chan struct{}), "support": make(chan struct{})}}
-	var sent atomic.Int32
-	deps := dependencies{
-		login: func(_ context.Context, _, _, agent string, _ *scy.Resource) (gateway.AgentlyClientFactory, error) {
-			return integrationBackend{agent: agent}, nil
-		},
-		directory: func(config.SlackTokens, gateway.Route) gateway.SlackDirectory { return &routedDirectory{} },
-		connect: func(_ context.Context, _ config.SlackTokens, route gateway.Route, _ *slog.Logger) (runner.Source, gateway.SlackSender, error) {
-			id, agent := "steward", "steward"
-			base := integrations[0].(map[string]any)["backend"].(map[string]any)["base_url"].(string)
-			if route.AppID == "A_SUPPORT" {
-				id, agent = "support", "support-agent"
-				base = integrations[1].(map[string]any)["backend"].(map[string]any)["base_url"].(string)
-			}
-			want := "[View full response in Agently](" + base + "/conversation/same-native-id-in-different-integrations)\n\nreply-from-" + agent
-			return idleSource(func(ctx context.Context, sink gateway.EventSink, ready func()) error {
-				ready()
-				select {
-				case <-states.ready[id]:
-				case <-ctx.Done():
-					return nil
-				}
-				message := storetest.Message(id+"-event", "same-thread", "alice")
-				message.AppID, message.WorkspaceID = route.AppID, route.WorkspaceID
-				if _, err := sink.Accept(ctx, message); err != nil {
-					return err
-				}
-				<-ctx.Done()
-				return nil
-			}), integrationSender{want: want, sent: &sent, stop: cancel}, nil
-		},
-	}
-	storetest.Must(t, execute(ctx, []string{"run", "--config", path}, io.Writer(states), deps))
-	if sent.Load() != 2 {
-		states.mu.Lock()
-		logs := states.logs.String()
-		states.mu.Unlock()
-		t.Fatalf("expected both integrations to deliver: %d; logs=%s", sent.Load(), logs)
-	}
-	root, err := sqlite.Open(context.Background(), filepath.Join(filepath.Dir(path), "gateway-multi.sqlite"), false)
-	storetest.Must(t, err)
-	defer root.Close()
-	for _, id := range []string{"steward", "support"} {
-		status, err := root.ScopeName(id).Status(context.Background(), 10)
+	synctest.Test(t, func(t *testing.T) {
+		path := writeTopology(t, true)
+		body, err := os.ReadFile(path)
 		storetest.Must(t, err)
-		if len(status.GatewayJobs) != 1 || len(status.ConversationBindings) != 1 || len(status.SlackOutgoingMessages) != 1 || status.SlackOutgoingMessages[0].State != "delivered" {
-			t.Fatalf("incorrect persisted integration %s: %#v", id, status)
+		var document map[string]any
+		storetest.Must(t, yaml.Unmarshal(body, &document))
+		integrations := document["integrations"].([]any)
+		integrations[1].(map[string]any)["backend"] = map[string]any{"type": "agently", "base_url": "http://127.0.0.1:9192", "principal_id": "second-principal", "agent_id": "support-agent", "auth": map[string]any{"mode": "oob_session", "secret": map[string]any{"URL": "/unused/synthetic-oob", "Key": "blowfish://default"}}}
+		for _, value := range integrations {
+			installation := value.(map[string]any)["slack"].(map[string]any)
+
+			value.(map[string]any)["access"] = map[string]any{"channels": map[string]any{"enabled": true, "scope": "selected", "allowlist": []string{"C"}, "users": map[string]any{"scope": "workspace_members_only"}}}
+			installation["status"] = map[string]any{"mode": "message"}
 		}
-	}
+		body, err = yaml.Marshal(document)
+		storetest.Must(t, err)
+		storetest.Must(t, os.WriteFile(path, body, 0600))
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		states := &integrationStateWriter{ready: map[string]chan struct{}{"steward": make(chan struct{}), "support": make(chan struct{})}}
+		var sent atomic.Int32
+		deps := dependencies{
+			login: func(_ context.Context, _, _, agent string, _ *scy.Resource) (gateway.AgentlyClientFactory, error) {
+				return integrationBackend{agent: agent}, nil
+			},
+			directory: func(config.SlackTokens, gateway.Route) gateway.SlackDirectory { return &routedDirectory{} },
+			connect: func(_ context.Context, _ config.SlackTokens, route gateway.Route, _ *slog.Logger) (runner.Source, gateway.SlackSender, error) {
+				id, agent := "steward", "steward"
+				base := integrations[0].(map[string]any)["backend"].(map[string]any)["base_url"].(string)
+				if route.AppID == "A_SUPPORT" {
+					id, agent = "support", "support-agent"
+					base = integrations[1].(map[string]any)["backend"].(map[string]any)["base_url"].(string)
+				}
+				want := "[View full response in Agently](" + base + "/conversation/same-native-id-in-different-integrations)\n\nreply-from-" + agent
+				return idleSource(func(ctx context.Context, sink gateway.EventSink, ready func()) error {
+					ready()
+					select {
+					case <-states.ready[id]:
+					case <-ctx.Done():
+						return nil
+					}
+					message := storetest.Message(id+"-event", "same-thread", "alice")
+					message.AppID, message.WorkspaceID = route.AppID, route.WorkspaceID
+					if _, err := sink.Accept(ctx, message); err != nil {
+						return err
+					}
+					<-ctx.Done()
+					return nil
+				}), integrationSender{want: want, sent: &sent, stop: cancel}, nil
+			},
+		}
+
+		runStarted := time.Now()
+		if err := execute(ctx, []string{"run", "--config", path}, io.Writer(states), deps); err != nil {
+			states.mu.Lock()
+			logs := states.logs.String()
+			states.mu.Unlock()
+			t.Fatalf("runtime failed after %s: %v\nruntime logs:\n%s", time.Since(runStarted), err, logs)
+		}
+		if sent.Load() != 2 {
+			states.mu.Lock()
+			logs := states.logs.String()
+			states.mu.Unlock()
+			t.Fatalf("expected both integrations to deliver: %d; logs=%s", sent.Load(), logs)
+		}
+		root, err := sqlite.Open(context.Background(), filepath.Join(filepath.Dir(path), "gateway-multi.sqlite"), false)
+		storetest.Must(t, err)
+		defer root.Close()
+		for _, id := range []string{"steward", "support"} {
+			status, err := root.ScopeName(id).Status(context.Background(), 10)
+			storetest.Must(t, err)
+			if len(status.GatewayJobs) != 1 || len(status.ConversationBindings) != 1 || len(status.SlackOutgoingMessages) != 1 || status.SlackOutgoingMessages[0].State != "delivered" {
+				t.Fatalf("incorrect persisted integration %s: %#v", id, status)
+			}
+		}
+
+	})
 }
 
 func TestExplicitEmptyIntegrationsValidateAndRunWithoutCredentials(t *testing.T) {

@@ -38,8 +38,8 @@ func (*lifecycleStore) ClaimStatus(context.Context, time.Time, string) (*gateway
 
 func lifecycleRuntime(store gateway.Store) *runner.Runtime {
 	return &runner.Runtime{Store: store, Clients: &backend{}, AgentID: "synthetic-agent",
-		Route:  gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"},
-		Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "shared"},
+		Route:  storetest.Route("A", "T", "C"),
+		Policy: storetest.Policy("A", "T", "shared", "C"),
 		Source: sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error { ready(); <-ctx.Done(); return nil }),
 		Sender: senderFunc(func(context.Context, gateway.SlackOutgoingMessage) (string, error) { return "2.001", nil }),
 		Log:    slog.New(slog.NewTextHandler(io.Discard, nil))}

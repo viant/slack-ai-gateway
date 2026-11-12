@@ -36,7 +36,7 @@ func preflight(ctx context.Context, api *sdk.Client, route gateway.Route) (strin
 	if err != nil {
 		return "", fmt.Errorf("Slack bot authentication check failed")
 	}
-	if route.AppID == "" || (route.ChannelID == "" && route.Resolver == nil) || route.WorkspaceID == "" || auth.TeamID != route.WorkspaceID || auth.UserID == "" || auth.BotID == "" {
+	if route.AppID == "" || route.Resolver == nil || route.WorkspaceID == "" || auth.TeamID != route.WorkspaceID || auth.UserID == "" || auth.BotID == "" {
 		return "", fmt.Errorf("Slack bot identity or workspace does not match configuration")
 	}
 	return auth.UserID, nil

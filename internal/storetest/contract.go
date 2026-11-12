@@ -23,6 +23,31 @@ type Fixture struct {
 	Reopen func() gateway.Store
 }
 
+// Route builds a complete local channel rule for native storage/runtime tests.
+func Route(app, workspace string, channels ...string) gateway.Route {
+	r, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Enabled: true, Scope: "selected", Allowlist: channels},
+		gateway.AccessRules{Users: &gateway.UserRule{Scope: "workspace_members_and_guests"}})
+	if err != nil {
+		panic(err)
+	}
+	return gateway.Route{AppID: app, WorkspaceID: workspace, Resolver: r}
+}
+
+// Policy exercises the production authorization path with synthetic Slack facts.
+func Policy(app, workspace, principal string, channels ...string) gateway.ConfiguredPolicy {
+	return gateway.ConfiguredPolicy{Route: Route(app, workspace, channels...), PrincipalID: principal, Directory: directory{}}
+}
+
+type directory struct{}
+
+func (directory) Channel(_ context.Context, workspace, id string, _ bool) (gateway.ChannelInfo, error) {
+	return gateway.ChannelInfo{WorkspaceID: workspace, ID: id, Member: true}, nil
+}
+
+func (directory) User(_ context.Context, workspace, id string) (gateway.UserInfo, error) {
+	return gateway.UserInfo{WorkspaceID: workspace, ID: id}, nil
+}
+
 func Message(event, root, author string) gateway.Message {
 	return gateway.Message{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: root}, AppID: "A", EventID: event, AuthorID: author, MessageTS: event + ".000001", Text: "diagnose " + event, Mentioned: true}
 }

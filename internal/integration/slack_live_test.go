@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/slack-ai-gateway/internal/config"
 	"github.com/viant/slack-ai-gateway/internal/gateway"
 	gatewayruntime "github.com/viant/slack-ai-gateway/internal/runtime"
 	slackadapter "github.com/viant/slack-ai-gateway/internal/slack"
@@ -34,7 +33,7 @@ func TestSlackSmoke(t *testing.T) {
 	if path == "" {
 		t.Fatal("SLACK_AI_GATEWAY_CONFIG is required")
 	}
-	c, err := config.Load(path)
+	c, err := loadSmokeConfig(path, os.Getenv("SLACK_AI_GATEWAY_INTEGRATION"))
 	if err != nil {
 		t.Fatal(err)
 	}

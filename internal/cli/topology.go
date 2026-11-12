@@ -58,11 +58,7 @@ func validateTopology(c config.Config, selected, channel string, out io.Writer) 
 		if selected != "" && selected != integration.Name {
 			continue
 		}
-		name := integration.Name
-		if c.Integrations == nil && selected == "" {
-			name = "" // Preserve the established single-config diagnostic shape.
-		}
-		report, err := staticPolicy(integration.Config, name, channel)
+		report, err := staticPolicy(integration.Config, integration.Name, channel)
 		if err != nil {
 			return err
 		}
@@ -73,7 +69,7 @@ func validateTopology(c config.Config, selected, channel string, out io.Writer) 
 	}
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
-	if c.Integrations == nil || selected != "" {
+	if selected != "" {
 		return encoder.Encode(reports[0])
 	}
 	return encoder.Encode(struct {
@@ -83,12 +79,11 @@ func validateTopology(c config.Config, selected, channel string, out io.Writer) 
 }
 
 func checkTopologyAgently(ctx context.Context, c config.Config, selected string, out io.Writer, deps dependencies) error {
-	topology, err := c.Topology()
-	if err != nil {
+	if err := c.ValidateIntegrationNames(); err != nil {
 		return err
 	}
-	checked := 0
-	for _, integration := range topology {
+	candidates := make([]config.Integration, 0, len(c.Integrations))
+	for _, integration := range c.Integrations {
 		if selected != "" && selected != integration.Name {
 			continue
 		}
@@ -98,17 +93,22 @@ func checkTopologyAgently(ctx context.Context, c config.Config, selected string,
 			}
 			continue
 		}
-		a := integration.Config.Agently
-		if _, err := deps.login(ctx, a.BaseURL, a.PrincipalID, a.AgentID, a.Auth.Secret); err != nil {
+		if err := integration.Backend.Validate(); err != nil {
+			return fmt.Errorf("integration %s: %w", integration.Name, err)
+		}
+		candidates = append(candidates, integration)
+	}
+	if len(candidates) == 0 {
+		return fmt.Errorf("no matching Agently integration")
+	}
+	for _, integration := range candidates {
+		backend := integration.Backend
+		if _, err := deps.login(ctx, backend.BaseURL, backend.PrincipalID, backend.AgentID, backend.Auth.Secret); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintf(out, "Integration %s: Agently session identity and configured agent verified. No conversation, query or Slack call was made. Tool permissions are not verified.\n", integration.Name); err != nil {
 			return err
 		}
-		checked++
-	}
-	if checked == 0 {
-		return fmt.Errorf("no matching Agently integration")
 	}
 	return nil
 }

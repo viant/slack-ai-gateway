@@ -12,8 +12,8 @@ import (
 
 func TestRunDatabaseIdentityGuard(t *testing.T) {
 	ctx := context.Background()
-	route := gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}
-	for _, mode := range []string{"real", "smoke", "principal", "owner", "app", "channel", "workspace", "access_mode"} {
+	route := storetest.Route("A", "T", "C")
+	for _, mode := range []string{"real", "smoke", "principal", "owner", "app", "channel_access_change", "workspace", "access_mode"} {
 		t.Run(mode, func(t *testing.T) {
 			s, db := fixtureDB(t)
 			storetest.Must(t, s.CheckRunBindings(ctx, route, "shared"))
@@ -31,17 +31,13 @@ func TestRunDatabaseIdentityGuard(t *testing.T) {
 				id = "slack-smoke-fake"
 			}
 			storetest.Must(t, s.SetConversation(ctx, b.ID, id))
-			// Admission now rejects foreign installation identities. Inject
-			// historical corruption directly to exercise the startup guard.
-			column := map[string]string{"app": "slack_app_id", "channel": "slack_channel_id", "workspace": "slack_workspace_id", "principal": "backend_principal_id", "owner": "gateway_binding_owner_id", "access_mode": "gateway_access_mode"}[mode]
+			// Admission rejects foreign installation identities. Inject historical
+			// identity corruption directly to exercise the startup guard. Channel
+			// policy changes below must leave this recorded identity valid.
+			column := map[string]string{"app": "slack_app_id", "workspace": "slack_workspace_id", "principal": "backend_principal_id", "owner": "gateway_binding_owner_id", "access_mode": "gateway_access_mode"}[mode]
 			switch column {
 			case "slack_app_id", "slack_workspace_id":
 				_, err = db.Exec("UPDATE integration SET " + column + "='OTHER' WHERE name='default' AND active=1")
-				storetest.Must(t, err)
-			case "slack_channel_id":
-				_, err = db.Exec("UPDATE gateway_job SET slack_channel_id='OTHER' WHERE id=?", j.ID)
-				storetest.Must(t, err)
-				_, err = db.Exec("UPDATE conversation_binding SET slack_channel_id='OTHER' WHERE id=?", b.ID)
 				storetest.Must(t, err)
 			case "backend_principal_id", "gateway_binding_owner_id", "gateway_access_mode":
 				_, err = db.Exec("UPDATE conversation_binding SET "+column+"='OTHER' WHERE id=?", b.ID)
@@ -49,8 +45,13 @@ func TestRunDatabaseIdentityGuard(t *testing.T) {
 			}
 			before, err := s.Status(ctx, 10)
 			storetest.Must(t, err)
-			err = s.CheckRunBindings(ctx, route, "shared")
-			if (err == nil) != (mode == "real") {
+			checkRoute := route
+			if mode == "channel_access_change" {
+				// A newly selected channel changes access, not backend ownership.
+				checkRoute = storetest.Route("A", "T", "OTHER")
+			}
+			err = s.CheckRunBindings(ctx, checkRoute, "shared")
+			if (err == nil) != (mode == "real" || mode == "channel_access_change") {
 				t.Fatalf("incorrect database guard result: %v", err)
 			}
 			after, err := s.Status(ctx, 10)

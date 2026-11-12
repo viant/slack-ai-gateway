@@ -26,7 +26,7 @@ import (
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
-var testRoute = gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}
+var testRoute = storetest.Route("A", "T", "C")
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 func payload(change func(map[string]any, map[string]any)) []byte {
@@ -78,19 +78,18 @@ func TestNormalization(t *testing.T) {
 }
 
 func TestNormalizationSupportsWorkspaceAndSelectedChannels(t *testing.T) {
-	mode := "channel_members"
 	for _, scope := range []gateway.ChannelScope{
-		{Mode: "workspace", Denylist: []string{"DENIED"}},
-		{Mode: "selected", Allowlist: []string{"C", "C2"}},
+		{Enabled: true, Scope: "workspace_channels_with_bot", Denylist: []string{"DENIED"}},
+		{Enabled: true, Scope: "selected", Allowlist: []string{"C", "C2"}},
 	} {
-		resolver, err := gateway.NewChannelPolicyResolver(scope, gateway.AccessRules{Defaults: &gateway.UserRule{Mode: &mode}})
+		resolver, err := gateway.NewChannelPolicyResolver(scope, gateway.AccessRules{Users: &gateway.UserRule{Scope: "workspace_members_and_guests"}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		route := gateway.Route{AppID: "A", WorkspaceID: "T", Resolver: resolver}
 		for _, channel := range []string{"C", "C2", "NEW", "DENIED"} {
 			m, reason := normalize(payload(func(c, e map[string]any) { e["channel"] = channel }), route, "UBOT")
-			want := channel == "C" || channel == "C2" || (scope.Mode == "workspace" && channel == "NEW")
+			want := channel == "C" || channel == "C2" || (scope.Scope == "workspace_channels_with_bot" && channel == "NEW")
 			if (reason == "") != want || (want && m.ChannelID != channel) {
 				t.Fatal("multi-channel normalization failed")
 			}

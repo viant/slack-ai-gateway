@@ -55,9 +55,9 @@ func TestNativeCleanupKeepsOriginalSourceBeforeStaleFollowup(t *testing.T) {
 				t.Errorf("native cleanup lost its original execution context: %+v", metadata)
 			}
 
-			mode := "channel_members"
+			scope := "workspace_members_and_guests"
 			denied := []string{alice.AuthorID}
-			resolver, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Mode: "selected", Allowlist: []string{alice.ChannelID}}, gateway.AccessRules{Defaults: &gateway.UserRule{Mode: &mode}, GlobalDenylist: &denied})
+			resolver, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Enabled: true, Scope: "selected", Allowlist: []string{alice.ChannelID}}, gateway.AccessRules{Users: &gateway.UserRule{Scope: scope, Denylist: denied}})
 			storetest.Must(t, err)
 			policy := gateway.ConfiguredPolicy{Route: gateway.Route{AppID: changed.AppID, WorkspaceID: changed.WorkspaceID, Resolver: resolver}, PrincipalID: changed.PrincipalID, Directory: sessionSourceDirectory{}}
 			if _, err := policy.Authorize(ctx, bob, nil); err != nil {

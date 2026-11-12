@@ -13,8 +13,7 @@ import (
 
 func dmRoute(t *testing.T) gateway.Route {
 	t.Helper()
-	mode := "channel_members"
-	r, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{Mode: "selected", Allowlist: []string{"C"}}, gateway.AccessRules{DirectMessages: &gateway.UserRule{Mode: &mode}})
+	r, err := gateway.NewChannelPolicyResolver(gateway.ChannelScope{}, gateway.AccessRules{DirectMessages: &gateway.DirectMessageRule{Enabled: true, Users: &gateway.UserRule{Scope: "workspace_members_and_guests"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

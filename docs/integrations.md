@@ -6,10 +6,11 @@ Agently and protocol-only AG-UI backends can run in the same process. SQLite and
 MySQL use the same native Datly storage workflow.
 
 See the [complete multi-integration example](../examples/gateway.multi.example.yaml).
-The original single-integration syntax remains supported and normalizes to the
-logical name `default`. Do not combine its top-level `slack`, `agently`,
-`transport`, `access_mode` or `access` settings with `integrations`.
-The earlier four-dictionary prerelease format is no longer accepted.
+Runtime configuration uses only `storage` plus `integrations[]`. The former
+single-integration syntax, its top-level connection/access fields and the earlier
+four-dictionary prerelease format are rejected. A single bot still uses a list
+with one complete entry; `default` remains a valid ordinary name, not an implicit
+legacy integration.
 
 ## Configuration
 
@@ -17,8 +18,12 @@ Each item in `integrations` has:
 
 - `name`: a stable logical identifier, unique within the configuration, with at
   most 128 bytes and no whitespace. Numeric database IDs are assigned internally.
-- `transport`, `access_mode`, `access` and `slack`: the existing transport,
-  channel/DM routing, user policy, credential and presentation settings.
+- `transport`: `socket`.
+- `slack`: app/workspace, token resources and response/progress presentation.
+- `access`: independent `channels` and `direct_messages` blocks, with explicit
+  `enabled` and complete user policies. Channel routing belongs here, not under
+  `slack`. Exact `channel_overrides` replace complete channel rules, including
+  routing/privacy and users. See [access policy](access-policy.md).
 - `backend`: `type`, execution connection, `principal_id`, authentication and
   backend agent selector where needed. `type: agently` uses `base_url`, required
   `agent_id`, and the existing `oob_session` credential resource. `type: agui`
@@ -49,7 +54,8 @@ integrations: []
 It deactivates the recorded assignments, closes unfinished work locally, and
 exits successfully without opening Slack/backend clients. It cannot notify old
 Slack threads without a remaining authorized Slack transport. Omitting the list
-selects the legacy syntax; `integrations: null` is invalid.
+is an error for runtime/connection validation; `integrations: null` is invalid.
+Storage-only operator commands may omit integrations without deactivating them.
 
 ## Recorded assignments and restarts
 
@@ -68,6 +74,8 @@ one storage transaction before intake or execution workers start:
   reviving old conversations.
 - Changing credential resources, channel/user policies, response presentation or
   status refresh settings alone does not create another assignment.
+- Disabling channels, DM or both changes access only. It retains assignment
+  identity and history; it is not equivalent to removing the integration.
 
 `active` records configuration membership, not process or backend availability.
 It is not an independent SQL administration switch. Several historical rows may
@@ -133,7 +141,8 @@ go run ./cmd/slack-ai-gateway check-agently --config /absolute/path/gateway.yaml
 `validate-config` resolves and checks configuration offline, without storage,
 credential loading or network calls. It reports each integration's effective
 access and presentation settings. `--integration NAME` selects a logical name;
-`--channel-id` retains its policy diagnostic meaning. `check-agently` checks the
+`--channel-id` reports the effective general/override/disabled rule for that
+candidate, even outside a general selected-channel list. `check-agently` checks the
 selected configured Agently entry, or all configured Agently entries when omitted.
 It does not submit a prompt.
 

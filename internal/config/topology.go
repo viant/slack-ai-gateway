@@ -24,12 +24,11 @@ type Backend struct {
 // Integration is self-contained. Name identifies the logical configuration;
 // numeric database IDs belong to recorded assignments, not to this document.
 type Integration struct {
-	Name       string        `yaml:"name"`
-	Transport  string        `yaml:"transport"`
-	AccessMode string        `yaml:"access_mode"`
-	Access     *Access       `yaml:"access"`
-	Slack      SlackSettings `yaml:"slack"`
-	Backend    Backend       `yaml:"backend"`
+	Name      string        `yaml:"name"`
+	Transport string        `yaml:"transport"`
+	Access    *Access       `yaml:"access"`
+	Slack     SlackSettings `yaml:"slack"`
+	Backend   Backend       `yaml:"backend"`
 }
 
 type ResolvedIntegration struct {
@@ -46,15 +45,27 @@ func identifier(value string) bool {
 	return value != "" && len(value) <= 128 && strings.TrimSpace(value) == value && !strings.ContainsAny(value, " \r\n\t")
 }
 
-// Topology validates all configured integrations before storage or credentials
-// are opened. Legacy single-config fields normalize to the same runtime shape.
-func (c Config) Topology() ([]ResolvedIntegration, error) {
+// ValidateIntegrationNames checks the logical identities before any runtime or
+// backend-only operation can open storage or authenticate a backend.
+func (c Config) ValidateIntegrationNames() error {
 	if !c.hasTopology() {
-		if err := c.ValidateRun(); err != nil {
-			return nil, err
+		return fmt.Errorf("integrations must be explicitly configured")
+	}
+	names := make(map[string]bool, len(c.Integrations))
+	for _, integration := range c.Integrations {
+		if !identifier(integration.Name) || names[integration.Name] {
+			return fmt.Errorf("integration names must be unique nonempty identifiers of at most 128 bytes")
 		}
-		backend := Backend{Type: "agently", BaseURL: c.Agently.BaseURL, PrincipalID: c.Agently.PrincipalID, AgentID: c.Agently.AgentID, Auth: c.Agently.Auth}
-		return []ResolvedIntegration{{Name: "default", Backend: backend, Config: c}}, nil
+		names[integration.Name] = true
+	}
+	return nil
+}
+
+// Topology validates all integrations before storage or credentials are opened.
+// Only an explicit integrations list can activate or deactivate assignments.
+func (c Config) Topology() ([]ResolvedIntegration, error) {
+	if err := c.ValidateIntegrationNames(); err != nil {
+		return nil, err
 	}
 	if err := c.ValidateStorage(); err != nil {
 		return nil, err
@@ -62,23 +73,16 @@ func (c Config) Topology() ([]ResolvedIntegration, error) {
 	if filepath.Base(c.Storage.Path) == "slack-smoke.sqlite" {
 		return nil, fmt.Errorf("run requires a separate SQLite database, not slack-smoke.sqlite")
 	}
-	if c.Transport != "" || c.AccessMode != "" || c.Access != nil || c.Slack.AppID != "" || c.Slack.WorkspaceID != "" || c.Slack.ChannelID != "" || c.Slack.Channels != nil || c.Slack.AppTokenSecret != nil || c.Slack.BotTokenSecret != nil || c.Slack.Status.Mode != nil || c.Slack.Status.RefreshIntervalSec != nil || c.Slack.Response.Mode != "" || c.Agently.BaseURL != "" || c.Agently.AgentID != "" || c.Agently.PrincipalID != "" || c.Agently.Auth.Mode != "" || c.Agently.Auth.Secret != nil {
-		return nil, fmt.Errorf("use either the legacy single integration fields or self-contained integrations")
-	}
 	resolved := make([]ResolvedIntegration, 0, len(c.Integrations))
-	names, apps := map[string]bool{}, map[string]bool{}
+	apps := map[string]bool{}
 	for _, integration := range c.Integrations {
-		if !identifier(integration.Name) || names[integration.Name] {
-			return nil, fmt.Errorf("integration names must be unique nonempty identifiers of at most 128 bytes")
-		}
-		names[integration.Name] = true
 		backend := integration.Backend
-		local := Config{Storage: c.Storage, Transport: integration.Transport, AccessMode: integration.AccessMode, Access: integration.Access, Slack: integration.Slack,
+		local := Config{Storage: c.Storage, Transport: integration.Transport, Access: integration.Access, Slack: integration.Slack,
 			Agently: AgentlySettings{BaseURL: backend.BaseURL, AgentID: backend.AgentID, PrincipalID: backend.PrincipalID, Auth: backend.Auth}}
 		if err := local.ValidateSlack(); err != nil {
 			return nil, fmt.Errorf("integration %s: %w", integration.Name, err)
 		}
-		if err := backend.validate(); err != nil {
+		if err := backend.Validate(); err != nil {
 			return nil, fmt.Errorf("integration %s: %w", integration.Name, err)
 		}
 		if apps[local.Slack.AppID] {
@@ -90,7 +94,8 @@ func (c Config) Topology() ([]ResolvedIntegration, error) {
 	return resolved, nil
 }
 
-func (b Backend) validate() error {
+// Validate checks the configured backend contract without reading credentials.
+func (b Backend) Validate() error {
 	if strings.TrimSpace(b.PrincipalID) == "" {
 		return fmt.Errorf("principal_id is required")
 	}

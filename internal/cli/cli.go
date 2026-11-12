@@ -93,22 +93,10 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 	if command == "validate-config" {
 		return validateTopology(c, integrationID, channelID, out)
 	}
-	login := func(loginCtx context.Context) (gateway.AgentlyClientFactory, error) {
-		if err := c.ValidateAgently(); err != nil {
-			return nil, err
-		}
-		return deps.login(loginCtx, c.Agently.BaseURL, c.Agently.PrincipalID, c.Agently.AgentID, c.Agently.Auth.Secret)
-	}
 	if command == "check-agently" {
-		if c.Integrations != nil || integrationID != "" {
-			return checkTopologyAgently(ctx, c, integrationID, out, deps)
-		}
-		if _, err = login(ctx); err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(out, "Viant Steward session identity and configured agent verified. No conversation, query or Slack call was made. Tool permissions are not verified.")
-		return err
+		return checkTopologyAgently(ctx, c, integrationID, out, deps)
 	}
+
 	if err = c.ValidateStorage(); err != nil {
 		return err
 	}

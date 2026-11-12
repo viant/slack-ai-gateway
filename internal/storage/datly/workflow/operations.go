@@ -39,8 +39,10 @@ func (x *execution) checkBindings(ctx context.Context, route gateway.Route, prin
 	in.SetIntegrationID(int(x.scope))
 	in.SetAppID(route.AppID)
 	in.SetWorkspaceID(route.WorkspaceID)
-	in.SetChannelID(route.ChannelID)
-	in.SetFixedChannel(route.Resolver == nil)
+	// Channel access can change without changing the recorded execution identity.
+	// Historical channels therefore do not restrict this native identity check.
+	in.SetChannelID("")
+	in.SetFixedChannel(false)
 	in.SetPrincipal(principal)
 	value, err := x.invoke.Invoke(ctx, handler.ComponentRequest{
 		Target: handler.ComponentTarget{

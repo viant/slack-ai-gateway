@@ -70,7 +70,7 @@ func newRetentionFixture(t *testing.T, driver string) *retentionFixture {
 	f.store = f.root.Scope(identity.ID)
 	clients, err := agui.NewFactory(identity.BackendURL, server.Client(), nil)
 	storetest.Must(t, err)
-	f.worker = gateway.Worker{Store: f.store, Clients: clients, Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "shared"}}
+	f.worker = gateway.Worker{Store: f.store, Clients: clients, Policy: storetest.Policy("A", "T", "shared", "C")}
 	return f
 }
 func (f *retentionFixture) inputs() []wire.RunAgentInput {
@@ -84,7 +84,7 @@ func (f *retentionFixture) turn(t *testing.T, event, thread string, audit bool) 
 	m := storetest.Message(event, thread, "alice")
 	m.Text = "Prompt " + event
 	m.StatusMode = gateway.StatusHybrid
-	accepted, err := (gateway.Intake{Store: f.store, StatusMode: gateway.StatusHybrid, Route: gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}}).Accept(ctx, m)
+	accepted, err := (gateway.Intake{Store: f.store, StatusMode: gateway.StatusHybrid, Route: storetest.Route("A", "T", "C")}).Accept(ctx, m)
 	storetest.Must(t, err)
 	if !accepted.Accepted || accepted.Duplicate {
 		t.Fatalf("intake=%+v", accepted)

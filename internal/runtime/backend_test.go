@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/viant/slack-ai-gateway/internal/agently"
@@ -32,112 +33,114 @@ func recoveryLog(states map[gateway.BackendState]chan struct{}) *slog.Logger {
 }
 
 func TestBackendOutageKeepsSlackConnectedWithoutReplayingQuestions(t *testing.T) {
-	r, s, b := setup(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	// A process restart must also close old, unsubmitted work.
-	_, err := s.Enqueue(ctx, storetest.Message("before-restart", "old", "alice"))
-	storetest.Must(t, err)
-	recovering, ready := make(chan struct{}), make(chan struct{})
-	r.Log = recoveryLog(map[gateway.BackendState]chan struct{}{
-		gateway.BackendReady: ready, gateway.BackendRecovering: recovering,
-	})
-	release := make(chan struct{})
-	var logins atomic.Int32
-	r.Backend = agently.NewManager(func(ctx context.Context) (gateway.AgentlyClientFactory, error) {
-		if logins.Add(1) == 1 {
-			return nil, &agently.APIError{Status: http.StatusServiceUnavailable}
+	synctest.Test(t, func(t *testing.T) {
+		r, s, b := setup(t)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		// A process restart must also close old, unsubmitted work.
+		_, err := s.Enqueue(ctx, storetest.Message("before-restart", "old", "alice"))
+		storetest.Must(t, err)
+		recovering, ready := make(chan struct{}), make(chan struct{})
+		r.Log = recoveryLog(map[gateway.BackendState]chan struct{}{
+			gateway.BackendReady: ready, gateway.BackendRecovering: recovering,
+		})
+		release := make(chan struct{})
+		var logins atomic.Int32
+		r.Backend = agently.NewManager(func(ctx context.Context) (gateway.AgentlyClientFactory, error) {
+			if logins.Add(1) == 1 {
+				return nil, &agently.APIError{Status: http.StatusServiceUnavailable}
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-release:
+				return b, nil
+			}
+		}, func(ctx context.Context, state gateway.BackendState) error {
+			return s.FailUnstarted(ctx, gateway.BackendReason(state))
+		}, r.Log)
+		sinks := make(chan gateway.EventSink, 1)
+		r.Source = sourceFunc(func(ctx context.Context, sink gateway.EventSink, ready func()) error {
+			ready()
+			sinks <- sink
+			<-ctx.Done()
+			return nil
+		})
+		deliveries := make(chan gateway.SlackOutgoingMessage, 8)
+		r.Sender = senderFunc(func(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
+			deliveries <- d
+			return "confirmed", nil
+		})
+		queries := make(chan gateway.Query, 2)
+		b.query = func(_ context.Context, q gateway.Query) (gateway.Turn, error) {
+			queries <- q
+			return gateway.Turn{ID: q.MessageID, State: "completed", Content: "healthy response"}, nil
 		}
+		done := make(chan error, 1)
+		go func() { done <- r.Run(ctx) }()
+		var sink gateway.EventSink
 		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-release:
-			return b, nil
+		case sink = <-sinks:
+		case err := <-done:
+			t.Fatalf("Slack did not connect during outage: %v", err)
 		}
-	}, func(ctx context.Context, state gateway.BackendState) error {
-		return s.FailUnstarted(ctx, gateway.BackendReason(state))
-	}, r.Log)
-	sinks := make(chan gateway.EventSink, 1)
-	r.Source = sourceFunc(func(ctx context.Context, sink gateway.EventSink, ready func()) error {
-		ready()
-		sinks <- sink
-		<-ctx.Done()
-		return nil
-	})
-	deliveries := make(chan gateway.SlackOutgoingMessage, 8)
-	r.Sender = senderFunc(func(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
-		deliveries <- d
-		return "confirmed", nil
-	})
-	queries := make(chan gateway.Query, 2)
-	b.query = func(_ context.Context, q gateway.Query) (gateway.Turn, error) {
-		queries <- q
-		return gateway.Turn{ID: q.MessageID, State: "completed", Content: "healthy response"}, nil
-	}
-	done := make(chan error, 1)
-	go func() { done <- r.Run(ctx) }()
-	var sink gateway.EventSink
-	select {
-	case sink = <-sinks:
-	case err := <-done:
-		t.Fatalf("Slack did not connect during outage: %v", err)
-	}
-	// Initial temporary login failure leaves Slack running in recovery.
-	// A starting state is also unavailable; no timer or network is needed to
-	// submit the question and persist its terminal local reply.
-	message := storetest.Message("during-outage", "outage", "alice")
-	result, err := sink.Accept(ctx, message)
-	storetest.Must(t, err)
-	if !result.Accepted || result.Duplicate {
-		t.Fatal("outage question was not durably accepted")
-	}
-	duplicate, err := sink.Accept(ctx, message)
-	storetest.Must(t, err)
-	if !duplicate.Duplicate {
-		t.Fatal("outage event deduplication was lost")
-	}
-	for range 2 {
+		// Initial temporary login failure leaves Slack running in recovery.
+		// A starting state is also unavailable; no timer or network is needed to
+		// submit the question and persist its terminal local reply.
+		message := storetest.Message("during-outage", "outage", "alice")
+		result, err := sink.Accept(ctx, message)
+		storetest.Must(t, err)
+		if !result.Accepted || result.Duplicate {
+			t.Fatal("outage question was not durably accepted")
+		}
+		duplicate, err := sink.Accept(ctx, message)
+		storetest.Must(t, err)
+		if !duplicate.Duplicate {
+			t.Fatal("outage event deduplication was lost")
+		}
+		for range 2 {
+			select {
+			case d := <-deliveries:
+				if !strings.Contains(d.Text, "backend is temporarily unavailable") || !strings.Contains(d.Text, "not submitted") || !strings.Contains(d.Text, "try again later") {
+					t.Fatalf("unexpected outage reply: %s", d.Text)
+				}
+			case err := <-done:
+				t.Fatalf("runtime stopped during outage: %v", err)
+			case <-ctx.Done():
+				t.Fatal("test canceled before outage reply")
+			}
+		}
+		if b.queries.Load() != 0 {
+			t.Fatal("unavailable backend received a question")
+		}
+		close(release)
+		await(t, ready)
+		fresh := storetest.Message("after-recovery", "healthy", "alice")
+		fresh.Text = "new healthy question"
+		_, err = sink.Accept(ctx, fresh)
+		storetest.Must(t, err)
+		select {
+		case q := <-queries:
+			if q.Text != fresh.Text {
+				t.Fatalf("replayed an old question: %q", q.Text)
+			}
+		case <-ctx.Done():
+			t.Fatal("healthy question was not executed")
+		}
 		select {
 		case d := <-deliveries:
-			if !strings.Contains(d.Text, "backend is temporarily unavailable") || !strings.Contains(d.Text, "not submitted") || !strings.Contains(d.Text, "try again later") {
-				t.Fatalf("unexpected outage reply: %s", d.Text)
+			if d.Text != "healthy response" {
+				t.Fatalf("unexpected final answer: %s", d.Text)
 			}
 		case err := <-done:
-			t.Fatalf("runtime stopped during outage: %v", err)
-		case <-ctx.Done():
-			t.Fatal("test canceled before outage reply")
+			t.Fatalf("runtime stopped after recovery: %v", err)
 		}
-	}
-	if b.queries.Load() != 0 {
-		t.Fatal("unavailable backend received a question")
-	}
-	close(release)
-	await(t, ready)
-	fresh := storetest.Message("after-recovery", "healthy", "alice")
-	fresh.Text = "new healthy question"
-	_, err = sink.Accept(ctx, fresh)
-	storetest.Must(t, err)
-	select {
-	case q := <-queries:
-		if q.Text != fresh.Text {
-			t.Fatalf("replayed an old question: %q", q.Text)
+		cancel()
+		storetest.Must(t, finished(t, done))
+		if b.queries.Load() != 1 {
+			t.Fatalf("expected only the new query, got %d", b.queries.Load())
 		}
-	case <-ctx.Done():
-		t.Fatal("healthy question was not executed")
-	}
-	select {
-	case d := <-deliveries:
-		if d.Text != "healthy response" {
-			t.Fatalf("unexpected final answer: %s", d.Text)
-		}
-	case err := <-done:
-		t.Fatalf("runtime stopped after recovery: %v", err)
-	}
-	cancel()
-	storetest.Must(t, finished(t, done))
-	if b.queries.Load() != 1 {
-		t.Fatalf("expected only the new query, got %d", b.queries.Load())
-	}
+	})
 }
 
 type attachOnlyBackend struct {

@@ -2,6 +2,7 @@
 
 The gateway reports progress while waiting for Viant Steward, then sends completed
 answers through the durable outbox. It does not stream answer text to Slack.
+Set `slack.status` inside the chosen `integrations[]` entry; this is a fragment:
 
 ```yaml
 slack:
@@ -12,7 +13,8 @@ slack:
     refresh_interval_sec: 30
 ```
 
-Settings apply gateway-wide to channels and DM. Each question saves its status mode
+Settings apply to channels and DM of that integration; other integrations have
+independent settings. Each question saves its status mode
 at intake; changing the mode affects new questions, including new ones in existing
 threads. Existing message statuses adopt a changed refresh interval after their next
 successful update. First acknowledgments, phase changes and completion do not wait
