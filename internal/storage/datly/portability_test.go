@@ -47,6 +47,8 @@ func TestSmokeNamespacePreservesDatabaseComparisons(t *testing.T) {
 	for _, driver := range []string{"sqlite", "mysql"} {
 		t.Run(driver, func(t *testing.T) {
 			s, db := sharedFixture(t, driver)
+			integrationID := storetest.RegisterDefault(t, s)
+			s = s.Scope(integrationID)
 			ctx := context.Background()
 			inserted, err := s.Enqueue(ctx, storetest.Message("identity", "thread", "alice"))
 			storetest.Must(t, err)
@@ -75,7 +77,7 @@ func TestSmokeNamespacePreservesDatabaseComparisons(t *testing.T) {
 				{"", false},
 			} {
 				t.Run(test.conversation, func(t *testing.T) {
-					_, err := db.ExecContext(ctx, "UPDATE conversation_bindings SET conversation_id=? WHERE id=?", test.conversation, binding.ID)
+					_, err := db.ExecContext(ctx, "UPDATE conversation_binding SET backend_conversation_id=? WHERE id=?", test.conversation, binding.ID)
 					storetest.Must(t, err)
 					// The bound graph Input has no optional smoke marker. The
 					// namespace predicate must still execute on every invocation.
@@ -93,6 +95,8 @@ func TestPortableCooldownMaximum(t *testing.T) {
 	for _, driver := range []string{"sqlite", "mysql"} {
 		t.Run(driver, func(t *testing.T) {
 			s, db := sharedFixture(t, driver)
+			integrationID := storetest.RegisterDefault(t, s)
+			s = s.Scope(integrationID)
 			ctx := context.Background()
 			message := storetest.Message("cooldown", "thread", "alice")
 			message.StatusMode = gateway.StatusHybrid
@@ -117,11 +121,11 @@ func TestPortableCooldownMaximum(t *testing.T) {
 						sql   string
 						value int64
 					}{
-						{"UPDATE outbox_messages SET next_attempt_at=?", test.delivery},
-						{"UPDATE request_status SET rate_limited_until=?", test.status},
-						{"UPDATE agent_session_publications SET rate_limited_until=?", test.session},
+						{"UPDATE slack_outgoing_message SET slack_delivery_next_attempt_at=?", test.delivery},
+						{"UPDATE gateway_job SET slack_progress_rate_limited_until=?", test.status},
+						{"UPDATE slack_agent_session_publication SET slack_publication_rate_limited_until=?", test.session},
 					} {
-						_, err := db.ExecContext(ctx, update.sql, update.value)
+						_, err := db.ExecContext(ctx, update.sql, nullableFixtureTime(update.value))
 						storetest.Must(t, err)
 					}
 					until, err := s.DeliveryNotBefore(ctx, "T")
@@ -144,6 +148,8 @@ func TestSharedStoreWithoutSources(t *testing.T) {
 	for _, driver := range []string{"sqlite", "mysql"} {
 		t.Run(driver, func(t *testing.T) {
 			s, _ := sharedFixture(t, driver)
+			integrationID := storetest.RegisterDefault(t, s)
+			s = s.Scope(integrationID)
 			t.Chdir(t.TempDir())
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -162,4 +168,11 @@ func TestSharedStoreWithoutSources(t *testing.T) {
 			}
 		})
 	}
+}
+
+func nullableFixtureTime(milliseconds int64) any {
+	if milliseconds == 0 {
+		return nil
+	}
+	return storetest.Time(milliseconds)
 }

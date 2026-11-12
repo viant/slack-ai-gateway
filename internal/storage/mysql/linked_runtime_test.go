@@ -15,12 +15,14 @@ func TestLinkedRuntimeWithoutSourceDirectory(t *testing.T) {
 	s, err := Open(context.Background(), dsn, nil)
 	storetest.Must(t, err)
 	t.Cleanup(func() { storetest.Must(t, s.Close()) })
-	inserted, err := s.Enqueue(context.Background(), storetest.Message("linked", "thread", "alice"))
+	storetest.RegisterDefault(t, s)
+	scoped := storetest.Scope(t, s, "default")
+	inserted, err := scoped.Enqueue(context.Background(), storetest.Message("linked", "thread", "alice"))
 	storetest.Must(t, err)
 	if !inserted {
 		t.Fatal("missing linked intake")
 	}
-	j, err := s.ClaimJob(context.Background())
+	j, err := scoped.ClaimJob(context.Background())
 	storetest.Must(t, err)
 	if j == nil || j.Text != "diagnose linked" {
 		t.Fatal("linked graph did not retain the original payload")

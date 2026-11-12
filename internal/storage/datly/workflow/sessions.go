@@ -14,19 +14,17 @@ func sessionKeyInput(key gateway.ThreadKey) *sessionsread.Input {
 	input.SetMode("key")
 	input.SetWorkspaceID(key.WorkspaceID)
 	input.SetChannelID(key.ChannelID)
-	input.SetRootThreadTS(key.RootTS)
+	input.SetSlackThreadRootMessageID(key.RootTS)
 	return input
 }
 
-func sessionPatch(a *sessionsread.Publication) *sessionswrite.Publication {
-	patch := &sessionswrite.Publication{}
-	patch.SetWorkspaceId(a.WorkspaceId)
-	patch.SetChannelId(a.ChannelId)
-	patch.SetRootThreadTs(a.RootThreadTs)
+func sessionPatch(a *sessionsread.SlackAgentSessionPublication) *sessionswrite.SlackAgentSessionPublication {
+	patch := &sessionswrite.SlackAgentSessionPublication{}
+	patch.SetId(a.Id)
 	return patch
 }
 
-func (e *execution) session(ctx context.Context, key gateway.ThreadKey, lock bool) (*sessionsread.Publication, error) {
+func (e *execution) session(ctx context.Context, key gateway.ThreadKey, lock bool) (*sessionsread.SlackAgentSessionPublication, error) {
 	rows, err := e.readSessions(ctx, sessionKeyInput(key), lock)
 	if err != nil {
 		return nil, err
@@ -39,34 +37,51 @@ func (e *execution) session(ctx context.Context, key gateway.ThreadKey, lock boo
 
 // Include every job in the thread's activity while retaining a native-enabled
 // question as the source of author identity. A blocker dominates queued work.
-func projectSession(a *sessionsread.Publication) gateway.RequestStatus {
-	key := gateway.ThreadKey{WorkspaceID: a.WorkspaceId, ChannelID: a.ChannelId, RootTS: a.RootThreadTs}
-	p := gateway.RequestStatus{Target: gateway.StatusTargetAgentSession, ThreadKey: key, SessionState: "active", Terminal: true}
+func projectSession(a *sessionsread.SlackAgentSessionPublication) gateway.GatewayJobProgress {
+	key := gateway.ThreadKey{WorkspaceID: a.SlackWorkspaceId, ChannelID: a.SlackChannelId, RootTS: a.SlackThreadRootMessageId}
+	p := gateway.GatewayJobProgress{Target: gateway.StatusTargetAgentSession, ThreadKey: key, SessionState: "active", Terminal: true}
 	priority := 0
 	authRejected := false
-	for _, j := range a.Jobs {
+	var source *sessionsread.GatewayJobSessionProjection
+	for _, j := range a.GatewayJobs {
 		if j == nil {
 			continue
 		}
-		state, reason := deref(j.State), deref(j.Reason)
+		state, reason := deref(j.GatewayExecutionState), deref(j.GatewayExecutionReason)
 		pending, bad := deref(j.Pending), deref(j.Bad)
 		rank := 0
-		if state != "completed" && state != "rejected" || pending > 0 {
+		live := deref(j.IntegrationActive) != 0 && j.BindingState != "closed" && reason != "conversation_closed" && !gateway.IntegrationTermination(reason)
+		if live && (state != "completed" && state != "rejected" || pending > 0) {
 			rank = 1
 		}
-		if state == "needs_review" || j.BindingState == "needs_review" || bad > 0 || (state != "completed" && state != "rejected" && j.ObservedState == "waiting_for_user") {
+		if live && (state == "needs_review" || j.BindingState == "needs_review" || bad > 0 || (state != "completed" && state != "rejected" && j.BackendObservedState == "waiting_for_user")) {
 			rank = 2
 		}
 		if rank == 2 && reason == "backend_auth_or_identity_rejected" {
 			authRejected = true
 		}
-		if (j.Mode == string(gateway.StatusAgentSession) || j.Mode == string(gateway.StatusHybrid)) && (rank >= priority || p.JobID == 0) {
-			p.JobID, p.MessageTS, p.Surface, p.CreatedAt = int64(deref(j.Id)), deref(j.MessageTs), gateway.MessageSurface(deref(j.MessageSurface)), time.UnixMilli(int64(deref(j.CreatedAt)))
-			p.Mode, p.Phase = gateway.StatusMode(j.Mode), reason
+		if live && (j.SlackProgressMode == string(gateway.StatusAgentSession) || j.SlackProgressMode == string(gateway.StatusHybrid)) && (rank >= priority || source == nil) {
+			source = j
 		}
 		if rank > priority {
 			priority = rank
 		}
+	}
+	if source == nil {
+		// A closed-thread reply is local work, not a new native execution.
+		// Cleanup retains its stored source so a later author's permissions
+		// cannot authorize publication on behalf of the original question.
+		for _, j := range a.GatewayJobs {
+			if j != nil && deref(j.Id) == a.StatusSourceJobId {
+				source = j
+				break
+			}
+		}
+	}
+	if source != nil {
+		p.JobID, p.MessageTS, p.Surface, p.CreatedAt = int64(deref(source.Id)), deref(source.SlackPromptMessageId), gateway.MessageSurface(deref(source.SlackConversationType)), deref(source.CreatedAt)
+		p.IntegrationID = int64(deref(source.IntegrationId))
+		p.Mode, p.Phase = gateway.StatusMode(source.SlackProgressMode), deref(source.GatewayExecutionReason)
 	}
 	switch priority {
 	case 1:
@@ -77,53 +92,64 @@ func projectSession(a *sessionsread.Publication) gateway.RequestStatus {
 	if authRejected {
 		p.Phase = "backend_auth_or_identity_rejected"
 	}
+	if p.Terminal && gateway.IntegrationTermination(a.SlackPublicationReason) {
+		p.Phase = a.SlackPublicationReason
+	}
 	return p
 }
 
-func (e *execution) claimAgentSession(ctx context.Context, now time.Time, kind string) (*gateway.RequestStatus, error) {
+func (e *execution) claimAgentSession(ctx context.Context, now time.Time, kind string) (*gateway.GatewayJobProgress, error) {
+	now = timestamp(now)
 	input := &sessionsread.Input{}
 	input.SetMode("due")
 	rows, err := e.readSessions(ctx, input, true)
 	if err != nil {
 		return nil, err
 	}
-	var patches []*sessionswrite.Publication
-	var chosen *gateway.RequestStatus
+	var patches []*sessionswrite.SlackAgentSessionPublication
+	var chosen *gateway.GatewayJobProgress
 	for _, a := range rows {
-		if a.State == "sending" || a.State == "failed" || a.State == "skipped" {
-			continue
-		}
-		if a.State == "settled" && a.DesiredStatus == "active" && a.SentRevision >= a.Revision {
+		if a.SlackPublicationState == "sending" || a.SlackPublicationState == "failed" || a.SlackPublicationState == "skipped" {
 			continue
 		}
 		p := projectSession(a)
-		if p.SessionState == "active" && a.Attempts == 0 && a.FirstSentAt == 0 {
+		// One bot may eventually serve several integrations. All their jobs
+		// contribute to the projection, but its original source policy and
+		// scoped context must publish it through the owning integration.
+		closing := gateway.IntegrationTermination(p.Phase)
+		if e.scope != 0 && p.IntegrationID != e.scope && !closing {
+			continue
+		}
+		if kind == "integration_terminal" && !closing {
+			continue
+		}
+		if p.SessionState == "active" && a.SlackPublicationAttempts == 0 && a.SlackPublicationFirstSentAt == nil {
 			patch := sessionPatch(a)
-			patch.SetState("skipped")
-			patch.SetReason("no_status_needed")
-			patch.SetUpdatedAt(int(now.UnixMilli()))
+			patch.SetSlackPublicationState("skipped")
+			patch.SetSlackPublicationReason("no_status_needed")
+			patch.SetUpdatedAt(timestamp(now))
 			patches = append(patches, patch)
 			continue
 		}
-		revision := a.Revision
-		changedProjection := a.DesiredStatus != p.SessionState || int64(a.SourceJobId) != p.JobID
+		revision := a.SlackPublicationRevision
+		changedProjection := a.SlackAgentDesiredStatus != p.SessionState || int64(a.StatusSourceJobId) != p.JobID
 		if changedProjection {
 			revision++
 		}
-		urgent := changedProjection || a.SentRevision < revision
+		urgent := changedProjection || a.SlackPublicationSentRevision < revision
 		if kind == "terminal" && (p.Phase != "backend_auth_or_identity_rejected" || p.SessionState != "suspended") {
 			continue
 		}
-		if kind == "heartbeat" && (urgent || p.SessionState != "processing" || int64(a.RefreshAt) > now.UnixMilli()) {
+		if kind == "heartbeat" && (urgent || p.SessionState != "processing" || deref(a.SlackPublicationRefreshAt).After(now)) {
 			continue
 		}
 		if kind != "heartbeat" && !urgent {
 			continue
 		}
-		if int64(a.NextAttemptAt) > now.UnixMilli() {
+		if deref(a.SlackPublicationNextAttemptAt).After(now) {
 			continue
 		}
-		cooldown, err := e.notBefore(ctx, a.WorkspaceId)
+		cooldown, err := e.notBefore(ctx, a.SlackWorkspaceId)
 		if err != nil {
 			return nil, err
 		}
@@ -131,15 +157,18 @@ func (e *execution) claimAgentSession(ctx context.Context, now time.Time, kind s
 			continue
 		}
 		revision++
-		p.Revision, p.InitiatorUserID, p.Phase = int64(revision), a.InitiatorUserId, p.SessionState
+		p.Revision, p.InitiatorUserID = int64(revision), a.SlackInitiatorUserId
+		if !closing {
+			p.Phase = p.SessionState
+		}
 		patch := sessionPatch(a)
-		patch.SetSourceJobId(int(p.JobID))
-		patch.SetDesiredStatus(p.SessionState)
-		patch.SetRevision(revision)
-		patch.SetClaimedRevision(revision)
-		patch.SetState("sending")
-		patch.SetAttempts(a.Attempts + 1)
-		patch.SetUpdatedAt(int(now.UnixMilli()))
+		patch.SetStatusSourceJobId(int(p.JobID))
+		patch.SetSlackAgentDesiredStatus(p.SessionState)
+		patch.SetSlackPublicationRevision(revision)
+		patch.SetSlackPublicationClaimedRevision(revision)
+		patch.SetSlackPublicationState("sending")
+		patch.SetSlackPublicationAttempts(a.SlackPublicationAttempts + 1)
+		patch.SetUpdatedAt(timestamp(now))
 		patches = append(patches, patch)
 		chosen = &p
 		break
@@ -152,7 +181,8 @@ func (e *execution) claimAgentSession(ctx context.Context, now time.Time, kind s
 	return chosen, nil
 }
 
-func (e *execution) finishAgentSession(ctx context.Context, status gateway.RequestStatus, r gateway.StatusResult, now time.Time) error {
+func (e *execution) finishAgentSession(ctx context.Context, status gateway.GatewayJobProgress, r gateway.StatusResult, now time.Time) error {
+	now = timestamp(now)
 	switch r.State {
 	case "ready", "settled", "failed":
 	default:
@@ -165,39 +195,39 @@ func (e *execution) finishAgentSession(ctx context.Context, status gateway.Reque
 	if err != nil {
 		return err
 	}
-	if a.State != "sending" || int64(a.ClaimedRevision) != status.Revision || int64(a.SourceJobId) != status.JobID {
+	if a.SlackPublicationState != "sending" || int64(a.SlackPublicationClaimedRevision) != status.Revision || int64(a.StatusSourceJobId) != status.JobID {
 		return gateway.ErrConflict
 	}
 	p := projectSession(a)
-	dirty := int64(a.Revision) != status.Revision || p.SessionState != status.SessionState || p.JobID != status.JobID
-	revision := a.Revision
-	if p.SessionState != a.DesiredStatus || p.JobID != int64(a.SourceJobId) {
+	dirty := int64(a.SlackPublicationRevision) != status.Revision || p.SessionState != status.SessionState || p.JobID != status.JobID
+	revision := a.SlackPublicationRevision
+	if p.SessionState != a.SlackAgentDesiredStatus || p.JobID != int64(a.StatusSourceJobId) {
 		revision++
 	}
 	state := r.State
 	patch := sessionPatch(a)
 	if r.Acknowledged {
 		state = "settled"
-		patch.SetSentRevision(int(status.Revision))
-		patch.SetLastSentAt(int(now.UnixMilli()))
-		if a.FirstSentAt == 0 {
-			patch.SetFirstSentAt(int(now.UnixMilli()))
+		patch.SetSlackPublicationSentRevision(int(status.Revision))
+		patch.SetSlackPublicationLastSentAt(timePointer(now))
+		if a.SlackPublicationFirstSentAt == nil {
+			patch.SetSlackPublicationFirstSentAt(timePointer(now))
 		}
-		patch.SetAgentStatus(r.AgentStatus)
-		patch.SetSessionStatus(r.SessionStatus)
-		patch.SetWarning(r.Warning)
-		patch.SetRefreshAt(statusMillis(r.NextRefreshAt))
+		patch.SetSlackAgentObservedStatus(r.AgentStatus)
+		patch.SetSlackSessionObservedStatus(r.SessionStatus)
+		patch.SetSlackPublicationWarning(r.Warning)
+		patch.SetSlackPublicationRefreshAt(timePointer(r.NextRefreshAt))
 	}
 	if dirty && (r.Acknowledged || r.State != "failed") {
 		state = "ready"
 	}
-	patch.SetSourceJobId(int(p.JobID))
-	patch.SetDesiredStatus(p.SessionState)
-	patch.SetRevision(revision)
-	patch.SetState(state)
-	patch.SetNextAttemptAt(statusMillis(r.RetryAt))
-	patch.SetRateLimitedUntil(statusMillis(r.RateLimitedUntil))
-	patch.SetReason(r.Reason)
-	patch.SetUpdatedAt(int(now.UnixMilli()))
-	return e.writeSessions(ctx, []*sessionswrite.Publication{patch})
+	patch.SetStatusSourceJobId(int(p.JobID))
+	patch.SetSlackAgentDesiredStatus(p.SessionState)
+	patch.SetSlackPublicationRevision(revision)
+	patch.SetSlackPublicationState(state)
+	patch.SetSlackPublicationNextAttemptAt(timePointer(r.RetryAt))
+	patch.SetSlackPublicationRateLimitedUntil(timePointer(r.RateLimitedUntil))
+	patch.SetSlackPublicationReason(r.Reason)
+	patch.SetUpdatedAt(timestamp(now))
+	return e.writeSessions(ctx, []*sessionswrite.SlackAgentSessionPublication{patch})
 }

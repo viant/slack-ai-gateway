@@ -7,16 +7,35 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 
-#define($_ = $ID<int64>(query/ID).Optional().WithPredicate(0,'equal','b','id'))
-#define($_ = $WorkspaceID<string>(query/WorkspaceID).Optional().WithPredicate(0,'equal','b','workspace_id'))
-#define($_ = $ChannelID<string>(query/ChannelID).Optional().WithPredicate(0,'equal','b','channel_id'))
-#define($_ = $RootThreadTS<string>(query/RootThreadTS).Optional().WithPredicate(0,'equal','b','root_thread_ts'))
-#define($_ = $State<string>(query/State).Optional().WithPredicate(0,'equal','b','state'))
-#define($_ = $Data<[]*Binding>(output/view))
 
-SELECT bindings.*, type(bindings,'Binding'), row_lock(bindings,'conversation_bindings b','b.id')
+#define($_ = $IntegrationID<int>(query/IntegrationID).Optional().Value(0))
+#define($_ = $Mode<string>(query/mode).Optional().Value('key'))
+#define($_ = $ID<int64>(query/ID).Optional().WithPredicate(0,'equal','b','id'))
+#define($_ = $AppID<string>(query/AppID).Optional().WithPredicate(1,'equal','integration','slack_app_id'))
+#define($_ = $WorkspaceID<string>(query/WorkspaceID).Optional().WithPredicate(1,'equal','integration','slack_workspace_id'))
+#define($_ = $ChannelID<string>(query/ChannelID).Optional().WithPredicate(0,'equal','b','slack_channel_id'))
+#define($_ = $SlackThreadRootMessageID<string>(query/SlackThreadRootMessageID).Optional().WithPredicate(0,'equal','b','slack_thread_root_message_id'))
+#define($_ = $State<string>(query/State).Optional().WithPredicate(0,'equal','b','gateway_binding_state'))
+#define($_ = $Data<[]*ConversationBinding>(output/view))
+
+SELECT conversation_bindings.*, type(conversation_bindings,'ConversationBinding'), required(conversation_bindings.slack_workspace_id), required(conversation_bindings.slack_app_id),
+ required(conversation_bindings.integration_active), required(conversation_bindings.integration_name), CAST(conversation_bindings.integration_active AS int),
+ row_lock(conversation_bindings,'conversation_binding b','b.id'), set_limit(conversation_bindings,0)
 FROM (
- SELECT b.* FROM conversation_bindings b
- WHERE ($ID != 0 OR $WorkspaceID != '' OR $State != '')
+ SELECT b.*,
+ (SELECT integration.slack_workspace_id FROM integration integration WHERE integration.id=b.integration_id) AS slack_workspace_id,
+ (SELECT integration.slack_app_id FROM integration integration WHERE integration.id=b.integration_id) AS slack_app_id,
+ (SELECT integration.name FROM integration integration WHERE integration.id=b.integration_id) AS integration_name,
+ (SELECT integration.active FROM integration integration WHERE integration.id=b.integration_id) AS integration_active
+ FROM conversation_binding b
+ WHERE 1=1
+ #if(($IntegrationID != 0) && ($Mode != "physical_thread"))
+ AND b.integration_id=$IntegrationID
+ #end
+ #if($Mode != "all")
+ AND ($ID != 0 OR $WorkspaceID != '' OR $State != '')
+ #end
+ AND EXISTS (SELECT 1 FROM integration integration WHERE integration.id=b.integration_id
+  ${predicate.Builder().CombineAnd($predicate.FilterGroup(1,"AND")).Build("AND")})
  ${predicate.Builder().CombineAnd($predicate.FilterGroup(0,"AND")).Build("AND")}
-) bindings
+) conversation_bindings

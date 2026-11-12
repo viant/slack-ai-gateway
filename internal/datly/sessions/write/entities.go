@@ -2,223 +2,247 @@
 
 package write
 
-func (entity *Publication) GetWorkspaceId() string {
-	return entity.WorkspaceId
+import (
+	time "time"
+)
+
+func (entity *SlackAgentSessionPublication) GetId() int {
+	return entity.Id
 }
-func (entity *Publication) SetWorkspaceId(value string) {
-	entity.WorkspaceId = value
+func (entity *SlackAgentSessionPublication) SetId(value int) {
+	entity.Id = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.WorkspaceId = true
+	entity.Has.Id = true
 }
-func (entity *Publication) GetChannelId() string {
-	return entity.ChannelId
+func (entity *SlackAgentSessionPublication) GetInitialIntegrationId() int {
+	return entity.InitialIntegrationId
 }
-func (entity *Publication) SetChannelId(value string) {
-	entity.ChannelId = value
+func (entity *SlackAgentSessionPublication) SetInitialIntegrationId(value int) {
+	entity.InitialIntegrationId = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.ChannelId = true
+	entity.Has.InitialIntegrationId = true
 }
-func (entity *Publication) GetRootThreadTs() string {
-	return entity.RootThreadTs
+func (entity *SlackAgentSessionPublication) GetSlackChannelId() string {
+	return entity.SlackChannelId
 }
-func (entity *Publication) SetRootThreadTs(value string) {
-	entity.RootThreadTs = value
+func (entity *SlackAgentSessionPublication) SetSlackChannelId(value string) {
+	entity.SlackChannelId = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.RootThreadTs = true
+	entity.Has.SlackChannelId = true
 }
-func (entity *Publication) GetLatestJobId() int {
-	return entity.LatestJobId
+func (entity *SlackAgentSessionPublication) GetSlackThreadRootMessageId() string {
+	return entity.SlackThreadRootMessageId
 }
-func (entity *Publication) SetLatestJobId(value int) {
-	entity.LatestJobId = value
+func (entity *SlackAgentSessionPublication) SetSlackThreadRootMessageId(value string) {
+	entity.SlackThreadRootMessageId = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.LatestJobId = true
+	entity.Has.SlackThreadRootMessageId = true
 }
-func (entity *Publication) GetSourceJobId() int {
-	return entity.SourceJobId
+func (entity *SlackAgentSessionPublication) GetLatestStatusJobId() int {
+	return entity.LatestStatusJobId
 }
-func (entity *Publication) SetSourceJobId(value int) {
-	entity.SourceJobId = value
+func (entity *SlackAgentSessionPublication) SetLatestStatusJobId(value int) {
+	entity.LatestStatusJobId = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.SourceJobId = true
+	entity.Has.LatestStatusJobId = true
 }
-func (entity *Publication) GetInitiatorUserId() string {
-	return entity.InitiatorUserId
+func (entity *SlackAgentSessionPublication) GetStatusSourceJobId() int {
+	return entity.StatusSourceJobId
 }
-func (entity *Publication) SetInitiatorUserId(value string) {
-	entity.InitiatorUserId = value
+func (entity *SlackAgentSessionPublication) SetStatusSourceJobId(value int) {
+	entity.StatusSourceJobId = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.InitiatorUserId = true
+	entity.Has.StatusSourceJobId = true
 }
-func (entity *Publication) GetDesiredStatus() string {
-	return entity.DesiredStatus
+func (entity *SlackAgentSessionPublication) GetSlackInitiatorUserId() string {
+	return entity.SlackInitiatorUserId
 }
-func (entity *Publication) SetDesiredStatus(value string) {
-	entity.DesiredStatus = value
+func (entity *SlackAgentSessionPublication) SetSlackInitiatorUserId(value string) {
+	entity.SlackInitiatorUserId = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.DesiredStatus = true
+	entity.Has.SlackInitiatorUserId = true
 }
-func (entity *Publication) GetAgentStatus() string {
-	return entity.AgentStatus
+func (entity *SlackAgentSessionPublication) GetSlackAgentDesiredStatus() string {
+	return entity.SlackAgentDesiredStatus
 }
-func (entity *Publication) SetAgentStatus(value string) {
-	entity.AgentStatus = value
+func (entity *SlackAgentSessionPublication) SetSlackAgentDesiredStatus(value string) {
+	entity.SlackAgentDesiredStatus = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.AgentStatus = true
+	entity.Has.SlackAgentDesiredStatus = true
 }
-func (entity *Publication) GetSessionStatus() string {
-	return entity.SessionStatus
+func (entity *SlackAgentSessionPublication) GetSlackAgentObservedStatus() string {
+	return entity.SlackAgentObservedStatus
 }
-func (entity *Publication) SetSessionStatus(value string) {
-	entity.SessionStatus = value
+func (entity *SlackAgentSessionPublication) SetSlackAgentObservedStatus(value string) {
+	entity.SlackAgentObservedStatus = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.SessionStatus = true
+	entity.Has.SlackAgentObservedStatus = true
 }
-func (entity *Publication) GetRevision() int {
-	return entity.Revision
+func (entity *SlackAgentSessionPublication) GetSlackSessionObservedStatus() string {
+	return entity.SlackSessionObservedStatus
 }
-func (entity *Publication) SetRevision(value int) {
-	entity.Revision = value
+func (entity *SlackAgentSessionPublication) SetSlackSessionObservedStatus(value string) {
+	entity.SlackSessionObservedStatus = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.Revision = true
+	entity.Has.SlackSessionObservedStatus = true
 }
-func (entity *Publication) GetSentRevision() int {
-	return entity.SentRevision
+func (entity *SlackAgentSessionPublication) GetSlackPublicationRevision() int {
+	return entity.SlackPublicationRevision
 }
-func (entity *Publication) SetSentRevision(value int) {
-	entity.SentRevision = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationRevision(value int) {
+	entity.SlackPublicationRevision = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.SentRevision = true
+	entity.Has.SlackPublicationRevision = true
 }
-func (entity *Publication) GetClaimedRevision() int {
-	return entity.ClaimedRevision
+func (entity *SlackAgentSessionPublication) GetSlackPublicationSentRevision() int {
+	return entity.SlackPublicationSentRevision
 }
-func (entity *Publication) SetClaimedRevision(value int) {
-	entity.ClaimedRevision = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationSentRevision(value int) {
+	entity.SlackPublicationSentRevision = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.ClaimedRevision = true
+	entity.Has.SlackPublicationSentRevision = true
 }
-func (entity *Publication) GetState() string {
-	return entity.State
+func (entity *SlackAgentSessionPublication) GetSlackPublicationClaimedRevision() int {
+	return entity.SlackPublicationClaimedRevision
 }
-func (entity *Publication) SetState(value string) {
-	entity.State = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationClaimedRevision(value int) {
+	entity.SlackPublicationClaimedRevision = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.State = true
+	entity.Has.SlackPublicationClaimedRevision = true
 }
-func (entity *Publication) GetAttempts() int {
-	return entity.Attempts
+func (entity *SlackAgentSessionPublication) GetSlackPublicationState() string {
+	return entity.SlackPublicationState
 }
-func (entity *Publication) SetAttempts(value int) {
-	entity.Attempts = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationState(value string) {
+	entity.SlackPublicationState = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.Attempts = true
+	entity.Has.SlackPublicationState = true
 }
-func (entity *Publication) GetNextAttemptAt() int {
-	return entity.NextAttemptAt
+func (entity *SlackAgentSessionPublication) GetSlackPublicationAttempts() int {
+	return entity.SlackPublicationAttempts
 }
-func (entity *Publication) SetNextAttemptAt(value int) {
-	entity.NextAttemptAt = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationAttempts(value int) {
+	entity.SlackPublicationAttempts = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.NextAttemptAt = true
+	entity.Has.SlackPublicationAttempts = true
 }
-func (entity *Publication) GetRefreshAt() int {
-	return entity.RefreshAt
+func (entity *SlackAgentSessionPublication) GetSlackPublicationNextAttemptAt() *time.Time {
+	return entity.SlackPublicationNextAttemptAt
 }
-func (entity *Publication) SetRefreshAt(value int) {
-	entity.RefreshAt = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationNextAttemptAt(value *time.Time) {
+	entity.SlackPublicationNextAttemptAt = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.RefreshAt = true
+	entity.Has.SlackPublicationNextAttemptAt = true
 }
-func (entity *Publication) GetRateLimitedUntil() int {
-	return entity.RateLimitedUntil
+func (entity *SlackAgentSessionPublication) GetSlackPublicationRefreshAt() *time.Time {
+	return entity.SlackPublicationRefreshAt
 }
-func (entity *Publication) SetRateLimitedUntil(value int) {
-	entity.RateLimitedUntil = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationRefreshAt(value *time.Time) {
+	entity.SlackPublicationRefreshAt = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.RateLimitedUntil = true
+	entity.Has.SlackPublicationRefreshAt = true
 }
-func (entity *Publication) GetFirstSentAt() int {
-	return entity.FirstSentAt
+func (entity *SlackAgentSessionPublication) GetSlackPublicationRateLimitedUntil() *time.Time {
+	return entity.SlackPublicationRateLimitedUntil
 }
-func (entity *Publication) SetFirstSentAt(value int) {
-	entity.FirstSentAt = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationRateLimitedUntil(value *time.Time) {
+	entity.SlackPublicationRateLimitedUntil = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.FirstSentAt = true
+	entity.Has.SlackPublicationRateLimitedUntil = true
 }
-func (entity *Publication) GetLastSentAt() int {
-	return entity.LastSentAt
+func (entity *SlackAgentSessionPublication) GetSlackPublicationFirstSentAt() *time.Time {
+	return entity.SlackPublicationFirstSentAt
 }
-func (entity *Publication) SetLastSentAt(value int) {
-	entity.LastSentAt = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationFirstSentAt(value *time.Time) {
+	entity.SlackPublicationFirstSentAt = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.LastSentAt = true
+	entity.Has.SlackPublicationFirstSentAt = true
 }
-func (entity *Publication) GetReason() string {
-	return entity.Reason
+func (entity *SlackAgentSessionPublication) GetSlackPublicationLastSentAt() *time.Time {
+	return entity.SlackPublicationLastSentAt
 }
-func (entity *Publication) SetReason(value string) {
-	entity.Reason = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationLastSentAt(value *time.Time) {
+	entity.SlackPublicationLastSentAt = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.Reason = true
+	entity.Has.SlackPublicationLastSentAt = true
 }
-func (entity *Publication) GetWarning() string {
-	return entity.Warning
+func (entity *SlackAgentSessionPublication) GetSlackPublicationReason() string {
+	return entity.SlackPublicationReason
 }
-func (entity *Publication) SetWarning(value string) {
-	entity.Warning = value
+func (entity *SlackAgentSessionPublication) SetSlackPublicationReason(value string) {
+	entity.SlackPublicationReason = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
-	entity.Has.Warning = true
+	entity.Has.SlackPublicationReason = true
 }
-func (entity *Publication) GetUpdatedAt() int {
+func (entity *SlackAgentSessionPublication) GetSlackPublicationWarning() string {
+	return entity.SlackPublicationWarning
+}
+func (entity *SlackAgentSessionPublication) SetSlackPublicationWarning(value string) {
+	entity.SlackPublicationWarning = value
+	if entity.Has == nil {
+		entity.Has = &SlackAgentSessionPublicationHas{}
+	}
+	entity.Has.SlackPublicationWarning = true
+}
+func (entity *SlackAgentSessionPublication) GetCreatedAt() time.Time {
+	return entity.CreatedAt
+}
+func (entity *SlackAgentSessionPublication) SetCreatedAt(value time.Time) {
+	entity.CreatedAt = value
+	if entity.Has == nil {
+		entity.Has = &SlackAgentSessionPublicationHas{}
+	}
+	entity.Has.CreatedAt = true
+}
+func (entity *SlackAgentSessionPublication) GetUpdatedAt() time.Time {
 	return entity.UpdatedAt
 }
-func (entity *Publication) SetUpdatedAt(value int) {
+func (entity *SlackAgentSessionPublication) SetUpdatedAt(value time.Time) {
 	entity.UpdatedAt = value
 	if entity.Has == nil {
-		entity.Has = &PublicationHas{}
+		entity.Has = &SlackAgentSessionPublicationHas{}
 	}
 	entity.Has.UpdatedAt = true
 }

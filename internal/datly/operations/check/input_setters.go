@@ -2,6 +2,17 @@
 
 package check
 
+func (input *Input) SetIntegrationID(value int) {
+	if input == nil {
+		return
+	}
+	input.IntegrationID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.IntegrationID = true
+}
+
 func (input *Input) SetAppID(value string) {
 	if input == nil {
 		return

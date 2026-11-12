@@ -22,6 +22,7 @@ import (
 	"github.com/viant/scy/cred"
 	"github.com/viant/scy/kms"
 	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 	"golang.org/x/oauth2"
@@ -629,9 +630,10 @@ func TestSessionSharedThreadFollowupUsesExistingConversation(t *testing.T) {
 	storetest.Must(t, err)
 	defer s.Close()
 	storetest.Must(t, s.Migrate(ctx))
-	w := gateway.Worker{Store: s, Clients: factory, AgentID: "steward", Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "agently_scheduler"}}
+	scoped := sessionWorkerScope(t, s, f.server.URL)
+	w := gateway.Worker{Store: scoped, Clients: factory, AgentID: "steward", Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "agently_scheduler"}}
 	for i, author := range []string{"alice", "bob"} {
-		_, err = s.Enqueue(ctx, storetest.Message(fmt.Sprintf("event-%d", i), "123.456", author))
+		_, err = scoped.Enqueue(ctx, storetest.Message(fmt.Sprintf("event-%d", i), "123.456", author))
 		storetest.Must(t, err)
 		worked, err := w.Step(ctx)
 		storetest.Must(t, err)
@@ -639,13 +641,13 @@ func TestSessionSharedThreadFollowupUsesExistingConversation(t *testing.T) {
 			t.Fatal("followup not processed")
 		}
 	}
-	status, err := s.Status(ctx, 10)
+	status, err := scoped.Status(ctx, 10)
 	storetest.Must(t, err)
-	if len(status.Bindings) != 1 || len(status.Jobs) != 2 || len(status.Deliveries) != 2 || f.count("/v1/conversations") != 1 || f.count("agui.chat") != 2 {
+	if len(status.ConversationBindings) != 1 || len(status.GatewayJobs) != 2 || len(status.SlackOutgoingMessages) != 2 || f.count("/v1/conversations") != 1 || f.count("agui.chat") != 2 {
 		t.Fatal("shared-thread followup lost its conversation or response")
 	}
-	for _, job := range status.Jobs {
-		if job.State != "completed" || job.TurnID != job.RequestID {
+	for _, job := range status.GatewayJobs {
+		if job.State != "completed" || job.BackendSubmissionStartedAt == 0 || job.GatewayRequestID == "" {
 			t.Fatal("server-native turn identity leaked into durable logical ID")
 		}
 	}
@@ -660,15 +662,16 @@ func testSessionWorkerReconciliation(t *testing.T, mode string) {
 	s, err := sqlite.Open(ctx, dbPath, true)
 	storetest.Must(t, err)
 	storetest.Must(t, s.Migrate(ctx))
-	_, err = s.Enqueue(ctx, storetest.Message("event", "123.456", "alice"))
+	scoped := sessionWorkerScope(t, s, f.server.URL)
+	_, err = scoped.Enqueue(ctx, storetest.Message("event", "123.456", "alice"))
 	storetest.Must(t, err)
-	w := gateway.Worker{Store: s, Clients: factory, AgentID: "steward", Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "agently_scheduler"}, Timing: gateway.QueryTiming{PollInitial: time.Millisecond}}
+	w := gateway.Worker{Store: scoped, Clients: factory, AgentID: "steward", Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "agently_scheduler"}, Timing: gateway.QueryTiming{PollInitial: time.Millisecond}}
 	f.mode.Store(mode)
 	_, err = w.Step(ctx)
 	storetest.Must(t, err)
-	status, err := s.Status(ctx, 10)
+	status, err := scoped.Status(ctx, 10)
 	storetest.Must(t, err)
-	if status.Jobs[0].State != "querying" || len(status.Deliveries) != 0 || status.Bindings[0].OwnerID != "agently_scheduler" {
+	if status.GatewayJobs[0].State != "querying" || len(status.SlackOutgoingMessages) != 0 || status.ConversationBindings[0].OwnerID != "agently_scheduler" {
 		t.Fatal("uncertain query state lost")
 	}
 	storetest.Must(t, s.Close())
@@ -678,20 +681,34 @@ func testSessionWorkerReconciliation(t *testing.T, mode string) {
 	s, err = sqlite.Open(ctx, dbPath, false)
 	storetest.Must(t, err)
 	defer s.Close()
+	storetest.Must(t, s.CheckSchema(ctx))
 	storetest.Must(t, s.Recover(ctx))
-	w.Store = s
+	scoped = sessionWorkerScope(t, s, f.server.URL)
+	w.Store = scoped
 	w.Clients = factory
 	time.Sleep(5 * time.Millisecond)
 	_, err = w.Step(ctx)
 	storetest.Must(t, err)
-	status, err = s.Status(ctx, 10)
+	status, err = scoped.Status(ctx, 10)
 	storetest.Must(t, err)
-	if status.Jobs[0].State != "completed" || len(status.Deliveries) != 1 || f.count("agui.chat") != 1 || f.count("agui.run.attach") != 1 || f.count("/v1/ag-ui/run") != 2 || f.count("/v1/conversations") != 1 {
+	if status.GatewayJobs[0].State != "completed" || len(status.SlackOutgoingMessages) != 1 || f.count("agui.chat") != 1 || f.count("agui.run.attach") != 1 || f.count("/v1/ag-ui/run") != 2 || f.count("/v1/conversations") != 1 {
 		t.Fatal("query replayed or persisted answer lost")
 	}
-	delivery, err := s.ClaimDelivery(ctx)
+	delivery, err := scoped.ClaimDelivery(ctx)
 	storetest.Must(t, err)
 	if delivery == nil || delivery.Text != "verified answer" || delivery.RootTS != "123.456" {
 		t.Fatal("wrong persisted delivery")
 	}
+}
+
+// Match the persisted execution identity to the authenticated fixture account.
+// Production business operations always use an explicit integration scope.
+func sessionWorkerScope(t *testing.T, root *sqlite.Store, base string) storage.Store {
+	t.Helper()
+	identity := storetest.DefaultIntegration()
+	identity.PrincipalID = "agently_scheduler"
+	identity.BackendURL = base
+	registered, err := root.ReconcileIntegrations(context.Background(), []storage.Integration{identity})
+	storetest.Must(t, err)
+	return root.Scope(registered[0].ID)
 }

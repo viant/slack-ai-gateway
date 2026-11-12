@@ -22,10 +22,11 @@ It does not invoke the Agently CLI or change browser/CLI rendering.
 The native conversation ID identifies metadata and transcript resources. The wire
 `threadId` comes from authenticated `aguiThreadId`, falling back to the conversation
 ID only when that field is absent/null; an explicitly empty mapping is rejected.
-The durable gateway `request_id` is the wire `runId`, user message ID and extension
+The durable `gateway_request_id` is the wire `runId`, user message ID and extension
 `requestId`. Core's native turn ID comes from root
 `RUN_STARTED.metadata.agently` with `identityVersion: "1"`; it need not equal those
-request IDs. The store's `turn_id` retains the logical request ID.
+request IDs. The store records `backend_submission_started_at` before submission;
+it does not retain a second copy of the gateway request ID as `turn_id`.
 
 Chat sends only the new user message, an `agently` version-1 extension with
 operation `chat`, and payload `agentId`, `useServerState: true`. Core owns history.
@@ -53,6 +54,21 @@ uncertain query or restart, the adapter verifies ownership, attaches the origina
 run and reads its native turn. It never resends the prompt or replaces the run.
 Correlation IDs are not a backend idempotency guarantee. An uncertain conversation
 creation requires review because no safe lookup/retry contract is available.
+
+The local `gateway_job` row combines execution and progress facts. Its numeric `id`
+links outgoing Slack messages, while `gateway_request_id` remains the separate
+128-bit random value encoded as 32 hexadecimal characters. It is not a formatted
+UUID, and the database additionally enforces uniqueness. Renaming storage columns
+does not rename AG-UI's `runId`, `threadId` or the Agently extension fields.
+
+The schema is prepared for future partial content cleanup. Agently retains history
+on the server through `useServerState: true`; the protocol-only AG-UI adapter sends
+its saved `backend_protocol_messages` and `backend_protocol_state` on the next run.
+Those opaque protocol values must remain while preserving continuation, even if
+redundant prompt, result and outgoing-message bodies are cleared. Full local
+conversation removal also removes its mapping and deduplication facts; a later
+prompt in the old Slack thread can then start a new backend conversation. No
+retention process currently performs either cleanup. See [the storage schema](schema.md).
 
 Ordinary API operations have a 120-second timeout. Execution observation has a
 15-minute deadline from durable query start; attachment retries wait 2, 4, 8, then
@@ -113,8 +129,10 @@ authentication with exponential intervals around 1, 2, 4, 8, 16 and 30 seconds,
 with jitter and any longer `Retry-After` respected. Each attempt is bounded by
 90 seconds. Invalid credentials, identity mismatches and other permanent
 authentication failures enter `blocked`; correct the cause and restart the
-gateway. Invalid credential references or unreadable credentials fail
-before runtime startup. Each new OOB login reads its configured resource again.
+gateway. Invalid credential references are rejected by configuration validation.
+Unreadable backend credentials block that integration's execution while its
+authorized Slack transport can still deliver notices and end historical progress.
+Each new OOB login reads its configured resource again.
 Slack token and MySQL credential rotation require restart; no account switching
 or general configuration hot reload is provided.
 

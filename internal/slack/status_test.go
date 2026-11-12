@@ -47,7 +47,7 @@ func TestStatusUpdateHTTPContractAndClassification(t *testing.T) {
 			}))
 			defer server.Close()
 			sender := &Sender{api: sdk.New("xoxb-test", sdk.OptionAPIURL(server.URL+"/"), sdk.OptionHTTPClient(server.Client())), route: testRoute}
-			status := gateway.RequestStatus{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}, SlackTS: "2.000001"}
+			status := gateway.GatewayJobProgress{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}, SlackTS: "2.000001"}
 			ts, err := sender.SendStatus(context.Background(), status, "status &amp;")
 			if tc.kind == "" {
 				if err != nil || ts.SlackTS != status.SlackTS {
@@ -85,7 +85,7 @@ func TestStatusFirstPostIsThreaded(t *testing.T) {
 	}))
 	defer server.Close()
 	sender := &Sender{api: sdk.New("xoxb-test", sdk.OptionAPIURL(server.URL+"/")), route: testRoute}
-	ts, err := sender.SendStatus(context.Background(), gateway.RequestStatus{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}}, "Received your request.")
+	ts, err := sender.SendStatus(context.Background(), gateway.GatewayJobProgress{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}}, "Received your request.")
 	if err != nil || ts.SlackTS != "2.000001" || calls.Load() != 1 {
 		t.Fatal("initial status failed")
 	}
@@ -133,7 +133,7 @@ func TestAgentSessionSDKContract(t *testing.T) {
 								route = dmRoute(t)
 							}
 							sender := &Sender{api: sdk.New("xoxb-test", sdk.OptionAPIURL(server.URL+"/")), route: route}
-							status := gateway.RequestStatus{Mode: mode, Target: gateway.StatusTargetAgentSession, Surface: surface, SessionState: "active", InitiatorUserID: "alice", ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: channel, RootTS: "1.000001"}, MessageTS: "9.000001"}
+							status := gateway.GatewayJobProgress{Mode: mode, Target: gateway.StatusTargetAgentSession, Surface: surface, SessionState: "active", InitiatorUserID: "alice", ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: channel, RootTS: "1.000001"}, MessageTS: "9.000001"}
 							receipt, err := sender.SendStatus(context.Background(), status, "")
 							if tc.kind == "" {
 								if err != nil || !receipt.Acknowledged || receipt.SlackTS != "" {
@@ -190,7 +190,7 @@ func TestHybridMessageTargetUsesExistingSDKMessageMethods(t *testing.T) {
 			}))
 			defer server.Close()
 			sender := &Sender{api: sdk.New("xoxb-test", sdk.OptionAPIURL(server.URL+"/")), route: testRoute}
-			receipt, err := sender.SendStatus(context.Background(), gateway.RequestStatus{Mode: gateway.StatusHybrid, Target: gateway.StatusTargetMessage, ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}, SlackTS: timestamp}, "Agently is working. Elapsed: 3s.")
+			receipt, err := sender.SendStatus(context.Background(), gateway.GatewayJobProgress{Mode: gateway.StatusHybrid, Target: gateway.StatusTargetMessage, ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}, SlackTS: timestamp}, "Agently is working. Elapsed: 3s.")
 			if err != nil || receipt.SlackTS != "2.000001" || calls != 1 {
 				t.Fatalf("message receipt lost: %+v %v", receipt, err)
 			}

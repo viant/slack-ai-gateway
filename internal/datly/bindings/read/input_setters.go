@@ -2,6 +2,28 @@
 
 package read
 
+func (input *Input) SetIntegrationID(value int) {
+	if input == nil {
+		return
+	}
+	input.IntegrationID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.IntegrationID = true
+}
+
+func (input *Input) SetMode(value string) {
+	if input == nil {
+		return
+	}
+	input.Mode = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.Mode = true
+}
+
 func (input *Input) SetID(value int64) {
 	if input == nil {
 		return
@@ -11,6 +33,17 @@ func (input *Input) SetID(value int64) {
 		input.Has = &InputHas{}
 	}
 	input.Has.ID = true
+}
+
+func (input *Input) SetAppID(value string) {
+	if input == nil {
+		return
+	}
+	input.AppID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.AppID = true
 }
 
 func (input *Input) SetWorkspaceID(value string) {
@@ -35,15 +68,15 @@ func (input *Input) SetChannelID(value string) {
 	input.Has.ChannelID = true
 }
 
-func (input *Input) SetRootThreadTS(value string) {
+func (input *Input) SetSlackThreadRootMessageID(value string) {
 	if input == nil {
 		return
 	}
-	input.RootThreadTS = value
+	input.SlackThreadRootMessageID = value
 	if input.Has == nil {
 		input.Has = &InputHas{}
 	}
-	input.Has.RootThreadTS = true
+	input.Has.SlackThreadRootMessageID = true
 }
 
 func (input *Input) SetState(value string) {

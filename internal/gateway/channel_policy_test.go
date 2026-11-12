@@ -136,35 +136,35 @@ func (d *policyDirectory) User(_ context.Context, w, u string) (UserInfo, error)
 func TestConfiguredPolicyChannelAndUserFacts(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode string
-		alter      func(*policyDirectory, *Message, *Binding)
+		alter      func(*policyDirectory, *Message, *ConversationBinding)
 		want       error
 	}{
 		{"regular", "members_only", nil, nil},
-		{"guest_channel_members", "channel_members", func(d *policyDirectory, _ *Message, _ *Binding) { d.user.Guest = true }, nil},
-		{"guest_members_only", "members_only", func(d *policyDirectory, _ *Message, _ *Binding) { d.user.Guest = true }, ErrDenied},
-		{"single_guest", "members_only", func(d *policyDirectory, _ *Message, _ *Binding) { d.user.SingleChannelGuest = true }, ErrDenied},
-		{"deleted", "members_only", func(d *policyDirectory, _ *Message, _ *Binding) { d.user.Deleted = true }, ErrDenied},
-		{"bot", "members_only", func(d *policyDirectory, _ *Message, _ *Binding) { d.user.Bot = true }, ErrDenied},
-		{"wrong_user", "members_only", func(d *policyDirectory, _ *Message, _ *Binding) { d.user.ID = "bob" }, ErrDenied},
-		{"foreign_workspace", "members_only", func(d *policyDirectory, _ *Message, _ *Binding) { d.user.WorkspaceID = "OTHER" }, ErrDenied},
-		{"not_joined", "channel_members", func(d *policyDirectory, _ *Message, _ *Binding) { d.channel.Member = false }, ErrDenied},
-		{"archived", "channel_members", func(d *policyDirectory, _ *Message, _ *Binding) { d.channel.Archived = true }, ErrDenied},
-		{"external", "channel_members", func(d *policyDirectory, _ *Message, _ *Binding) { d.channel.ExternalShared = true }, ErrDenied},
-		{"pending_external", "channel_members", func(d *policyDirectory, _ *Message, _ *Binding) { d.channel.PendingExternalShared = true }, ErrDenied},
-		{"private_default_denied", "channel_members", func(d *policyDirectory, _ *Message, _ *Binding) { d.channel.Private = true }, ErrDenied},
-		{"dm", "channel_members", func(d *policyDirectory, _ *Message, _ *Binding) { d.channel.IM = true }, ErrDenied},
-		{"group_dm", "channel_members", func(d *policyDirectory, _ *Message, _ *Binding) { d.channel.MPIM = true }, ErrDenied},
-		{"channel_identity", "channel_members", func(d *policyDirectory, _ *Message, _ *Binding) { d.channel.ID = "OTHER" }, ErrDenied},
-		{"binding_identity", "channel_members", func(_ *policyDirectory, _ *Message, b *Binding) { b.OwnerID = "bob" }, ErrDenied},
-		{"binding_thread", "channel_members", func(_ *policyDirectory, _ *Message, b *Binding) { b.RootTS = "OTHER" }, ErrDenied},
-		{"raw_external", "channel_members", func(_ *policyDirectory, m *Message, _ *Binding) { m.ExternalShared = true }, ErrDenied},
-		{"metadata_unavailable", "members_only", func(d *policyDirectory, _ *Message, _ *Binding) { d.channelErr = ErrMetadataUnavailable }, ErrMetadataUnavailable},
-		{"slack_auth", "members_only", func(d *policyDirectory, _ *Message, _ *Binding) { d.userErr = ErrSlackAuth }, ErrSlackAuth},
+		{"guest_channel_members", "channel_members", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.user.Guest = true }, nil},
+		{"guest_members_only", "members_only", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.user.Guest = true }, ErrDenied},
+		{"single_guest", "members_only", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.user.SingleChannelGuest = true }, ErrDenied},
+		{"deleted", "members_only", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.user.Deleted = true }, ErrDenied},
+		{"bot", "members_only", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.user.Bot = true }, ErrDenied},
+		{"wrong_user", "members_only", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.user.ID = "bob" }, ErrDenied},
+		{"foreign_workspace", "members_only", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.user.WorkspaceID = "OTHER" }, ErrDenied},
+		{"not_joined", "channel_members", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.channel.Member = false }, ErrDenied},
+		{"archived", "channel_members", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.channel.Archived = true }, ErrDenied},
+		{"external", "channel_members", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.channel.ExternalShared = true }, ErrDenied},
+		{"pending_external", "channel_members", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.channel.PendingExternalShared = true }, ErrDenied},
+		{"private_default_denied", "channel_members", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.channel.Private = true }, ErrDenied},
+		{"dm", "channel_members", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.channel.IM = true }, ErrDenied},
+		{"group_dm", "channel_members", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.channel.MPIM = true }, ErrDenied},
+		{"channel_identity", "channel_members", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.channel.ID = "OTHER" }, ErrDenied},
+		{"binding_identity", "channel_members", func(_ *policyDirectory, _ *Message, b *ConversationBinding) { b.OwnerID = "bob" }, ErrDenied},
+		{"binding_thread", "channel_members", func(_ *policyDirectory, _ *Message, b *ConversationBinding) { b.RootTS = "OTHER" }, ErrDenied},
+		{"raw_external", "channel_members", func(_ *policyDirectory, m *Message, _ *ConversationBinding) { m.ExternalShared = true }, ErrDenied},
+		{"metadata_unavailable", "members_only", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.channelErr = ErrMetadataUnavailable }, ErrMetadataUnavailable},
+		{"slack_auth", "members_only", func(d *policyDirectory, _ *Message, _ *ConversationBinding) { d.userErr = ErrSlackAuth }, ErrSlackAuth},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := resolver(t, ChannelScope{Mode: "workspace"}, AccessRules{Defaults: &UserRule{Mode: ptr(tc.mode)}})
 			m := Message{AppID: "A", ThreadKey: ThreadKey{"T", "C", "1.001"}, AuthorID: "alice", Mentioned: true}
-			b := Binding{ThreadKey: m.ThreadKey, Decision: Decision{"shared_channel", "shared", "shared"}}
+			b := ConversationBinding{ThreadKey: m.ThreadKey, Decision: Decision{"shared_channel", "shared", "shared"}}
 			d := &policyDirectory{channel: ChannelInfo{WorkspaceID: "T", ID: "C", Member: true}, user: UserInfo{WorkspaceID: "T", ID: "alice"}}
 			if tc.alter != nil {
 				tc.alter(d, &m, &b)
@@ -181,7 +181,7 @@ func TestConfiguredPolicyChannelAndUserFacts(t *testing.T) {
 				t.Fatal("unnecessary users.info")
 			}
 			if err == nil {
-				if err = p.AuthorizeDelivery(context.Background(), DeliveryContext{m, &b}, true); err != nil || !d.fresh {
+				if err = p.AuthorizeDelivery(context.Background(), DeliveryContext{Message: m, ConversationBinding: &b}, true); err != nil || !d.fresh {
 					t.Fatal("outbound did not force fresh metadata")
 				}
 			}

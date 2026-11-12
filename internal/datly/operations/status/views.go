@@ -2,111 +2,149 @@
 
 package status
 
+import (
+	time "time"
+)
+
 // Snapshot is generated canonical view metadata for reader.
 type Snapshot struct {
-	SnapshotId int              `json:"snapshotId" sqlx:"snapshot_id"`
-	Jobs       []*Job           `json:"jobs" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:jobs.snapshot_id" sql:"uri=datly_operations_status_reader:sql/jobs.sql" view:"jobs,type=Job,table=inbox_jobs,limit=1000,selectorLimit=true"`
-	Bindings   []*Binding       `json:"bindings" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:bindings.snapshot_id" sql:"uri=datly_operations_status_reader:sql/bindings.sql" view:"bindings,type=Binding,table=conversation_bindings,limit=1000,selectorLimit=true"`
-	Deliveries []*Delivery      `json:"deliveries" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:deliveries.snapshot_id" sql:"uri=datly_operations_status_reader:sql/deliveries.sql" view:"deliveries,type=Delivery,table=outbox_messages,limit=1000,selectorLimit=true"`
-	Statuses   []*RequestStatus `json:"statuses" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:statuses.snapshot_id" sql:"uri=datly_operations_status_reader:sql/statuses.sql" view:"statuses,type=RequestStatus,table=request_status,limit=1000,selectorLimit=true"`
-	Sessions   []*AgentSession  `json:"sessions" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:sessions.snapshot_id" sql:"uri=datly_operations_status_reader:sql/sessions.sql" view:"sessions,type=AgentSession,table=agent_session_publications,limit=1000,selectorLimit=true"`
-	Counts     []*StateCount    `json:"counts" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:counts.snapshot_id" sql:"uri=datly_operations_status_reader:sql/counts.sql" view:"counts,type=StateCount,limit=1000"`
+	SnapshotId                    int                                     `json:"snapshotId" sqlx:"snapshot_id"`
+	Integrations                  []*Integration                          `json:"integrations" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:integrations.snapshot_id" sql:"uri=datly_operations_status_reader:sql/integrations.sql" view:"integrations,type=Integration,selectorNoLimit=true"`
+	GatewayJobs                   []*GatewayJobMetadata                   `json:"gatewayJobs" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:gateway_jobs.snapshot_id" sql:"uri=datly_operations_status_reader:sql/gateway_jobs.sql" view:"gateway_jobs,type=GatewayJobMetadata,limit=1000,selectorLimit=true"`
+	ConversationBindings          []*ConversationBindingMetadata          `json:"conversationBindings" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:conversation_bindings.snapshot_id" sql:"uri=datly_operations_status_reader:sql/conversation_bindings.sql" view:"conversation_bindings,type=ConversationBindingMetadata,limit=1000,selectorLimit=true"`
+	SlackOutgoingMessages         []*SlackOutgoingMessageMetadata         `json:"slackOutgoingMessages" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:slack_outgoing_messages.snapshot_id" sql:"uri=datly_operations_status_reader:sql/slack_outgoing_messages.sql" view:"slack_outgoing_messages,type=SlackOutgoingMessageMetadata,limit=1000,selectorLimit=true"`
+	SlackAgentSessionPublications []*SlackAgentSessionPublicationMetadata `json:"slackAgentSessionPublications" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:slack_agent_session_publications.snapshot_id" sql:"uri=datly_operations_status_reader:sql/slack_agent_session_publications.sql" view:"slack_agent_session_publications,type=SlackAgentSessionPublicationMetadata,limit=1000,selectorLimit=true"`
+	Counts                        []*StateCount                           `json:"counts" on:"SnapshotId:snapshot.snapshot_id=SnapshotId:counts.snapshot_id" sql:"uri=datly_operations_status_reader:sql/counts.sql" view:"counts,type=StateCount,limit=1000"`
 }
 
-// Job is generated canonical view metadata for reader.
-type Job struct {
-	SnapshotId     int    `json:"snapshotId" sqlx:"snapshot_id"`
-	Id             int    `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	WorkspaceId    string `json:"workspaceId" sqlx:"workspace_id,required=true"`
-	ChannelId      string `json:"channelId" sqlx:"channel_id,required=true"`
-	RootThreadTs   string `json:"rootThreadTs" sqlx:"root_thread_ts,required=true"`
-	AuthorId       string `json:"authorId" sqlx:"author_id,required=true"`
-	BindingId      int    `json:"bindingId" sqlx:"binding_id"`
-	RequestId      string `json:"requestId" sqlx:"request_id,table=inbox_jobs,required=true,unique=true"`
-	TurnId         string `json:"turnId" sqlx:"turn_id,required=true"`
-	State          string `json:"state" sqlx:"state,required=true"`
-	Reason         string `json:"reason" sqlx:"reason,required=true"`
-	PollAttempts   int    `json:"pollAttempts" sqlx:"poll_attempts,required=true"`
-	QueryStartedAt int    `json:"queryStartedAt" sqlx:"query_started_at,required=true"`
-	NextAttemptAt  int    `json:"nextAttemptAt" sqlx:"next_attempt_at,required=true"`
+// Integration is generated canonical view metadata for reader.
+type Integration struct {
+	SnapshotId         int       `json:"snapshotId" sqlx:"snapshot_id"`
+	Id                 int       `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	Name               string    `json:"name" sqlx:"name,required=true"`
+	Active             int       `json:"active" sqlx:"active,required=true"`
+	SlackAppId         string    `json:"slackAppId" sqlx:"slack_app_id,required=true"`
+	SlackWorkspaceId   string    `json:"slackWorkspaceId" sqlx:"slack_workspace_id,required=true"`
+	BackendType        string    `json:"backendType" sqlx:"backend_type,required=true"`
+	BackendEndpoint    string    `json:"backendEndpoint" sqlx:"backend_endpoint,required=true"`
+	BackendAgentId     string    `json:"backendAgentId" sqlx:"backend_agent_id,required=true"`
+	BackendPrincipalId string    `json:"backendPrincipalId" sqlx:"backend_principal_id,required=true"`
+	CreatedAt          time.Time `json:"createdAt" sqlx:"created_at,required=true"`
+	UpdatedAt          time.Time `json:"updatedAt" sqlx:"updated_at,required=true"`
 }
 
-// Binding is generated canonical view metadata for reader.
-type Binding struct {
-	SnapshotId     int    `json:"snapshotId" sqlx:"snapshot_id"`
-	Id             int    `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	WorkspaceId    string `json:"workspaceId" sqlx:"workspace_id,required=true"`
-	ChannelId      string `json:"channelId" sqlx:"channel_id,required=true"`
-	RootThreadTs   string `json:"rootThreadTs" sqlx:"root_thread_ts,required=true"`
-	ConversationId string `json:"conversationId" sqlx:"conversation_id"`
-	AccessMode     string `json:"accessMode" sqlx:"access_mode,required=true"`
-	PrincipalId    string `json:"principalId" sqlx:"principal_id,required=true"`
-	OwnerId        string `json:"ownerId" sqlx:"owner_id,required=true"`
-	State          string `json:"state" sqlx:"state,required=true"`
+// GatewayJobMetadata is generated canonical view metadata for reader.
+type GatewayJobMetadata struct {
+	SnapshotId                    int        `json:"snapshotId" sqlx:"snapshot_id"`
+	Id                            int        `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	IntegrationId                 int        `json:"integrationId" sqlx:"integration_id,refTable=integration,refColumn=id,required=true"`
+	IntegrationName               string     `json:"integrationName" sqlx:"integration_name"`
+	IntegrationActive             int        `json:"integrationActive" sqlx:"integration_active"`
+	SlackWorkspaceId              string     `json:"slackWorkspaceId" sqlx:"slack_workspace_id"`
+	SlackChannelId                string     `json:"slackChannelId" sqlx:"slack_channel_id,required=true"`
+	SlackThreadRootMessageId      string     `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id,required=true"`
+	SlackPromptAuthorId           string     `json:"slackPromptAuthorId" sqlx:"slack_prompt_author_id,required=true"`
+	ConversationBindingId         int        `json:"conversationBindingId" sqlx:"conversation_binding_id"`
+	GatewayRequestId              string     `json:"gatewayRequestId" sqlx:"gateway_request_id,required=true,unique=true"`
+	GatewayExecutionState         string     `json:"gatewayExecutionState" sqlx:"gateway_execution_state,required=true"`
+	GatewayExecutionReason        string     `json:"gatewayExecutionReason" sqlx:"gateway_execution_reason,required=true"`
+	GatewayExecutionOutcome       string     `json:"gatewayExecutionOutcome" sqlx:"gateway_execution_outcome,required=true"`
+	BackendPollAttempts           int        `json:"backendPollAttempts" sqlx:"backend_poll_attempts,required=true"`
+	BackendSubmissionStartedAt    *time.Time `json:"backendSubmissionStartedAt" sqlx:"backend_submission_started_at"`
+	BackendNextPollAt             *time.Time `json:"backendNextPollAt" sqlx:"backend_next_poll_at"`
+	BackendObservedState          string     `json:"backendObservedState" sqlx:"backend_observed_state,required=true"`
+	BackendObservedAt             *time.Time `json:"backendObservedAt" sqlx:"backend_observed_at"`
+	BackendObservationUncertain   int        `json:"backendObservationUncertain" sqlx:"backend_observation_uncertain,required=true"`
+	SlackProgressMode             string     `json:"slackProgressMode" sqlx:"slack_progress_mode,required=true"`
+	SlackProgressMessageId        string     `json:"slackProgressMessageId" sqlx:"slack_progress_message_id,required=true"`
+	SlackProgressPhase            string     `json:"slackProgressPhase" sqlx:"slack_progress_phase,required=true"`
+	SlackProgressState            string     `json:"slackProgressState" sqlx:"slack_progress_state,required=true"`
+	SlackProgressRevision         int        `json:"slackProgressRevision" sqlx:"slack_progress_revision,required=true"`
+	SlackProgressSentRevision     int        `json:"slackProgressSentRevision" sqlx:"slack_progress_sent_revision,required=true"`
+	SlackProgressAttempts         int        `json:"slackProgressAttempts" sqlx:"slack_progress_attempts,required=true"`
+	SlackProgressNextAttemptAt    *time.Time `json:"slackProgressNextAttemptAt" sqlx:"slack_progress_next_attempt_at"`
+	SlackProgressRefreshAt        *time.Time `json:"slackProgressRefreshAt" sqlx:"slack_progress_refresh_at"`
+	SlackProgressRateLimitedUntil *time.Time `json:"slackProgressRateLimitedUntil" sqlx:"slack_progress_rate_limited_until"`
+	SlackProgressFirstSentAt      *time.Time `json:"slackProgressFirstSentAt" sqlx:"slack_progress_first_sent_at"`
+	SlackProgressLastSentAt       *time.Time `json:"slackProgressLastSentAt" sqlx:"slack_progress_last_sent_at"`
+	SlackProgressReason           string     `json:"slackProgressReason" sqlx:"slack_progress_reason,required=true"`
+	CreatedAt                     time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	GatewayExecutionUpdatedAt     time.Time  `json:"gatewayExecutionUpdatedAt" sqlx:"gateway_execution_updated_at,required=true"`
+	GatewayStatusUpdatedAt        time.Time  `json:"gatewayStatusUpdatedAt" sqlx:"gateway_status_updated_at,required=true"`
+	GatewayExecutionFinishedAt    *time.Time `json:"gatewayExecutionFinishedAt" sqlx:"gateway_execution_finished_at"`
+	ContentPurgedAt               *time.Time `json:"contentPurgedAt" sqlx:"content_purged_at"`
 }
 
-// Delivery is generated canonical view metadata for reader.
-type Delivery struct {
-	SnapshotId    int    `json:"snapshotId" sqlx:"snapshot_id"`
-	Id            int    `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	JobId         int    `json:"jobId" sqlx:"job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	WorkspaceId   string `json:"workspaceId" sqlx:"workspace_id,required=true"`
-	ChannelId     string `json:"channelId" sqlx:"channel_id,required=true"`
-	RootThreadTs  string `json:"rootThreadTs" sqlx:"root_thread_ts,required=true"`
-	Part          int    `json:"part" sqlx:"part,required=true"`
-	State         string `json:"state" sqlx:"state,required=true"`
-	SlackTs       string `json:"slackTs" sqlx:"slack_ts,required=true"`
-	Attempts      int    `json:"attempts" sqlx:"attempts,required=true"`
-	NextAttemptAt int    `json:"nextAttemptAt" sqlx:"next_attempt_at,required=true"`
+// ConversationBindingMetadata is generated canonical view metadata for reader.
+type ConversationBindingMetadata struct {
+	SnapshotId               int        `json:"snapshotId" sqlx:"snapshot_id"`
+	Id                       int        `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	IntegrationId            int        `json:"integrationId" sqlx:"integration_id,refTable=integration,refColumn=id,required=true"`
+	IntegrationName          string     `json:"integrationName" sqlx:"integration_name"`
+	IntegrationActive        int        `json:"integrationActive" sqlx:"integration_active"`
+	SlackWorkspaceId         string     `json:"slackWorkspaceId" sqlx:"slack_workspace_id"`
+	SlackChannelId           string     `json:"slackChannelId" sqlx:"slack_channel_id,required=true"`
+	SlackThreadRootMessageId string     `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id,required=true"`
+	BackendConversationId    string     `json:"backendConversationId" sqlx:"backend_conversation_id"`
+	GatewayAccessMode        string     `json:"gatewayAccessMode" sqlx:"gateway_access_mode,required=true"`
+	BackendPrincipalId       string     `json:"backendPrincipalId" sqlx:"backend_principal_id,required=true"`
+	GatewayBindingOwnerId    string     `json:"gatewayBindingOwnerId" sqlx:"gateway_binding_owner_id,required=true"`
+	GatewayBindingState      string     `json:"gatewayBindingState" sqlx:"gateway_binding_state,required=true"`
+	CreatedAt                time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	UpdatedAt                time.Time  `json:"updatedAt" sqlx:"updated_at,required=true"`
+	LastActivityAt           time.Time  `json:"lastActivityAt" sqlx:"last_activity_at,required=true"`
+	ClosedAt                 *time.Time `json:"closedAt" sqlx:"closed_at"`
 }
 
-// RequestStatus is generated canonical view metadata for reader.
-type RequestStatus struct {
-	SnapshotId           int    `json:"snapshotId" sqlx:"snapshot_id"`
-	Mode                 string `json:"mode" sqlx:"mode,required=true"`
-	JobId                int    `json:"jobId" sqlx:"job_id,refTable=inbox_jobs,refColumn=id,required=true,primaryKey=true"`
-	SlackTs              string `json:"slackTs" sqlx:"slack_ts,required=true"`
-	Phase                string `json:"phase" sqlx:"phase,required=true"`
-	State                string `json:"state" sqlx:"state,required=true"`
-	ObservedState        string `json:"observedState" sqlx:"observed_state,required=true"`
-	ObservedAt           int    `json:"observedAt" sqlx:"observed_at,required=true"`
-	ObservationUncertain int    `json:"observationUncertain" sqlx:"observation_uncertain,required=true"`
-	Outcome              string `json:"outcome" sqlx:"outcome,required=true"`
-	Revision             int    `json:"revision" sqlx:"revision,required=true"`
-	SentRevision         int    `json:"sentRevision" sqlx:"sent_revision,required=true"`
-	Attempts             int    `json:"attempts" sqlx:"attempts,required=true"`
-	NextAttemptAt        int    `json:"nextAttemptAt" sqlx:"next_attempt_at,required=true"`
-	RefreshAt            int    `json:"refreshAt" sqlx:"refresh_at,required=true"`
-	RateLimitedUntil     int    `json:"rateLimitedUntil" sqlx:"rate_limited_until,required=true"`
-	FirstSentAt          int    `json:"firstSentAt" sqlx:"first_sent_at,required=true"`
-	LastSentAt           int    `json:"lastSentAt" sqlx:"last_sent_at,required=true"`
-	Reason               string `json:"reason" sqlx:"reason,required=true"`
-	CreatedAt            int    `json:"createdAt" sqlx:"created_at"`
+// SlackOutgoingMessageMetadata is generated canonical view metadata for reader.
+type SlackOutgoingMessageMetadata struct {
+	SnapshotId                 int        `json:"snapshotId" sqlx:"snapshot_id"`
+	Id                         int        `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	JobId                      int        `json:"jobId" sqlx:"job_id,refTable=gateway_job,refColumn=id,required=true"`
+	IntegrationId              int        `json:"integrationId" sqlx:"integration_id"`
+	IntegrationName            string     `json:"integrationName" sqlx:"integration_name"`
+	IntegrationActive          int        `json:"integrationActive" sqlx:"integration_active"`
+	SlackWorkspaceId           string     `json:"slackWorkspaceId" sqlx:"slack_workspace_id"`
+	SlackChannelId             string     `json:"slackChannelId" sqlx:"slack_channel_id"`
+	SlackThreadRootMessageId   string     `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id"`
+	SlackMessageIndex          int        `json:"slackMessageIndex" sqlx:"slack_message_index,required=true"`
+	SlackMessageKind           string     `json:"slackMessageKind" sqlx:"slack_message_kind,required=true"`
+	SlackDeliveryState         string     `json:"slackDeliveryState" sqlx:"slack_delivery_state,required=true"`
+	SlackMessageId             string     `json:"slackMessageId" sqlx:"slack_message_id,required=true"`
+	SlackDeliveryAttempts      int        `json:"slackDeliveryAttempts" sqlx:"slack_delivery_attempts,required=true"`
+	SlackDeliveryNextAttemptAt *time.Time `json:"slackDeliveryNextAttemptAt" sqlx:"slack_delivery_next_attempt_at"`
+	CreatedAt                  time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	UpdatedAt                  time.Time  `json:"updatedAt" sqlx:"updated_at,required=true"`
 }
 
-// AgentSession is generated canonical view metadata for reader.
-type AgentSession struct {
-	SnapshotId       int    `json:"snapshotId" sqlx:"snapshot_id"`
-	Mode             string `json:"mode" sqlx:"mode"`
-	WorkspaceId      string `json:"workspaceId" sqlx:"workspace_id,required=true,primaryKey=true"`
-	ChannelId        string `json:"channelId" sqlx:"channel_id,required=true,primaryKey=true"`
-	RootThreadTs     string `json:"rootThreadTs" sqlx:"root_thread_ts,required=true,primaryKey=true"`
-	SourceJobId      int    `json:"sourceJobId" sqlx:"source_job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	InitiatorUserId  string `json:"initiatorUserId" sqlx:"initiator_user_id,required=true"`
-	DesiredStatus    string `json:"desiredStatus" sqlx:"desired_status,required=true"`
-	AgentStatus      string `json:"agentStatus" sqlx:"agent_status,required=true"`
-	SessionStatus    string `json:"sessionStatus" sqlx:"session_status,required=true"`
-	State            string `json:"state" sqlx:"state,required=true"`
-	Revision         int    `json:"revision" sqlx:"revision,required=true"`
-	SentRevision     int    `json:"sentRevision" sqlx:"sent_revision,required=true"`
-	Attempts         int    `json:"attempts" sqlx:"attempts,required=true"`
-	NextAttemptAt    int    `json:"nextAttemptAt" sqlx:"next_attempt_at,required=true"`
-	RefreshAt        int    `json:"refreshAt" sqlx:"refresh_at,required=true"`
-	RateLimitedUntil int    `json:"rateLimitedUntil" sqlx:"rate_limited_until,required=true"`
-	FirstSentAt      int    `json:"firstSentAt" sqlx:"first_sent_at,required=true"`
-	LastSentAt       int    `json:"lastSentAt" sqlx:"last_sent_at,required=true"`
-	Reason           string `json:"reason" sqlx:"reason,required=true"`
-	Warning          string `json:"warning" sqlx:"warning,required=true"`
+// SlackAgentSessionPublicationMetadata is generated canonical view metadata for reader.
+type SlackAgentSessionPublicationMetadata struct {
+	SnapshotId                       int        `json:"snapshotId" sqlx:"snapshot_id"`
+	InitialIntegrationId             int        `json:"initialIntegrationId" sqlx:"initial_integration_id,refTable=integration,refColumn=id,required=true"`
+	IntegrationName                  string     `json:"integrationName" sqlx:"integration_name"`
+	IntegrationActive                int        `json:"integrationActive" sqlx:"integration_active"`
+	SlackProgressMode                string     `json:"slackProgressMode" sqlx:"slack_progress_mode"`
+	SlackWorkspaceId                 string     `json:"slackWorkspaceId" sqlx:"slack_workspace_id"`
+	SlackChannelId                   string     `json:"slackChannelId" sqlx:"slack_channel_id,required=true"`
+	SlackThreadRootMessageId         string     `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id,required=true"`
+	StatusSourceJobId                int        `json:"statusSourceJobId" sqlx:"status_source_job_id,refTable=gateway_job,refColumn=id,required=true"`
+	SlackInitiatorUserId             string     `json:"slackInitiatorUserId" sqlx:"slack_initiator_user_id,required=true"`
+	SlackAgentDesiredStatus          string     `json:"slackAgentDesiredStatus" sqlx:"slack_agent_desired_status,required=true"`
+	SlackAgentObservedStatus         string     `json:"slackAgentObservedStatus" sqlx:"slack_agent_observed_status,required=true"`
+	SlackSessionObservedStatus       string     `json:"slackSessionObservedStatus" sqlx:"slack_session_observed_status,required=true"`
+	SlackPublicationState            string     `json:"slackPublicationState" sqlx:"slack_publication_state,required=true"`
+	SlackPublicationRevision         int        `json:"slackPublicationRevision" sqlx:"slack_publication_revision,required=true"`
+	SlackPublicationSentRevision     int        `json:"slackPublicationSentRevision" sqlx:"slack_publication_sent_revision,required=true"`
+	SlackPublicationAttempts         int        `json:"slackPublicationAttempts" sqlx:"slack_publication_attempts,required=true"`
+	SlackPublicationNextAttemptAt    *time.Time `json:"slackPublicationNextAttemptAt" sqlx:"slack_publication_next_attempt_at"`
+	SlackPublicationRefreshAt        *time.Time `json:"slackPublicationRefreshAt" sqlx:"slack_publication_refresh_at"`
+	SlackPublicationRateLimitedUntil *time.Time `json:"slackPublicationRateLimitedUntil" sqlx:"slack_publication_rate_limited_until"`
+	SlackPublicationFirstSentAt      *time.Time `json:"slackPublicationFirstSentAt" sqlx:"slack_publication_first_sent_at"`
+	SlackPublicationLastSentAt       *time.Time `json:"slackPublicationLastSentAt" sqlx:"slack_publication_last_sent_at"`
+	SlackPublicationReason           string     `json:"slackPublicationReason" sqlx:"slack_publication_reason,required=true"`
+	SlackPublicationWarning          string     `json:"slackPublicationWarning" sqlx:"slack_publication_warning,required=true"`
+	CreatedAt                        time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	UpdatedAt                        time.Time  `json:"updatedAt" sqlx:"updated_at,required=true"`
 }
 
 // StateCount is generated canonical view metadata for reader.

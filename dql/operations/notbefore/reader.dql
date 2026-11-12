@@ -7,9 +7,10 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 
+#define($_ = $IntegrationID<int>(query/IntegrationID).Optional().Value(0))
+#define($_ = $AppID<string>(query/appId).Optional().Value(''))
 #define($_ = $WorkspaceID<string>(query/workspaceId).Optional())
 #define($_ = $Data<[]*Cooldown>(output/view))
 
-SELECT cooldown.*, type(cooldown,'Cooldown'),
-       CAST(cooldown.not_before AS int), required(cooldown.not_before)
+SELECT cooldown.*, type(cooldown,'Cooldown')
 FROM (${embed:sql/cooldown.sql}) cooldown

@@ -94,7 +94,7 @@ func TestSmokeDirectMessageUsesNormalPolicyWithoutMention(t *testing.T) {
 	if err != nil || decision.OwnerID != smokePrincipal {
 		t.Fatalf("DM authorization: %+v %v", decision, err)
 	}
-	if err = p.AuthorizeDelivery(context.Background(), gateway.DeliveryContext{Message: m, Binding: &gateway.Binding{ThreadKey: m.ThreadKey, Decision: decision}}, true); err != nil {
+	if err = p.AuthorizeDelivery(context.Background(), gateway.DeliveryContext{Message: m, ConversationBinding: &gateway.ConversationBinding{ThreadKey: m.ThreadKey, Decision: decision}}, true); err != nil {
 		t.Fatal(err)
 	}
 	if d.channels != 2 || d.users != 0 || !d.fresh {
@@ -127,8 +127,8 @@ func TestSmokePolicyUsesCompiledRulesForQueriesAndReplies(t *testing.T) {
 			if err != nil || decision.PrincipalID != smokePrincipal || decision.OwnerID != smokePrincipal {
 				t.Fatalf("authorization=%+v, error=%v", decision, err)
 			}
-			b := &gateway.Binding{ThreadKey: m.ThreadKey, Decision: decision}
-			if err := p.AuthorizeDelivery(context.Background(), gateway.DeliveryContext{Message: m, Binding: b}, true); err != nil {
+			b := &gateway.ConversationBinding{ThreadKey: m.ThreadKey, Decision: decision}
+			if err := p.AuthorizeDelivery(context.Background(), gateway.DeliveryContext{Message: m, ConversationBinding: b}, true); err != nil {
 				t.Fatal(err)
 			}
 			if d.channels != 2 || d.users != 0 || !d.fresh {

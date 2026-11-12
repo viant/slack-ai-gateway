@@ -1,0 +1,1 @@
+SELECT r.id, r.job_id, r.slack_message_index, r.slack_message_text, r.slack_message_kind, r.slack_delivery_state, r.slack_delivery_attempts, r.slack_delivery_next_attempt_at, r.slack_message_id, r.created_at, r.updated_at, r.slack_message_format FROM slack_outgoing_message r WHERE $criteria.CompositeIn("r", $Unsafe.ProjectCurrentSlackOutgoingMessagesParentKeys($CurrentWriter))

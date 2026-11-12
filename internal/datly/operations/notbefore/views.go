@@ -2,7 +2,11 @@
 
 package notbefore
 
+import (
+	time "time"
+)
+
 // Cooldown is generated canonical view metadata for reader.
 type Cooldown struct {
-	NotBefore int `json:"notBefore" sqlx:"not_before"`
+	NotBefore *time.Time `json:"notBefore" sqlx:"not_before"`
 }

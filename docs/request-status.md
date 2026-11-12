@@ -94,10 +94,11 @@ Stop/cancellation is not implemented; no active Stop control is promised.
 
 ## Persistence and scheduling
 
-`request_status` is written in the inbox transaction and keyed by job ID; duplicate
-events cannot create another intention. Native thread publications are persisted
-in `agent_session_publications`, with revisions, acknowledgments and retry facts.
-These tables are included in the initial schema. Progress observes the existing
+Message-progress intent is stored in `gateway_job` with execution state in the
+same inbox transaction; duplicate events cannot create another intention.
+Native thread publications are persisted in `slack_agent_session_publication`,
+with revisions, acknowledgments and retry facts. Both are included in the
+initial schema. Progress observes the existing
 execution; it never creates another conversation, binding or backend query.
 
 One serialized outbound worker handles final parts, status messages and native

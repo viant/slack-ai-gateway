@@ -2,224 +2,196 @@
 
 package write
 
-// Job is generated canonical view metadata for writer.
-type Job struct {
-	Id             int            `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	AppId          string         `sqlx:"app_id,required=true"`
-	WorkspaceId    string         `sqlx:"workspace_id,required=true"`
-	ChannelId      string         `sqlx:"channel_id,required=true"`
-	RootThreadTs   string         `sqlx:"root_thread_ts,required=true"`
-	EventId        string         `sqlx:"event_id,required=true"`
-	AuthorId       string         `sqlx:"author_id,required=true"`
-	MessageTs      string         `sqlx:"message_ts,required=true"`
-	QueryText      string         `sqlx:"query_text,required=true"`
-	HasAttachments int            `sqlx:"has_attachments,required=true"`
-	BindingId      *int           `json:",omitempty" sqlx:"binding_id,refTable=conversation_bindings,refColumn=id"`
-	AccessMode     string         `sqlx:"access_mode,required=true"`
-	PrincipalId    string         `sqlx:"principal_id,required=true"`
-	OwnerId        string         `sqlx:"owner_id,required=true"`
-	RequestId      string         `sqlx:"request_id,table=inbox_jobs,required=true,unique=true"`
-	TurnId         string         `sqlx:"turn_id,required=true"`
-	State          string         `sqlx:"state,required=true"`
-	ResultText     string         `sqlx:"result_text,required=true"`
-	Reason         string         `sqlx:"reason,required=true"`
-	Attempts       int            `sqlx:"attempts,required=true"`
-	NextAttemptAt  int            `sqlx:"next_attempt_at,required=true"`
-	CreatedAt      int            `sqlx:"created_at,required=true"`
-	UpdatedAt      int            `sqlx:"updated_at,required=true"`
-	QueryStartedAt int            `sqlx:"query_started_at,required=true"`
-	PollAttempts   int            `sqlx:"poll_attempts,required=true"`
-	PollReady      int            `sqlx:"poll_ready,required=true"`
-	MessageSurface string         `sqlx:"message_surface,required=true"`
-	Status         *RequestStatus `on:"Id:jobs.id=JobId:status.job_id" view:"status,type=RequestStatus,table=request_status"`
-	Outbox         []*Outbox      `on:"Id:jobs.id=JobId:outbox.job_id" view:"outbox,type=Outbox,table=outbox_messages"`
-	Has            *JobHas        `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"JobHas"`
+import (
+	time "time"
+)
+
+// GatewayJob is generated canonical view metadata for writer.
+type GatewayJob struct {
+	Id                            int                     `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	GatewayRequestId              string                  `sqlx:"gateway_request_id,table=gateway_job,required=true,unique=true"`
+	IntegrationId                 int                     `sqlx:"integration_id,refTable=integration,refColumn=id,required=true"`
+	ConversationBindingId         *int                    `json:",omitempty" sqlx:"conversation_binding_id,refTable=conversation_binding,refColumn=id"`
+	SlackEventId                  string                  `sqlx:"slack_event_id,table=gateway_job,required=true,unique=true"`
+	SlackChannelId                string                  `sqlx:"slack_channel_id,required=true"`
+	SlackConversationType         string                  `sqlx:"slack_conversation_type,required=true"`
+	SlackThreadRootMessageId      string                  `sqlx:"slack_thread_root_message_id,required=true"`
+	SlackPromptMessageId          string                  `sqlx:"slack_prompt_message_id,required=true"`
+	SlackPromptAuthorId           string                  `sqlx:"slack_prompt_author_id,required=true"`
+	PromptText                    *string                 `json:",omitempty" sqlx:"prompt_text"`
+	PromptHasAttachments          int                     `sqlx:"prompt_has_attachments,required=true"`
+	GatewayExecutionState         string                  `sqlx:"gateway_execution_state,required=true"`
+	GatewayExecutionReason        string                  `sqlx:"gateway_execution_reason,required=true"`
+	GatewayExecutionOutcome       string                  `sqlx:"gateway_execution_outcome,required=true"`
+	GatewayExecutionResultText    *string                 `json:",omitempty" sqlx:"gateway_execution_result_text"`
+	GatewayExecutionClaimCount    int                     `sqlx:"gateway_execution_claim_count,required=true"`
+	BackendSubmissionStartedAt    *time.Time              `json:",omitempty" sqlx:"backend_submission_started_at"`
+	BackendNextPollAt             *time.Time              `json:",omitempty" sqlx:"backend_next_poll_at"`
+	BackendPollAttempts           int                     `sqlx:"backend_poll_attempts,required=true"`
+	BackendPollReady              int                     `sqlx:"backend_poll_ready,required=true"`
+	BackendObservedState          string                  `sqlx:"backend_observed_state,required=true"`
+	BackendObservedAt             *time.Time              `json:",omitempty" sqlx:"backend_observed_at"`
+	BackendObservationUncertain   int                     `sqlx:"backend_observation_uncertain,required=true"`
+	SlackProgressMode             string                  `sqlx:"slack_progress_mode,required=true"`
+	SlackProgressMessageId        string                  `sqlx:"slack_progress_message_id,required=true"`
+	SlackProgressState            string                  `sqlx:"slack_progress_state,required=true"`
+	SlackProgressPhase            string                  `sqlx:"slack_progress_phase,required=true"`
+	SlackProgressReason           string                  `sqlx:"slack_progress_reason,required=true"`
+	SlackProgressRevision         int                     `sqlx:"slack_progress_revision,required=true"`
+	SlackProgressSentRevision     int                     `sqlx:"slack_progress_sent_revision,required=true"`
+	SlackProgressAttempts         int                     `sqlx:"slack_progress_attempts,required=true"`
+	SlackProgressNextAttemptAt    *time.Time              `json:",omitempty" sqlx:"slack_progress_next_attempt_at"`
+	SlackProgressRefreshAt        *time.Time              `json:",omitempty" sqlx:"slack_progress_refresh_at"`
+	SlackProgressRateLimitedUntil *time.Time              `json:",omitempty" sqlx:"slack_progress_rate_limited_until"`
+	SlackProgressFirstSentAt      *time.Time              `json:",omitempty" sqlx:"slack_progress_first_sent_at"`
+	SlackProgressLastSentAt       *time.Time              `json:",omitempty" sqlx:"slack_progress_last_sent_at"`
+	CreatedAt                     time.Time               `sqlx:"created_at,required=true"`
+	GatewayExecutionUpdatedAt     time.Time               `sqlx:"gateway_execution_updated_at,required=true"`
+	GatewayStatusUpdatedAt        time.Time               `sqlx:"gateway_status_updated_at,required=true"`
+	GatewayExecutionFinishedAt    *time.Time              `json:",omitempty" sqlx:"gateway_execution_finished_at"`
+	ContentPurgedAt               *time.Time              `json:",omitempty" sqlx:"content_purged_at"`
+	SlackOutgoingMessages         []*SlackOutgoingMessage `on:"Id:gateway_jobs.id=JobId:slack_outgoing_messages.job_id" view:"slack_outgoing_messages,type=SlackOutgoingMessage,table=slack_outgoing_message"`
+	Has                           *GatewayJobHas          `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"GatewayJobHas"`
 }
 
-type JobHas struct {
-	Id             bool
-	AppId          bool
-	WorkspaceId    bool
-	ChannelId      bool
-	RootThreadTs   bool
-	EventId        bool
-	AuthorId       bool
-	MessageTs      bool
-	QueryText      bool
-	HasAttachments bool
-	BindingId      bool
-	AccessMode     bool
-	PrincipalId    bool
-	OwnerId        bool
-	RequestId      bool
-	TurnId         bool
-	State          bool
-	ResultText     bool
-	Reason         bool
-	Attempts       bool
-	NextAttemptAt  bool
-	CreatedAt      bool
-	UpdatedAt      bool
-	QueryStartedAt bool
-	PollAttempts   bool
-	PollReady      bool
-	MessageSurface bool
-	Status         bool
-	Outbox         bool
+type GatewayJobHas struct {
+	Id                            bool
+	GatewayRequestId              bool
+	IntegrationId                 bool
+	ConversationBindingId         bool
+	SlackEventId                  bool
+	SlackChannelId                bool
+	SlackConversationType         bool
+	SlackThreadRootMessageId      bool
+	SlackPromptMessageId          bool
+	SlackPromptAuthorId           bool
+	PromptText                    bool
+	PromptHasAttachments          bool
+	GatewayExecutionState         bool
+	GatewayExecutionReason        bool
+	GatewayExecutionOutcome       bool
+	GatewayExecutionResultText    bool
+	GatewayExecutionClaimCount    bool
+	BackendSubmissionStartedAt    bool
+	BackendNextPollAt             bool
+	BackendPollAttempts           bool
+	BackendPollReady              bool
+	BackendObservedState          bool
+	BackendObservedAt             bool
+	BackendObservationUncertain   bool
+	SlackProgressMode             bool
+	SlackProgressMessageId        bool
+	SlackProgressState            bool
+	SlackProgressPhase            bool
+	SlackProgressReason           bool
+	SlackProgressRevision         bool
+	SlackProgressSentRevision     bool
+	SlackProgressAttempts         bool
+	SlackProgressNextAttemptAt    bool
+	SlackProgressRefreshAt        bool
+	SlackProgressRateLimitedUntil bool
+	SlackProgressFirstSentAt      bool
+	SlackProgressLastSentAt       bool
+	CreatedAt                     bool
+	GatewayExecutionUpdatedAt     bool
+	GatewayStatusUpdatedAt        bool
+	GatewayExecutionFinishedAt    bool
+	ContentPurgedAt               bool
+	SlackOutgoingMessages         bool
 }
 
-// RequestStatus is generated canonical view metadata for writer.
-type RequestStatus struct {
-	JobId                int               `sqlx:"job_id,refTable=inbox_jobs,refColumn=id,required=true,primaryKey=true"`
-	SlackTs              string            `sqlx:"slack_ts,required=true"`
-	ObservedState        string            `sqlx:"observed_state,required=true"`
-	ObservedAt           int               `sqlx:"observed_at,required=true"`
-	ObservationUncertain int               `sqlx:"observation_uncertain,required=true"`
-	Outcome              string            `sqlx:"outcome,required=true"`
-	Phase                string            `sqlx:"phase,required=true"`
-	Revision             int               `sqlx:"revision,required=true"`
-	SentRevision         int               `sqlx:"sent_revision,required=true"`
-	State                string            `sqlx:"state,required=true"`
-	Attempts             int               `sqlx:"attempts,required=true"`
-	NextAttemptAt        int               `sqlx:"next_attempt_at,required=true"`
-	RefreshAt            int               `sqlx:"refresh_at,required=true"`
-	RateLimitedUntil     int               `sqlx:"rate_limited_until,required=true"`
-	FirstSentAt          int               `sqlx:"first_sent_at,required=true"`
-	LastSentAt           int               `sqlx:"last_sent_at,required=true"`
-	Reason               string            `sqlx:"reason,required=true"`
-	UpdatedAt            int               `sqlx:"updated_at,required=true"`
-	Mode                 string            `sqlx:"mode,required=true"`
-	Has                  *RequestStatusHas `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"RequestStatusHas"`
+// SlackOutgoingMessage is generated canonical view metadata for writer.
+type SlackOutgoingMessage struct {
+	Id                         int                      `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	JobId                      int                      `sqlx:"job_id,refTable=gateway_job,refColumn=id,required=true"`
+	SlackMessageIndex          int                      `sqlx:"slack_message_index,required=true"`
+	SlackMessageText           *string                  `json:",omitempty" sqlx:"slack_message_text"`
+	SlackMessageKind           string                   `sqlx:"slack_message_kind,required=true"`
+	SlackDeliveryState         string                   `sqlx:"slack_delivery_state,required=true"`
+	SlackDeliveryAttempts      int                      `sqlx:"slack_delivery_attempts,required=true"`
+	SlackDeliveryNextAttemptAt *time.Time               `json:",omitempty" sqlx:"slack_delivery_next_attempt_at"`
+	SlackMessageId             string                   `sqlx:"slack_message_id,required=true"`
+	CreatedAt                  time.Time                `sqlx:"created_at,required=true"`
+	UpdatedAt                  time.Time                `sqlx:"updated_at,required=true"`
+	SlackMessageFormat         string                   `sqlx:"slack_message_format,required=true"`
+	Has                        *SlackOutgoingMessageHas `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"SlackOutgoingMessageHas"`
 }
 
-type RequestStatusHas struct {
-	JobId                bool
-	SlackTs              bool
-	ObservedState        bool
-	ObservedAt           bool
-	ObservationUncertain bool
-	Outcome              bool
-	Phase                bool
-	Revision             bool
-	SentRevision         bool
-	State                bool
-	Attempts             bool
-	NextAttemptAt        bool
-	RefreshAt            bool
-	RateLimitedUntil     bool
-	FirstSentAt          bool
-	LastSentAt           bool
-	Reason               bool
-	UpdatedAt            bool
-	Mode                 bool
-}
-
-// Outbox is generated canonical view metadata for writer.
-type Outbox struct {
-	Id            int        `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	JobId         int        `sqlx:"job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	WorkspaceId   string     `sqlx:"workspace_id,required=true"`
-	ChannelId     string     `sqlx:"channel_id,required=true"`
-	RootThreadTs  string     `sqlx:"root_thread_ts,required=true"`
-	Part          int        `sqlx:"part,required=true"`
-	Content       string     `sqlx:"content,required=true"`
-	State         string     `sqlx:"state,required=true"`
-	Attempts      int        `sqlx:"attempts,required=true"`
-	NextAttemptAt int        `sqlx:"next_attempt_at,required=true"`
-	SlackTs       string     `sqlx:"slack_ts,required=true"`
-	CreatedAt     int        `sqlx:"created_at,required=true"`
-	UpdatedAt     int        `sqlx:"updated_at,required=true"`
-	Format        string     `sqlx:"format,required=true"`
-	Has           *OutboxHas `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"OutboxHas"`
-}
-
-type OutboxHas struct {
-	Id            bool
-	JobId         bool
-	WorkspaceId   bool
-	ChannelId     bool
-	RootThreadTs  bool
-	Part          bool
-	Content       bool
-	State         bool
-	Attempts      bool
-	NextAttemptAt bool
-	SlackTs       bool
-	CreatedAt     bool
-	UpdatedAt     bool
-	Format        bool
+type SlackOutgoingMessageHas struct {
+	Id                         bool
+	JobId                      bool
+	SlackMessageIndex          bool
+	SlackMessageText           bool
+	SlackMessageKind           bool
+	SlackDeliveryState         bool
+	SlackDeliveryAttempts      bool
+	SlackDeliveryNextAttemptAt bool
+	SlackMessageId             bool
+	CreatedAt                  bool
+	UpdatedAt                  bool
+	SlackMessageFormat         bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id             int    `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	AppId          string `json:"appId" sqlx:"app_id,required=true"`
-	WorkspaceId    string `json:"workspaceId" sqlx:"workspace_id,required=true"`
-	ChannelId      string `json:"channelId" sqlx:"channel_id,required=true"`
-	RootThreadTs   string `json:"rootThreadTs" sqlx:"root_thread_ts,required=true"`
-	EventId        string `json:"eventId" sqlx:"event_id,required=true"`
-	AuthorId       string `json:"authorId" sqlx:"author_id,required=true"`
-	MessageTs      string `json:"messageTs" sqlx:"message_ts,required=true"`
-	QueryText      string `json:"queryText" sqlx:"query_text,required=true"`
-	HasAttachments int    `json:"hasAttachments" sqlx:"has_attachments,required=true"`
-	BindingId      *int   `json:"bindingId,omitempty" sqlx:"binding_id,refTable=conversation_bindings,refColumn=id"`
-	AccessMode     string `json:"accessMode" sqlx:"access_mode,required=true"`
-	PrincipalId    string `json:"principalId" sqlx:"principal_id,required=true"`
-	OwnerId        string `json:"ownerId" sqlx:"owner_id,required=true"`
-	RequestId      string `json:"requestId" sqlx:"request_id,table=inbox_jobs,required=true,unique=true"`
-	TurnId         string `json:"turnId" sqlx:"turn_id,required=true"`
-	State          string `json:"state" sqlx:"state,required=true"`
-	ResultText     string `json:"resultText" sqlx:"result_text,required=true"`
-	Reason         string `json:"reason" sqlx:"reason,required=true"`
-	Attempts       int    `json:"attempts" sqlx:"attempts,required=true"`
-	NextAttemptAt  int    `json:"nextAttemptAt" sqlx:"next_attempt_at,required=true"`
-	CreatedAt      int    `json:"createdAt" sqlx:"created_at,required=true"`
-	UpdatedAt      int    `json:"updatedAt" sqlx:"updated_at,required=true"`
-	QueryStartedAt int    `json:"queryStartedAt" sqlx:"query_started_at,required=true"`
-	PollAttempts   int    `json:"pollAttempts" sqlx:"poll_attempts,required=true"`
-	PollReady      int    `json:"pollReady" sqlx:"poll_ready,required=true"`
-	MessageSurface string `json:"messageSurface" sqlx:"message_surface,required=true"`
+	Id                            int        `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	GatewayRequestId              string     `json:"gatewayRequestId" sqlx:"gateway_request_id,table=gateway_job,required=true,unique=true"`
+	IntegrationId                 int        `json:"integrationId" sqlx:"integration_id,refTable=integration,refColumn=id,required=true"`
+	ConversationBindingId         *int       `json:"conversationBindingId,omitempty" sqlx:"conversation_binding_id,refTable=conversation_binding,refColumn=id"`
+	SlackEventId                  string     `json:"slackEventId" sqlx:"slack_event_id,table=gateway_job,required=true,unique=true"`
+	SlackChannelId                string     `json:"slackChannelId" sqlx:"slack_channel_id,required=true"`
+	SlackConversationType         string     `json:"slackConversationType" sqlx:"slack_conversation_type,required=true"`
+	SlackThreadRootMessageId      string     `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id,required=true"`
+	SlackPromptMessageId          string     `json:"slackPromptMessageId" sqlx:"slack_prompt_message_id,required=true"`
+	SlackPromptAuthorId           string     `json:"slackPromptAuthorId" sqlx:"slack_prompt_author_id,required=true"`
+	PromptText                    *string    `json:"promptText,omitempty" sqlx:"prompt_text"`
+	PromptHasAttachments          int        `json:"promptHasAttachments" sqlx:"prompt_has_attachments,required=true"`
+	GatewayExecutionState         string     `json:"gatewayExecutionState" sqlx:"gateway_execution_state,required=true"`
+	GatewayExecutionReason        string     `json:"gatewayExecutionReason" sqlx:"gateway_execution_reason,required=true"`
+	GatewayExecutionOutcome       string     `json:"gatewayExecutionOutcome" sqlx:"gateway_execution_outcome,required=true"`
+	GatewayExecutionResultText    *string    `json:"gatewayExecutionResultText,omitempty" sqlx:"gateway_execution_result_text"`
+	GatewayExecutionClaimCount    int        `json:"gatewayExecutionClaimCount" sqlx:"gateway_execution_claim_count,required=true"`
+	BackendSubmissionStartedAt    *time.Time `json:"backendSubmissionStartedAt,omitempty" sqlx:"backend_submission_started_at"`
+	BackendNextPollAt             *time.Time `json:"backendNextPollAt,omitempty" sqlx:"backend_next_poll_at"`
+	BackendPollAttempts           int        `json:"backendPollAttempts" sqlx:"backend_poll_attempts,required=true"`
+	BackendPollReady              int        `json:"backendPollReady" sqlx:"backend_poll_ready,required=true"`
+	BackendObservedState          string     `json:"backendObservedState" sqlx:"backend_observed_state,required=true"`
+	BackendObservedAt             *time.Time `json:"backendObservedAt,omitempty" sqlx:"backend_observed_at"`
+	BackendObservationUncertain   int        `json:"backendObservationUncertain" sqlx:"backend_observation_uncertain,required=true"`
+	SlackProgressMode             string     `json:"slackProgressMode" sqlx:"slack_progress_mode,required=true"`
+	SlackProgressMessageId        string     `json:"slackProgressMessageId" sqlx:"slack_progress_message_id,required=true"`
+	SlackProgressState            string     `json:"slackProgressState" sqlx:"slack_progress_state,required=true"`
+	SlackProgressPhase            string     `json:"slackProgressPhase" sqlx:"slack_progress_phase,required=true"`
+	SlackProgressReason           string     `json:"slackProgressReason" sqlx:"slack_progress_reason,required=true"`
+	SlackProgressRevision         int        `json:"slackProgressRevision" sqlx:"slack_progress_revision,required=true"`
+	SlackProgressSentRevision     int        `json:"slackProgressSentRevision" sqlx:"slack_progress_sent_revision,required=true"`
+	SlackProgressAttempts         int        `json:"slackProgressAttempts" sqlx:"slack_progress_attempts,required=true"`
+	SlackProgressNextAttemptAt    *time.Time `json:"slackProgressNextAttemptAt,omitempty" sqlx:"slack_progress_next_attempt_at"`
+	SlackProgressRefreshAt        *time.Time `json:"slackProgressRefreshAt,omitempty" sqlx:"slack_progress_refresh_at"`
+	SlackProgressRateLimitedUntil *time.Time `json:"slackProgressRateLimitedUntil,omitempty" sqlx:"slack_progress_rate_limited_until"`
+	SlackProgressFirstSentAt      *time.Time `json:"slackProgressFirstSentAt,omitempty" sqlx:"slack_progress_first_sent_at"`
+	SlackProgressLastSentAt       *time.Time `json:"slackProgressLastSentAt,omitempty" sqlx:"slack_progress_last_sent_at"`
+	CreatedAt                     time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	GatewayExecutionUpdatedAt     time.Time  `json:"gatewayExecutionUpdatedAt" sqlx:"gateway_execution_updated_at,required=true"`
+	GatewayStatusUpdatedAt        time.Time  `json:"gatewayStatusUpdatedAt" sqlx:"gateway_status_updated_at,required=true"`
+	GatewayExecutionFinishedAt    *time.Time `json:"gatewayExecutionFinishedAt,omitempty" sqlx:"gateway_execution_finished_at"`
+	ContentPurgedAt               *time.Time `json:"contentPurgedAt,omitempty" sqlx:"content_purged_at"`
 }
 
-// CurrentStatusView is generated canonical view metadata for writer.
-type CurrentStatusView struct {
-	JobId                int    `json:"jobId" sqlx:"job_id,refTable=inbox_jobs,refColumn=id,required=true,primaryKey=true"`
-	SlackTs              string `json:"slackTs" sqlx:"slack_ts,required=true"`
-	ObservedState        string `json:"observedState" sqlx:"observed_state,required=true"`
-	ObservedAt           int    `json:"observedAt" sqlx:"observed_at,required=true"`
-	ObservationUncertain int    `json:"observationUncertain" sqlx:"observation_uncertain,required=true"`
-	Outcome              string `json:"outcome" sqlx:"outcome,required=true"`
-	Phase                string `json:"phase" sqlx:"phase,required=true"`
-	Revision             int    `json:"revision" sqlx:"revision,required=true"`
-	SentRevision         int    `json:"sentRevision" sqlx:"sent_revision,required=true"`
-	State                string `json:"state" sqlx:"state,required=true"`
-	Attempts             int    `json:"attempts" sqlx:"attempts,required=true"`
-	NextAttemptAt        int    `json:"nextAttemptAt" sqlx:"next_attempt_at,required=true"`
-	RefreshAt            int    `json:"refreshAt" sqlx:"refresh_at,required=true"`
-	RateLimitedUntil     int    `json:"rateLimitedUntil" sqlx:"rate_limited_until,required=true"`
-	FirstSentAt          int    `json:"firstSentAt" sqlx:"first_sent_at,required=true"`
-	LastSentAt           int    `json:"lastSentAt" sqlx:"last_sent_at,required=true"`
-	Reason               string `json:"reason" sqlx:"reason,required=true"`
-	UpdatedAt            int    `json:"updatedAt" sqlx:"updated_at,required=true"`
-	Mode                 string `json:"mode" sqlx:"mode,required=true"`
-}
-
-// CurrentOutboxView is generated canonical view metadata for writer.
-type CurrentOutboxView struct {
-	Id            int    `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	JobId         int    `json:"jobId" sqlx:"job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	WorkspaceId   string `json:"workspaceId" sqlx:"workspace_id,required=true"`
-	ChannelId     string `json:"channelId" sqlx:"channel_id,required=true"`
-	RootThreadTs  string `json:"rootThreadTs" sqlx:"root_thread_ts,required=true"`
-	Part          int    `json:"part" sqlx:"part,required=true"`
-	Content       string `json:"content" sqlx:"content,required=true"`
-	State         string `json:"state" sqlx:"state,required=true"`
-	Attempts      int    `json:"attempts" sqlx:"attempts,required=true"`
-	NextAttemptAt int    `json:"nextAttemptAt" sqlx:"next_attempt_at,required=true"`
-	SlackTs       string `json:"slackTs" sqlx:"slack_ts,required=true"`
-	CreatedAt     int    `json:"createdAt" sqlx:"created_at,required=true"`
-	UpdatedAt     int    `json:"updatedAt" sqlx:"updated_at,required=true"`
-	Format        string `json:"format" sqlx:"format,required=true"`
+// CurrentSlackOutgoingMessagesView is generated canonical view metadata for writer.
+type CurrentSlackOutgoingMessagesView struct {
+	Id                         int        `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	JobId                      int        `json:"jobId" sqlx:"job_id,refTable=gateway_job,refColumn=id,required=true"`
+	SlackMessageIndex          int        `json:"slackMessageIndex" sqlx:"slack_message_index,required=true"`
+	SlackMessageText           *string    `json:"slackMessageText,omitempty" sqlx:"slack_message_text"`
+	SlackMessageKind           string     `json:"slackMessageKind" sqlx:"slack_message_kind,required=true"`
+	SlackDeliveryState         string     `json:"slackDeliveryState" sqlx:"slack_delivery_state,required=true"`
+	SlackDeliveryAttempts      int        `json:"slackDeliveryAttempts" sqlx:"slack_delivery_attempts,required=true"`
+	SlackDeliveryNextAttemptAt *time.Time `json:"slackDeliveryNextAttemptAt,omitempty" sqlx:"slack_delivery_next_attempt_at"`
+	SlackMessageId             string     `json:"slackMessageId" sqlx:"slack_message_id,required=true"`
+	CreatedAt                  time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	UpdatedAt                  time.Time  `json:"updatedAt" sqlx:"updated_at,required=true"`
+	SlackMessageFormat         string     `json:"slackMessageFormat" sqlx:"slack_message_format,required=true"`
 }
 
 type WriterKeysRow struct {

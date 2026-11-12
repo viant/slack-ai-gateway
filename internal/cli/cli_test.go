@@ -116,7 +116,7 @@ type routedSender struct {
 	wantResponse string
 }
 
-func (s *routedSender) Send(_ context.Context, d gateway.Delivery) (string, error) {
+func (s *routedSender) Send(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
 	if d.ChannelID != "C" && d.ChannelID != "C2" {
 		return "", errors.New("wrong route")
 	}
@@ -188,7 +188,7 @@ access:
 	defer s.Close()
 	status, err := s.Status(context.Background(), 10)
 	storetest.Must(t, err)
-	if status.Counts["inbox_jobs"]["rejected"] != 1 || status.Counts["outbox_messages"]["delivered"] != 2 {
+	if status.Counts["gateway_job.gateway_execution_state"]["rejected"] != 1 || status.Counts["slack_outgoing_message.slack_delivery_state"]["delivered"] != 2 {
 		t.Fatal("policy not applied to durable runtime")
 	}
 }
@@ -224,7 +224,7 @@ func (f idleSource) Run(ctx context.Context, sink gateway.EventSink, ready func(
 
 type unusedSender struct{}
 
-func (unusedSender) Send(context.Context, gateway.Delivery) (string, error) {
+func (unusedSender) Send(context.Context, gateway.SlackOutgoingMessage) (string, error) {
 	return "", errors.New("unexpected send")
 }
 
@@ -243,7 +243,7 @@ type backendStateWriter struct {
 }
 
 func (w *backendStateWriter) Write(p []byte) (int, error) {
-	if strings.Contains(string(p), "msg=agently_backend state="+w.state) {
+	if strings.Contains(string(p), "msg=agently_backend") && strings.Contains(string(p), "state="+w.state) {
 		w.once.Do(func() { close(w.reached) })
 	}
 	return len(p), nil
@@ -268,9 +268,16 @@ slack:
 			dbPath := filepath.Join(filepath.Dir(path), "real.sqlite")
 			s, err := sqlite.Open(ctx, dbPath, false)
 			storetest.Must(t, err)
-			_, err = s.Enqueue(ctx, storetest.Message("event", "root", "alice"))
+			configured, err := config.Load(path)
 			storetest.Must(t, err)
-			_, err = s.ClaimJob(ctx)
+			topology, err := configured.Topology()
+			storetest.Must(t, err)
+			assignments, err := s.ReconcileIntegrations(ctx, []storage.Integration{integrationIdentity(topology[0])})
+			storetest.Must(t, err)
+			scope := s.Scope(assignments[0].ID)
+			_, err = scope.Enqueue(ctx, storetest.Message("event", "root", "alice"))
+			storetest.Must(t, err)
+			_, err = scope.ClaimJob(ctx)
 			storetest.Must(t, err)
 			storetest.Must(t, s.Close())
 			connected := false
@@ -323,11 +330,11 @@ slack:
 			defer s.Close()
 			status, err := s.Status(context.Background(), 10)
 			storetest.Must(t, err)
-			if len(status.Jobs) != 2 || len(status.Deliveries) != 2 {
-				t.Fatalf("unexpected recovery: %+v", status.Jobs)
+			if len(status.GatewayJobs) != 2 || len(status.SlackOutgoingMessages) != 2 {
+				t.Fatalf("unexpected recovery: %+v", status.GatewayJobs)
 			}
-			for _, job := range status.Jobs {
-				if job.State != "completed" || job.TurnID != "" {
+			for _, job := range status.GatewayJobs {
+				if job.State != "completed" || job.BackendSubmissionStartedAt != 0 {
 					t.Fatalf("unstarted work could replay: %+v", job)
 				}
 			}
@@ -376,21 +383,29 @@ func TestOfflineStatusAndDeliveryResolution(t *testing.T) {
 	storetest.Must(t, Execute(ctx, []string{"migrate", "--config", path}, &out))
 	s, err := sqlite.Open(ctx, filepath.Join(filepath.Dir(path), "gateway.sqlite"), false)
 	storetest.Must(t, err)
+	integrationID := storetest.RegisterDefault(t, s)
 	m := storetest.Message("a", "one", "alice")
 	m.Text = "secret-query-marker"
-	_, err = s.Enqueue(ctx, m)
+	_, err = s.Scope(integrationID).Enqueue(ctx, m)
 	storetest.Must(t, err)
-	j, err := s.ClaimJob(ctx)
+	j, err := s.Scope(integrationID).ClaimJob(ctx)
 	storetest.Must(t, err)
-	storetest.Must(t, s.Complete(ctx, j.ID, "", "secret-result-marker", []gateway.ReplyPart{{Text: "secret-response-marker", Format: gateway.ReplyPlain}}))
-	d, err := s.ClaimDelivery(ctx)
+	storetest.Must(t, s.Scope(integrationID).Complete(ctx, j.ID, "", "secret-result-marker", []gateway.ReplyPart{{Text: "secret-response-marker", Format: gateway.ReplyPlain}}))
+	d, err := s.Scope(integrationID).ClaimDelivery(ctx)
 	storetest.Must(t, err)
-	storetest.Must(t, s.DeliveryUnknown(ctx, d.ID))
+	storetest.Must(t, s.Scope(integrationID).DeliveryUnknown(ctx, d.ID))
 	storetest.Must(t, s.Close())
 	out.Reset()
 	storetest.Must(t, Execute(ctx, []string{"status", "--config", path}, &out))
 	if strings.Contains(out.String(), "secret-") || !strings.Contains(out.String(), "delivery_unknown") {
 		t.Fatal("unsafe or incomplete diagnostics")
+	}
+	// Offline scoping uses the recorded identity, independently of whether the
+	// integration still appears in an active runtime configuration.
+	out.Reset()
+	storetest.Must(t, Execute(ctx, []string{"status", "--config", path, "--integration", "default"}, &out))
+	if strings.Contains(out.String(), "secret-") || !strings.Contains(out.String(), "delivery_unknown") {
+		t.Fatal("unsafe or incomplete scoped diagnostics")
 	}
 	if err := Execute(ctx, []string{"resolve-delivery", "--config", path, "--delivery-id", "1", "--action", "retry"}, &out); err == nil {
 		t.Fatal("retry without confirmation accepted")
@@ -402,7 +417,7 @@ func TestOfflineStatusAndDeliveryResolution(t *testing.T) {
 	s, err = sqlite.Open(ctx, filepath.Join(filepath.Dir(path), "gateway.sqlite"), false)
 	storetest.Must(t, err)
 	defer s.Close()
-	d, err = s.ClaimDelivery(ctx)
+	d, err = s.Scope(integrationID).ClaimDelivery(ctx)
 	storetest.Must(t, err)
 	if d == nil || d.Text != "secret-response-marker" {
 		t.Fatal("resolution failed to preserve persisted reply")
@@ -467,18 +482,33 @@ func TestMySQLValidationAndMigrationDoNotOpenStorage(t *testing.T) {
 
 type operatorStore struct {
 	gateway.Store
+	snapshot *storage.Status
 	closed   bool
 	checked  bool
 	resolved bool
 }
 
-func (s *operatorStore) Close() error { s.closed = true; return nil }
+func (s *operatorStore) ReconcileIntegrations(_ context.Context, wanted []storage.Integration) ([]storage.Integration, error) {
+	rows := append([]storage.Integration(nil), wanted...)
+	for i := range rows {
+		rows[i].ID = int64(i + 1)
+		rows[i].Active = true
+	}
+	return rows, nil
+}
+func (s *operatorStore) Scope(int64) storage.Store                 { return s }
+func (s *operatorStore) ScopeName(string) storage.Store            { return s }
+func (s *operatorStore) FailCleanup(context.Context, string) error { return nil }
+func (s *operatorStore) Close() error                              { s.closed = true; return nil }
 func (s *operatorStore) CheckRunBindings(context.Context, gateway.Route, string) error {
 	s.checked = true
 	return nil
 }
 func (s *operatorStore) Status(context.Context, int) (*storage.Status, error) {
-	return &storage.Status{Counts: map[string]map[string]int{"inbox_jobs": {"completed": 1}}}, nil
+	if s.snapshot != nil {
+		return s.snapshot, nil
+	}
+	return &storage.Status{Counts: map[string]map[string]int{"gateway_job.gateway_execution_state": {"completed": 1}}}, nil
 }
 func (s *operatorStore) ResolveDelivery(context.Context, int64, string, string, bool) error {
 	s.resolved = true
@@ -708,16 +738,102 @@ func TestExplicitFlagOverridesConfig(t *testing.T) {
 	}
 }
 
-func (sender *routedSender) SendStatus(_ context.Context, s gateway.RequestStatus, _ string) (gateway.StatusReceipt, error) {
+func (sender *routedSender) SendStatus(_ context.Context, s gateway.GatewayJobProgress, _ string) (gateway.StatusReceipt, error) {
 	sender.statuses.Add(1)
 	if s.SlackTS != "" {
 		return gateway.StatusReceipt{SlackTS: s.SlackTS}, nil
 	}
 	return gateway.StatusReceipt{SlackTS: "3.000001"}, nil
 }
-func (unusedSender) SendStatus(_ context.Context, s gateway.RequestStatus, _ string) (gateway.StatusReceipt, error) {
+func (unusedSender) SendStatus(_ context.Context, s gateway.GatewayJobProgress, _ string) (gateway.StatusReceipt, error) {
 	if s.SlackTS != "" {
 		return gateway.StatusReceipt{SlackTS: s.SlackTS}, nil
 	}
 	return gateway.StatusReceipt{SlackTS: "3.000001"}, nil
+}
+
+func TestBackendCredentialFailureStillStartsSlackTransport(t *testing.T) {
+	path := writeConfigWithTokens(t, `storage: {driver: sqlite, path: credential-failure.sqlite}
+transport: socket
+access_mode: shared_channel
+slack: {app_id: A, workspace_id: T, channel_id: C}
+`+agentlyTestConfig)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	blocked := make(chan struct{})
+	out := &backendStateWriter{state: "blocked", reached: blocked}
+	connected := false
+	deps := dependencies{
+		validateSecret: func(context.Context, *scy.Resource) error {
+			return errors.New("synthetic sensitive credential failure")
+		},
+		login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
+			t.Fatal("invalid credentials reached backend login")
+			return nil, nil
+		},
+		connect: func(context.Context, config.SlackTokens, gateway.Route, *slog.Logger) (runner.Source, gateway.SlackSender, error) {
+			connected = true
+			return idleSource(func(ctx context.Context, _ gateway.EventSink, ready func()) error {
+				ready()
+				select {
+				case <-blocked:
+					cancel()
+				case <-ctx.Done():
+				}
+				return nil
+			}), unusedSender{}, nil
+		},
+	}
+	storetest.Must(t, execute(ctx, []string{"run", "--config", path}, out, deps))
+	if !connected {
+		t.Fatal("backend credential failure suppressed the Slack transport needed for cleanup")
+	}
+}
+
+// Exercise the actual CLI encoder: the merged diagnostic contract keeps the
+// execution and progress dimensions independent and does not expose old arrays.
+func TestStatusJSONMergedRequestMetadata(t *testing.T) {
+	path := writeConfig(t, "storage: {driver: mysql, dsn: 'test:unused@tcp(127.0.0.1:3309)/fixture'}\n")
+	zero := int64(0)
+	s := &operatorStore{snapshot: &storage.Status{
+		Limit:        2,
+		Integrations: []storage.IntegrationMetadata{},
+		GatewayJobs: []storage.GatewayJobMetadata{
+			{ID: 2, State: "completed", Reason: "", Outcome: "completed", ProgressState: "sending", ProgressReason: "retrying", ObservedAt: 1234, AckLatencyMS: &zero},
+			{ID: 1, State: "pending", ProgressState: "ready"},
+		},
+		ConversationBindings: []storage.ConversationBindingMetadata{}, SlackOutgoingMessages: []storage.SlackOutgoingMessageMetadata{}, SlackAgentSessionPublications: []storage.SlackAgentSessionPublicationMetadata{},
+		Counts: map[string]map[string]int{
+			"gateway_job.gateway_execution_state": {"pending": 1, "completed": 1},
+			"gateway_job.slack_progress_state":    {"ready": 1, "sending": 1},
+		},
+	}}
+	deps := dependencies{openMySQL: func(context.Context, string, *scy.Resource) (storage.Store, error) { return s, nil }}
+	var out bytes.Buffer
+	storetest.Must(t, execute(context.Background(), []string{"status", "--config", path, "--limit", "2"}, &out, deps))
+	var result map[string]json.RawMessage
+	storetest.Must(t, json.Unmarshal(out.Bytes(), &result))
+	for _, name := range []string{"integrations", "gateway_jobs", "conversation_bindings", "slack_outgoing_messages", "slack_agent_session_publications"} {
+		if value, ok := result[name]; !ok || string(value) == "null" {
+			t.Fatalf("missing or null collection %s: %s", name, out.String())
+		}
+	}
+	for _, name := range []string{"jobs", "requests", "request_statuses", "bindings", "deliveries", "agent_sessions"} {
+		if _, ok := result[name]; ok {
+			t.Errorf("legacy collection %s is still exposed", name)
+		}
+	}
+	var requests []map[string]any
+	storetest.Must(t, json.Unmarshal(result["gateway_jobs"], &requests))
+	if len(requests) != 2 || requests[0]["gateway_execution_state"] != "completed" || requests[0]["slack_progress_state"] != "sending" || requests[0]["slack_progress_reason"] != "retrying" || requests[0]["gateway_execution_outcome"] != "completed" {
+		t.Fatalf("execution/progress metadata was conflated: %+v", requests)
+	}
+	if requests[0]["backend_observed_at_ms"] != float64(1234) || requests[0]["slack_progress_ack_latency_ms"] != float64(0) || requests[1]["slack_progress_ack_latency_ms"] != nil || requests[1]["backend_observed_at_ms"] != float64(0) {
+		t.Fatalf("diagnostic time/latency contract changed: %+v", requests)
+	}
+	for _, forbidden := range []string{"prompt_text", "gateway_execution_result_text", "slack_message_text", "backend_protocol_messages", "backend_protocol_state", "backend_outcome"} {
+		if _, ok := requests[0][forbidden]; ok {
+			t.Errorf("unexpected diagnostic field %s", forbidden)
+		}
+	}
 }

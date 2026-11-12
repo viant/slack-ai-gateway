@@ -2,10 +2,9 @@ package sqlite
 
 import "github.com/viant/slack-ai-gateway/internal/storage"
 
-// Keep the SQLite package names available to existing callers.
+// Use the shared diagnostic metadata across storage engines.
 type Status = storage.Status
-type AgentSessionMetadata = storage.AgentSessionMetadata
-type RequestStatusMetadata = storage.RequestStatusMetadata
-type JobStatus = storage.JobStatus
-type BindingStatus = storage.BindingStatus
-type DeliveryStatus = storage.DeliveryStatus
+type SlackAgentSessionPublicationMetadata = storage.SlackAgentSessionPublicationMetadata
+type GatewayJobMetadata = storage.GatewayJobMetadata
+type ConversationBindingMetadata = storage.ConversationBindingMetadata
+type SlackOutgoingMessageMetadata = storage.SlackOutgoingMessageMetadata

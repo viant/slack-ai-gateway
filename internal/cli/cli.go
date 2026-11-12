@@ -59,6 +59,10 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 	var action, slackTS string
 	var acceptRisk bool
 	var channelID string
+	var integrationID string
+	if command == "validate-config" || command == "check-agently" || command == "status" || command == "resolve-delivery" {
+		flags.StringVar(&integrationID, "integration", "", "select an integration by its logical name")
+	}
 	if command == "validate-config" {
 		flags.StringVar(&channelID, "channel-id", "", "report the static effective policy for one channel")
 	}
@@ -87,36 +91,7 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 		}
 	})
 	if command == "validate-config" {
-		if err = c.ValidateRun(); err != nil {
-			return err
-		}
-		route, err := c.Route()
-		if err != nil {
-			return err
-		}
-		ids := route.Resolver.ChannelIDs()
-		if channelID != "" {
-			ids = []string{channelID}
-		}
-		policies := make([]gateway.EffectiveChannelPolicy, 0, len(ids))
-		for _, id := range ids {
-			policies = append(policies, route.Resolver.Resolve(id))
-		}
-		report := struct {
-			ResponseMode                   string                           `json:"response_mode"`
-			StatusMode                     gateway.StatusMode               `json:"status_mode"`
-			MessageRefreshIntervalSec      int64                            `json:"message_refresh_interval_sec"`
-			AgentSessionRefreshIntervalSec int64                            `json:"agent_session_refresh_interval_sec"`
-			Valid                          bool                             `json:"valid"`
-			AppID                          string                           `json:"app_id"`
-			WorkspaceID                    string                           `json:"workspace_id"`
-			Scope                          gateway.ChannelScope             `json:"channels"`
-			Policies                       []gateway.EffectiveChannelPolicy `json:"effective_policies"`
-			DirectMessages                 gateway.EffectiveChannelPolicy   `json:"direct_messages"`
-		}{string(c.ResponseMode()), c.StatusMode(), int64(c.StatusRefreshInterval().Seconds()), int64(gateway.AgentSessionRefresh.Seconds()), true, route.AppID, route.WorkspaceID, route.Resolver.Scope(), policies, route.Resolver.ResolveDirectMessages()}
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(report)
+		return validateTopology(c, integrationID, channelID, out)
 	}
 	login := func(loginCtx context.Context) (gateway.AgentlyClientFactory, error) {
 		if err := c.ValidateAgently(); err != nil {
@@ -125,6 +100,9 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 		return deps.login(loginCtx, c.Agently.BaseURL, c.Agently.PrincipalID, c.Agently.AgentID, c.Agently.Auth.Secret)
 	}
 	if command == "check-agently" {
+		if c.Integrations != nil || integrationID != "" {
+			return checkTopologyAgently(ctx, c, integrationID, out, deps)
+		}
 		if _, err = login(ctx); err != nil {
 			return err
 		}
@@ -148,6 +126,9 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 		_, err = fmt.Fprintln(out, "Gateway SQLite schema is current.")
 		return err
 	}
+	if integrationID != "" {
+		s = s.ScopeName(integrationID)
+	}
 	if command == "status" {
 		status, err := s.Status(ctx, limit)
 		if err != nil {
@@ -164,38 +145,7 @@ func execute(ctx context.Context, args []string, out io.Writer, deps dependencie
 		_, err = fmt.Fprintln(out, "Delivery resolution recorded. No Slack message or Agently query was sent.")
 		return err
 	}
-	route, err := c.Route()
-	if err != nil {
-		return err
-	}
-	if err = s.CheckRunBindings(ctx, route, c.Agently.PrincipalID); err != nil {
-		return err
-	}
-	tokens, err := c.LoadSlackTokens(ctx)
-	if err != nil {
-		return err
-	}
-	if deps.validateSecret != nil {
-		if err = deps.validateSecret(ctx, c.Agently.Auth.Secret); err != nil {
-			return err
-		}
-	}
-	log := slog.New(slog.NewTextHandler(out, nil))
-	backend := agently.NewManager(login, func(ctx context.Context, state gateway.BackendState) error {
-		return s.FailUnstarted(ctx, gateway.BackendReason(state))
-	}, log)
-	source, sender, err := deps.connect(ctx, tokens, route, log)
-	if err != nil {
-		return err
-	}
-	var directory gateway.SlackDirectory
-	if deps.directory != nil {
-		directory = deps.directory(tokens, route)
-	}
-	runtime := runner.Runtime{StatusMode: c.StatusMode(), StatusRefreshInterval: c.StatusRefreshInterval(), Store: s, Route: route, Backend: backend, Source: source, Sender: sender, AgentID: c.Agently.AgentID, Log: log,
-		ResponseMode: c.ResponseMode(), AgentlyBaseURL: c.Agently.BaseURL,
-		Policy: gateway.ConfiguredPolicy{Route: route, PrincipalID: c.Agently.PrincipalID, Directory: directory}}
-	return runtime.Run(ctx)
+	return runTopology(ctx, c, s, out, deps)
 }
 
 // openStorage keeps backend-specific initialization outside the runtime.

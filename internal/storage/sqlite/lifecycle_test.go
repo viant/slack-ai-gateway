@@ -46,13 +46,16 @@ func TestSQLitePoolHandoffKeepsLifetimeLockAndRejectsFailedSchema(t *testing.T) 
 		t.Fatal("Open retained an administration pool or omitted the native runtime")
 	}
 	storetest.Must(t, s.Migrate(ctx))
-	inserted, err := s.Enqueue(ctx, storetest.Message("kept", "thread", "alice"))
+	storetest.RegisterDefault(t, s)
+	active := storetest.Scope(t, s, "default")
+	inserted, err := active.Enqueue(ctx, storetest.Message("kept", "thread", "alice"))
 	storetest.Must(t, err)
 	if !inserted {
 		t.Fatal("expected a persisted event")
 	}
 	for _, operation := range []func(context.Context) error{s.Migrate, s.CheckSchema, s.Migrate} {
 		storetest.Must(t, operation(ctx))
+		active = storetest.Scope(t, s, "default")
 		if s.db != nil || s.Store == nil {
 			t.Fatal("schema preparation did not hand its pool back to Datly")
 		}
@@ -72,11 +75,11 @@ func TestSQLitePoolHandoffKeepsLifetimeLockAndRejectsFailedSchema(t *testing.T) 
 	if s.Store != nil {
 		t.Fatal("failed schema check left the business runtime enabled")
 	}
-	if _, err := s.Enqueue(ctx, storetest.Message("blocked", "thread", "alice")); err == nil {
+	if _, err := active.Enqueue(ctx, storetest.Message("blocked", "thread", "alice")); err == nil {
 		t.Fatal("business work accepted after failed schema verification")
 	}
 	var count int
-	storetest.Must(t, db.QueryRow("SELECT COUNT(*) FROM inbox_jobs").Scan(&count))
+	storetest.Must(t, db.QueryRow("SELECT COUNT(*) FROM gateway_job").Scan(&count))
 	if count != 1 {
 		t.Fatal("schema verification changed business data")
 	}
@@ -109,7 +112,7 @@ func TestCanceledSQLiteOpenReleasesLifetimeLock(t *testing.T) {
 }
 
 func TestCanceledSchemaOperationKeepsNativeRuntime(t *testing.T) {
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	runtime := s.Store
@@ -117,7 +120,7 @@ func TestCanceledSchemaOperationKeepsNativeRuntime(t *testing.T) {
 		if err := operation(ctx); err == nil {
 			t.Fatal("canceled schema operation succeeded")
 		}
-		if s.Store != runtime || s.db != nil {
+		if s.Store != runtime || s.owner.db != nil {
 			t.Fatal("canceled schema operation replaced the running pool")
 		}
 	}
@@ -128,9 +131,9 @@ func TestCanceledSchemaOperationKeepsNativeRuntime(t *testing.T) {
 	}
 }
 
-// This fixture uses the original schema and SQL INSERT shape, without creating
-// its rows through the new runtime. Existing durable files keep their IDs,
-// migration history, payloads and queue state when Datly takes over.
+// This fixture registers topology through the native graph and inserts business
+// rows directly. Reopening preserves IDs, migration history, payloads and queue
+// state while callers select their explicit integration scope.
 func TestExistingSQLiteFileContinuesThroughDatly(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "existing.sqlite")
@@ -145,12 +148,17 @@ func TestExistingSQLiteFileContinuesThroughDatly(t *testing.T) {
 	storetest.Must(t, err)
 	list, err := migrationList()
 	storetest.Must(t, err)
-	_, err = db.ExecContext(ctx, "INSERT INTO schema_migrations(version,checksum,applied_at) VALUES(1,?,100)", list[0].checksum)
+	_, err = db.ExecContext(ctx, "INSERT INTO schema_migrations(version,checksum,applied_at) VALUES(1,?,'1970-01-01 00:00:00.100')", list[0].checksum)
 	storetest.Must(t, err)
-	_, err = db.ExecContext(ctx, `INSERT INTO inbox_jobs(id,app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,state,created_at,updated_at)
- VALUES(37,'A','T','C','old-thread','old-event','alice','1.001','original question 🙂',0,'original-request','pending',100,100)`)
+	registration, err := Open(ctx, path, false)
 	storetest.Must(t, err)
-	_, err = db.ExecContext(ctx, "INSERT INTO request_status(job_id,updated_at) VALUES(37,100)")
+	storetest.Must(t, registration.CheckSchema(ctx))
+	storetest.RegisterDefault(t, registration)
+	storetest.Must(t, registration.Close())
+	_, err = db.ExecContext(ctx, `INSERT INTO gateway_job(integration_id,id,slack_channel_id,slack_thread_root_message_id,slack_event_id,slack_prompt_author_id,slack_prompt_message_id,prompt_text,prompt_has_attachments,gateway_request_id,gateway_execution_state,created_at,gateway_execution_updated_at,gateway_status_updated_at)
+	VALUES ((SELECT id FROM integration WHERE name='default' AND active=1),37,'C','old-thread','old-event','alice','1.001','original question 🙂',0,'original-request','pending','1970-01-01 00:00:00.100','1970-01-01 00:00:00.100','1970-01-01 00:00:00.000')`)
+	storetest.Must(t, err)
+	_, err = db.ExecContext(ctx, "UPDATE gateway_job SET gateway_status_updated_at='1970-01-01 00:00:00.100' WHERE id=37")
 	storetest.Must(t, err)
 	storetest.Must(t, db.Close())
 	s, err := Open(ctx, path, false)
@@ -160,12 +168,12 @@ func TestExistingSQLiteFileContinuesThroughDatly(t *testing.T) {
 		t.Fatal("existing file reported as newly created")
 	}
 	storetest.Must(t, s.CheckSchema(ctx))
-	job, err := s.ClaimJob(ctx)
+	job, err := storetest.Scope(t, s, "default").ClaimJob(ctx)
 	storetest.Must(t, err)
-	if job == nil || job.ID != 37 || job.Text != "original question 🙂" || job.RequestID != "original-request" {
+	if job == nil || job.ID != 37 || job.Text != "original question 🙂" || job.GatewayRequestID != "original-request" {
 		t.Fatalf("existing job was not preserved: %+v", job)
 	}
-	inserted, err := s.Enqueue(ctx, storetest.Message("new-event", "new-thread", "bob"))
+	inserted, err := storetest.Scope(t, s, "default").Enqueue(ctx, storetest.Message("new-event", "new-thread", "bob"))
 	storetest.Must(t, err)
 	if !inserted {
 		t.Fatal("new event was not persisted")
@@ -175,7 +183,7 @@ func TestExistingSQLiteFileContinuesThroughDatly(t *testing.T) {
 	storetest.Must(t, err)
 	// Existing files remain immediately usable without an explicit schema call,
 	// just as the established Open API permits for offline callers.
-	job, err = s.ClaimJob(ctx)
+	job, err = storetest.Scope(t, s, "default").ClaimJob(ctx)
 	storetest.Must(t, err)
 	if job == nil || job.ID <= 37 || job.AuthorID != "bob" {
 		t.Fatalf("native identity or persisted queue lost across reopen: %+v", job)

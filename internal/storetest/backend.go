@@ -36,10 +36,10 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 					t.Fatal("offline duplicate inserted")
 				}
 				state := backendSnapshot(t, s)
-				if len(state.Jobs) != 1 || state.Jobs[0].State != "completed" || state.Jobs[0].Reason != reason || state.Jobs[0].TurnID != "" {
-					t.Fatalf("intake was not terminal: %+v", state.Jobs)
+				if len(state.GatewayJobs) != 1 || state.GatewayJobs[0].State != "completed" || state.GatewayJobs[0].Reason != reason || state.GatewayJobs[0].BackendSubmissionStartedAt != 0 {
+					t.Fatalf("intake was not terminal: %+v", state.GatewayJobs)
 				}
-				if len(state.RequestStatuses) != 1 || state.RequestStatuses[0].Outcome != "failed" || len(state.AgentSessions) != 0 {
+				if len(state.GatewayJobs) != 1 || state.GatewayJobs[0].Outcome != "failed" || len(state.SlackAgentSessionPublications) != 0 {
 					t.Fatalf("local rejection claimed a remote session or outcome: %+v", state)
 				}
 				noJob(t, s)
@@ -66,7 +66,7 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 			m.StatusMode = mode
 			enqueue(t, s, m)
 			now := time.Now().Truncate(time.Millisecond)
-			var p *gateway.RequestStatus
+			var p *gateway.GatewayJobProgress
 			for n := 0; n < 2; n++ {
 				var err error
 				p, err = s.ClaimStatus(ctx, now, "urgent")
@@ -98,7 +98,7 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 	t.Run("backend_outage_closes_only_unstarted_and_never_replays", func(t *testing.T) {
 		f := open(t)
 		s := f.Store
-		var closed []*gateway.Job
+		var closed []*gateway.GatewayJob
 		for _, event := range []string{"claimed", "reserved", "ready"} {
 			enqueue(t, s, Message(event, event, "alice"))
 			j := claim(t, s)
@@ -124,9 +124,9 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 		Must(t, s.BeginQuery(ctx, started.ID))
 		Must(t, s.SchedulePoll(ctx, started.ID, time.Now().Add(-time.Second)))
 		var deadline int64
-		for _, j := range backendSnapshot(t, s).Jobs {
+		for _, j := range backendSnapshot(t, s).GatewayJobs {
 			if j.ID == started.ID {
-				deadline = j.QueryStartedAt
+				deadline = j.BackendSubmissionStartedAt
 			}
 		}
 		enqueue(t, s, Message("pending", "pending", "alice"))
@@ -154,14 +154,14 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 		}
 		state := backendSnapshot(t, s)
 		localCount := 0
-		for _, j := range state.Jobs {
+		for _, j := range state.GatewayJobs {
 			switch j.ID {
 			case creating.ID:
 				if j.State != "processing" || j.Reason != "" {
 					t.Fatalf("unknown conversation creation closed: %+v", j)
 				}
 			case started.ID:
-				if j.State != "querying" || j.TurnID != started.RequestID || j.QueryStartedAt != deadline || deadline == 0 {
+				if j.State != "querying" || j.GatewayRequestID != started.GatewayRequestID || j.BackendSubmissionStartedAt != deadline || deadline == 0 {
 					t.Fatalf("started request/deadline changed: %+v", j)
 				}
 			case completed.ID:
@@ -189,14 +189,14 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 		s = f.Reopen()
 		Must(t, s.FailUnstarted(ctx, "backend_unavailable"))
 		reconciled := claim(t, s)
-		if reconciled.ID != started.ID || reconciled.TurnID != started.RequestID || reconciled.QueryStartedAt.UnixMilli() != deadline {
+		if reconciled.ID != started.ID || reconciled.GatewayRequestID != started.GatewayRequestID || reconciled.BackendSubmissionStartedAt.UnixMilli() != deadline {
 			t.Fatalf("restart did not preserve original started request: %+v", reconciled)
 		}
 		noJob(t, s)
 		if d, err := s.ClaimDelivery(ctx); err != nil || d != nil {
 			t.Fatalf("restart duplicated failure replies: %+v, %v", d, err)
 		}
-		for _, j := range backendSnapshot(t, s).Jobs {
+		for _, j := range backendSnapshot(t, s).GatewayJobs {
 			if j.ID == creating.ID && j.State != "needs_review" {
 				t.Fatalf("unknown creation was replayed after restart: %+v", j)
 			}
@@ -209,7 +209,7 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 			enqueue(t, s, Message("closed", "closed", "alice"))
 			var jobID int64
 			if phase == "pending" {
-				jobID = backendSnapshot(t, s).Jobs[0].ID
+				jobID = backendSnapshot(t, s).GatewayJobs[0].ID
 			} else {
 				j := claim(t, s)
 				jobID = j.ID
@@ -232,9 +232,9 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 				t.Fatalf("repeated local close changed its terminal result: %v", err)
 			}
 			state := backendSnapshot(t, s)
-			for _, j := range state.Jobs {
+			for _, j := range state.GatewayJobs {
 				if j.ID == jobID {
-					if j.State != "completed" || j.Reason != "backend_unavailable" || j.TurnID != "" {
+					if j.State != "completed" || j.Reason != "backend_unavailable" || j.BackendSubmissionStartedAt != 0 {
 						t.Fatalf("specific unsubmitted job was not closed: %+v", j)
 					}
 				} else if j.State != "pending" || j.Reason != "" {
@@ -249,7 +249,7 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 			Must(t, s.Delivered(ctx, d.ID, "notice-ts"))
 			healthy := claim(t, s)
 			Must(t, s.Reject(ctx, healthy.ID, "policy_denied"))
-			for _, j := range backendSnapshot(t, s).Jobs {
+			for _, j := range backendSnapshot(t, s).GatewayJobs {
 				if j.ID == healthy.ID && (j.State != "rejected" || j.Reason != "policy_denied") {
 					t.Fatalf("ordinary policy rejection semantics changed: %+v", j)
 				}
@@ -275,7 +275,7 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 			t.Fatalf("missing first outage fallback claim: %+v", p)
 		}
 		Must(t, s.RecordObservation(ctx, j.ID, "completed", now))
-		Must(t, s.Complete(ctx, j.ID, j.RequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}))
+		Must(t, s.Complete(ctx, j.ID, j.GatewayRequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}))
 		// The claim's revision and durable phase still own the publication,
 		// even though remote execution completed before the Slack send.
 		_, err = s.GetStatusContext(ctx, *p)
@@ -336,7 +336,7 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 			}
 			Must(t, s.FinishStatus(ctx, *p, gateway.StatusResult{State: "ready", SlackTS: "one-status-ts", NextRefreshAt: now.Add(32 * time.Second)}, now.Add(2*time.Second)))
 			Must(t, s.RecordObservation(ctx, j.ID, "completed", now.Add(3*time.Second)))
-			Must(t, s.Complete(ctx, j.ID, j.RequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}))
+			Must(t, s.Complete(ctx, j.ID, j.GatewayRequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}))
 			d, err := s.ClaimDelivery(ctx)
 			Must(t, err)
 			Must(t, s.Delivered(ctx, d.ID, "answer-ts"))

@@ -18,11 +18,10 @@ type ReaderComponent struct {
 }
 
 type readerComponentSelectors struct {
-	JobsLimit       int `parameter:"Limit,kind=query,in=jobs_limit,dataType=int,value=100,required=false,cacheable=false" querySelector:"view=jobs,property=limit"`
-	BindingsLimit   int `parameter:"Limit,kind=query,in=bindings_limit,dataType=int,value=100,required=false,cacheable=false" querySelector:"view=bindings,property=limit"`
-	DeliveriesLimit int `parameter:"Limit,kind=query,in=deliveries_limit,dataType=int,value=100,required=false,cacheable=false" querySelector:"view=deliveries,property=limit"`
-	StatusesLimit   int `parameter:"Limit,kind=query,in=statuses_limit,dataType=int,value=100,required=false,cacheable=false" querySelector:"view=statuses,property=limit"`
-	SessionsLimit   int `parameter:"Limit,kind=query,in=sessions_limit,dataType=int,value=100,required=false,cacheable=false" querySelector:"view=sessions,property=limit"`
+	RequestsLimit   int `parameter:"Limit,kind=query,in=requests_limit,dataType=int,value=100,required=false,cacheable=false" querySelector:"view=gateway_jobs,property=limit"`
+	BindingsLimit   int `parameter:"Limit,kind=query,in=bindings_limit,dataType=int,value=100,required=false,cacheable=false" querySelector:"view=conversation_bindings,property=limit"`
+	DeliveriesLimit int `parameter:"Limit,kind=query,in=deliveries_limit,dataType=int,value=100,required=false,cacheable=false" querySelector:"view=slack_outgoing_messages,property=limit"`
+	SessionsLimit   int `parameter:"Limit,kind=query,in=sessions_limit,dataType=int,value=100,required=false,cacheable=false" querySelector:"view=slack_agent_session_publications,property=limit"`
 }
 
 func (ReaderComponent) DatlyQuerySelectors() readerComponentSelectors {

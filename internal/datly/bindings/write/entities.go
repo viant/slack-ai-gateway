@@ -2,113 +2,157 @@
 
 package write
 
-func (entity *Binding) GetId() int {
+import (
+	time "time"
+)
+
+func (entity *ConversationBinding) GetId() int {
 	return entity.Id
 }
-func (entity *Binding) SetId(value int) {
+func (entity *ConversationBinding) SetId(value int) {
 	entity.Id = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
 	entity.Has.Id = true
 }
-func (entity *Binding) GetWorkspaceId() string {
-	return entity.WorkspaceId
+func (entity *ConversationBinding) GetIntegrationId() int {
+	return entity.IntegrationId
 }
-func (entity *Binding) SetWorkspaceId(value string) {
-	entity.WorkspaceId = value
+func (entity *ConversationBinding) SetIntegrationId(value int) {
+	entity.IntegrationId = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
-	entity.Has.WorkspaceId = true
+	entity.Has.IntegrationId = true
 }
-func (entity *Binding) GetChannelId() string {
-	return entity.ChannelId
+func (entity *ConversationBinding) GetSlackChannelId() string {
+	return entity.SlackChannelId
 }
-func (entity *Binding) SetChannelId(value string) {
-	entity.ChannelId = value
+func (entity *ConversationBinding) SetSlackChannelId(value string) {
+	entity.SlackChannelId = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
-	entity.Has.ChannelId = true
+	entity.Has.SlackChannelId = true
 }
-func (entity *Binding) GetRootThreadTs() string {
-	return entity.RootThreadTs
+func (entity *ConversationBinding) GetSlackThreadRootMessageId() string {
+	return entity.SlackThreadRootMessageId
 }
-func (entity *Binding) SetRootThreadTs(value string) {
-	entity.RootThreadTs = value
+func (entity *ConversationBinding) SetSlackThreadRootMessageId(value string) {
+	entity.SlackThreadRootMessageId = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
-	entity.Has.RootThreadTs = true
+	entity.Has.SlackThreadRootMessageId = true
 }
-func (entity *Binding) GetConversationId() *string {
-	return entity.ConversationId
+func (entity *ConversationBinding) GetBackendConversationId() *string {
+	return entity.BackendConversationId
 }
-func (entity *Binding) SetConversationId(value *string) {
-	entity.ConversationId = value
+func (entity *ConversationBinding) SetBackendConversationId(value *string) {
+	entity.BackendConversationId = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
-	entity.Has.ConversationId = true
+	entity.Has.BackendConversationId = true
 }
-func (entity *Binding) GetAccessMode() string {
-	return entity.AccessMode
+func (entity *ConversationBinding) GetGatewayAccessMode() string {
+	return entity.GatewayAccessMode
 }
-func (entity *Binding) SetAccessMode(value string) {
-	entity.AccessMode = value
+func (entity *ConversationBinding) SetGatewayAccessMode(value string) {
+	entity.GatewayAccessMode = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
-	entity.Has.AccessMode = true
+	entity.Has.GatewayAccessMode = true
 }
-func (entity *Binding) GetPrincipalId() string {
-	return entity.PrincipalId
+func (entity *ConversationBinding) GetBackendPrincipalId() string {
+	return entity.BackendPrincipalId
 }
-func (entity *Binding) SetPrincipalId(value string) {
-	entity.PrincipalId = value
+func (entity *ConversationBinding) SetBackendPrincipalId(value string) {
+	entity.BackendPrincipalId = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
-	entity.Has.PrincipalId = true
+	entity.Has.BackendPrincipalId = true
 }
-func (entity *Binding) GetOwnerId() string {
-	return entity.OwnerId
+func (entity *ConversationBinding) GetGatewayBindingOwnerId() string {
+	return entity.GatewayBindingOwnerId
 }
-func (entity *Binding) SetOwnerId(value string) {
-	entity.OwnerId = value
+func (entity *ConversationBinding) SetGatewayBindingOwnerId(value string) {
+	entity.GatewayBindingOwnerId = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
-	entity.Has.OwnerId = true
+	entity.Has.GatewayBindingOwnerId = true
 }
-func (entity *Binding) GetState() string {
-	return entity.State
+func (entity *ConversationBinding) GetGatewayBindingState() string {
+	return entity.GatewayBindingState
 }
-func (entity *Binding) SetState(value string) {
-	entity.State = value
+func (entity *ConversationBinding) SetGatewayBindingState(value string) {
+	entity.GatewayBindingState = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
-	entity.Has.State = true
+	entity.Has.GatewayBindingState = true
 }
-func (entity *Binding) GetCreatedAt() int {
+func (entity *ConversationBinding) GetBackendProtocolMessages() string {
+	return entity.BackendProtocolMessages
+}
+func (entity *ConversationBinding) SetBackendProtocolMessages(value string) {
+	entity.BackendProtocolMessages = value
+	if entity.Has == nil {
+		entity.Has = &ConversationBindingHas{}
+	}
+	entity.Has.BackendProtocolMessages = true
+}
+func (entity *ConversationBinding) GetBackendProtocolState() string {
+	return entity.BackendProtocolState
+}
+func (entity *ConversationBinding) SetBackendProtocolState(value string) {
+	entity.BackendProtocolState = value
+	if entity.Has == nil {
+		entity.Has = &ConversationBindingHas{}
+	}
+	entity.Has.BackendProtocolState = true
+}
+func (entity *ConversationBinding) GetCreatedAt() time.Time {
 	return entity.CreatedAt
 }
-func (entity *Binding) SetCreatedAt(value int) {
+func (entity *ConversationBinding) SetCreatedAt(value time.Time) {
 	entity.CreatedAt = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
 	entity.Has.CreatedAt = true
 }
-func (entity *Binding) GetUpdatedAt() int {
+func (entity *ConversationBinding) GetUpdatedAt() time.Time {
 	return entity.UpdatedAt
 }
-func (entity *Binding) SetUpdatedAt(value int) {
+func (entity *ConversationBinding) SetUpdatedAt(value time.Time) {
 	entity.UpdatedAt = value
 	if entity.Has == nil {
-		entity.Has = &BindingHas{}
+		entity.Has = &ConversationBindingHas{}
 	}
 	entity.Has.UpdatedAt = true
+}
+func (entity *ConversationBinding) GetLastActivityAt() time.Time {
+	return entity.LastActivityAt
+}
+func (entity *ConversationBinding) SetLastActivityAt(value time.Time) {
+	entity.LastActivityAt = value
+	if entity.Has == nil {
+		entity.Has = &ConversationBindingHas{}
+	}
+	entity.Has.LastActivityAt = true
+}
+func (entity *ConversationBinding) GetClosedAt() *time.Time {
+	return entity.ClosedAt
+}
+func (entity *ConversationBinding) SetClosedAt(value *time.Time) {
+	entity.ClosedAt = value
+	if entity.Has == nil {
+		entity.Has = &ConversationBindingHas{}
+	}
+	entity.Has.ClosedAt = true
 }

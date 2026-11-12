@@ -4,10 +4,14 @@ package notbefore
 
 // Input is the generated input scaffold for reader.
 type Input struct {
-	WorkspaceID string    `parameter:"WorkspaceID,kind=query,in=workspaceId,dataType=string,required=false"`
-	Has         *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
+	IntegrationID int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
+	AppID         string    `parameter:"AppID,kind=query,in=appId,dataType=string,value=,required=false"`
+	WorkspaceID   string    `parameter:"WorkspaceID,kind=query,in=workspaceId,dataType=string,required=false"`
+	Has           *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
 }
 
 type InputHas struct {
-	WorkspaceID bool
+	IntegrationID bool
+	AppID         bool
+	WorkspaceID   bool
 }

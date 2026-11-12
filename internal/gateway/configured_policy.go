@@ -10,16 +10,26 @@ type ConfiguredPolicy struct {
 	Directory   SlackDirectory
 }
 
-func (p ConfiguredPolicy) Authorize(ctx context.Context, m Message, b *Binding) (Decision, error) {
+func (p ConfiguredPolicy) Authorize(ctx context.Context, m Message, b *ConversationBinding) (Decision, error) {
 	return p.authorize(ctx, m, b, false)
 }
 
 func (p ConfiguredPolicy) AuthorizeDelivery(ctx context.Context, d DeliveryContext, fresh bool) error {
-	_, err := p.authorize(ctx, d.Message, d.Binding, fresh)
+	if d.Kind == DeliveryIntegrationNotice && !d.IntegrationActive && IntegrationTermination(d.TerminationReason) {
+		// A configuration change may replace the backend principal while the
+		// same Slack bot remains available to close old work. Preserve that
+		// work's execution identity and author, but still use the current Slack
+		// routing/access policy and recheck all channel/DM metadata below.
+		if d.IntegrationPrincipalID == "" {
+			return ErrDenied
+		}
+		p.PrincipalID = d.IntegrationPrincipalID
+	}
+	_, err := p.authorize(ctx, d.Message, d.ConversationBinding, fresh)
 	return err
 }
 
-func (p ConfiguredPolicy) authorize(ctx context.Context, m Message, b *Binding, fresh bool) (Decision, error) {
+func (p ConfiguredPolicy) authorize(ctx context.Context, m Message, b *ConversationBinding, fresh bool) (Decision, error) {
 	if p.Route.Resolver == nil || p.PrincipalID == "" || !p.Route.Allows(m) || m.ExternalShared || m.AuthorID == "" || m.Bot || m.Edited || m.Deleted {
 		return Decision{}, ErrDenied
 	}

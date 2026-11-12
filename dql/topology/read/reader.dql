@@ -1,0 +1,22 @@
+#package('github.com/viant/slack-ai-gateway/internal/datly/topology/read')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/topology','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+
+#define($_ = $IntegrationID<int>(query/IntegrationID).Optional().WithPredicate(0,'equal','i','id'))
+#define($_ = $IntegrationName<string>(query/IntegrationName).Optional().WithPredicate(0,'equal','i','name'))
+#define($_ = $Active<int>(query/active).Optional().WithPredicate(0,'equal','i','active'))
+#define($_ = $Data<[]*Integration>(output/view))
+
+SELECT integrations.*, type(integrations,'Integration'), row_lock(integrations,'integration i','i.id'), set_limit(integrations,0)
+FROM (
+ SELECT i.id,i.name,i.active,i.slack_app_id,i.slack_workspace_id,i.backend_type,i.backend_endpoint,i.backend_agent_id,i.backend_principal_id,i.created_at,i.updated_at
+ FROM integration i
+ WHERE 1=1 ${predicate.Builder().CombineAnd($predicate.FilterGroup(0,"AND")).Build("AND")}
+ ORDER BY i.id
+) integrations

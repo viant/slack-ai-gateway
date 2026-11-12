@@ -2,49 +2,65 @@
 
 package write
 
-// Binding is generated canonical view metadata for writer.
-type Binding struct {
-	Id             int         `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	WorkspaceId    string      `sqlx:"workspace_id,required=true"`
-	ChannelId      string      `sqlx:"channel_id,required=true"`
-	RootThreadTs   string      `sqlx:"root_thread_ts,required=true"`
-	ConversationId *string     `json:",omitempty" sqlx:"conversation_id"`
-	AccessMode     string      `sqlx:"access_mode,required=true"`
-	PrincipalId    string      `sqlx:"principal_id,required=true"`
-	OwnerId        string      `sqlx:"owner_id,required=true"`
-	State          string      `sqlx:"state,required=true"`
-	CreatedAt      int         `sqlx:"created_at,required=true"`
-	UpdatedAt      int         `sqlx:"updated_at,required=true"`
-	Has            *BindingHas `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"BindingHas"`
+import (
+	time "time"
+)
+
+// ConversationBinding is generated canonical view metadata for writer.
+type ConversationBinding struct {
+	Id                       int                     `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	IntegrationId            int                     `sqlx:"integration_id,refTable=integration,refColumn=id,required=true"`
+	SlackChannelId           string                  `sqlx:"slack_channel_id,required=true"`
+	SlackThreadRootMessageId string                  `sqlx:"slack_thread_root_message_id,required=true"`
+	BackendConversationId    *string                 `json:",omitempty" sqlx:"backend_conversation_id"`
+	GatewayAccessMode        string                  `sqlx:"gateway_access_mode,required=true"`
+	BackendPrincipalId       string                  `sqlx:"backend_principal_id,required=true"`
+	GatewayBindingOwnerId    string                  `sqlx:"gateway_binding_owner_id,required=true"`
+	GatewayBindingState      string                  `sqlx:"gateway_binding_state,required=true"`
+	BackendProtocolMessages  string                  `sqlx:"backend_protocol_messages,required=true"`
+	BackendProtocolState     string                  `sqlx:"backend_protocol_state,required=true"`
+	CreatedAt                time.Time               `sqlx:"created_at,required=true"`
+	UpdatedAt                time.Time               `sqlx:"updated_at,required=true"`
+	LastActivityAt           time.Time               `sqlx:"last_activity_at,required=true"`
+	ClosedAt                 *time.Time              `json:",omitempty" sqlx:"closed_at"`
+	Has                      *ConversationBindingHas `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"ConversationBindingHas"`
 }
 
-type BindingHas struct {
-	Id             bool
-	WorkspaceId    bool
-	ChannelId      bool
-	RootThreadTs   bool
-	ConversationId bool
-	AccessMode     bool
-	PrincipalId    bool
-	OwnerId        bool
-	State          bool
-	CreatedAt      bool
-	UpdatedAt      bool
+type ConversationBindingHas struct {
+	Id                       bool
+	IntegrationId            bool
+	SlackChannelId           bool
+	SlackThreadRootMessageId bool
+	BackendConversationId    bool
+	GatewayAccessMode        bool
+	BackendPrincipalId       bool
+	GatewayBindingOwnerId    bool
+	GatewayBindingState      bool
+	BackendProtocolMessages  bool
+	BackendProtocolState     bool
+	CreatedAt                bool
+	UpdatedAt                bool
+	LastActivityAt           bool
+	ClosedAt                 bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id             int     `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	WorkspaceId    string  `json:"workspaceId" sqlx:"workspace_id,required=true"`
-	ChannelId      string  `json:"channelId" sqlx:"channel_id,required=true"`
-	RootThreadTs   string  `json:"rootThreadTs" sqlx:"root_thread_ts,required=true"`
-	ConversationId *string `json:"conversationId,omitempty" sqlx:"conversation_id"`
-	AccessMode     string  `json:"accessMode" sqlx:"access_mode,required=true"`
-	PrincipalId    string  `json:"principalId" sqlx:"principal_id,required=true"`
-	OwnerId        string  `json:"ownerId" sqlx:"owner_id,required=true"`
-	State          string  `json:"state" sqlx:"state,required=true"`
-	CreatedAt      int     `json:"createdAt" sqlx:"created_at,required=true"`
-	UpdatedAt      int     `json:"updatedAt" sqlx:"updated_at,required=true"`
+	Id                       int        `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	IntegrationId            int        `json:"integrationId" sqlx:"integration_id,refTable=integration,refColumn=id,required=true"`
+	SlackChannelId           string     `json:"slackChannelId" sqlx:"slack_channel_id,required=true"`
+	SlackThreadRootMessageId string     `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id,required=true"`
+	BackendConversationId    *string    `json:"backendConversationId,omitempty" sqlx:"backend_conversation_id"`
+	GatewayAccessMode        string     `json:"gatewayAccessMode" sqlx:"gateway_access_mode,required=true"`
+	BackendPrincipalId       string     `json:"backendPrincipalId" sqlx:"backend_principal_id,required=true"`
+	GatewayBindingOwnerId    string     `json:"gatewayBindingOwnerId" sqlx:"gateway_binding_owner_id,required=true"`
+	GatewayBindingState      string     `json:"gatewayBindingState" sqlx:"gateway_binding_state,required=true"`
+	BackendProtocolMessages  string     `json:"backendProtocolMessages" sqlx:"backend_protocol_messages,required=true"`
+	BackendProtocolState     string     `json:"backendProtocolState" sqlx:"backend_protocol_state,required=true"`
+	CreatedAt                time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	UpdatedAt                time.Time  `json:"updatedAt" sqlx:"updated_at,required=true"`
+	LastActivityAt           time.Time  `json:"lastActivityAt" sqlx:"last_activity_at,required=true"`
+	ClosedAt                 *time.Time `json:"closedAt,omitempty" sqlx:"closed_at"`
 }
 
 type WriterKeysRow struct {

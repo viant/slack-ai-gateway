@@ -2,643 +2,561 @@
 
 package write
 
-func (entity *Job) GetId() int {
+import (
+	time "time"
+)
+
+func (entity *GatewayJob) GetId() int {
 	return entity.Id
 }
-func (entity *Job) SetId(value int) {
+func (entity *GatewayJob) SetId(value int) {
 	entity.Id = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
 	entity.Has.Id = true
 }
-func (entity *Job) GetAppId() string {
-	return entity.AppId
+func (entity *GatewayJob) GetGatewayRequestId() string {
+	return entity.GatewayRequestId
 }
-func (entity *Job) SetAppId(value string) {
-	entity.AppId = value
+func (entity *GatewayJob) SetGatewayRequestId(value string) {
+	entity.GatewayRequestId = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.AppId = true
+	entity.Has.GatewayRequestId = true
 }
-func (entity *Job) GetWorkspaceId() string {
-	return entity.WorkspaceId
+func (entity *GatewayJob) GetIntegrationId() int {
+	return entity.IntegrationId
 }
-func (entity *Job) SetWorkspaceId(value string) {
-	entity.WorkspaceId = value
+func (entity *GatewayJob) SetIntegrationId(value int) {
+	entity.IntegrationId = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.WorkspaceId = true
+	entity.Has.IntegrationId = true
 }
-func (entity *Job) GetChannelId() string {
-	return entity.ChannelId
+func (entity *GatewayJob) GetConversationBindingId() *int {
+	return entity.ConversationBindingId
 }
-func (entity *Job) SetChannelId(value string) {
-	entity.ChannelId = value
+func (entity *GatewayJob) SetConversationBindingId(value *int) {
+	entity.ConversationBindingId = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.ChannelId = true
+	entity.Has.ConversationBindingId = true
 }
-func (entity *Job) GetRootThreadTs() string {
-	return entity.RootThreadTs
+func (entity *GatewayJob) GetSlackEventId() string {
+	return entity.SlackEventId
 }
-func (entity *Job) SetRootThreadTs(value string) {
-	entity.RootThreadTs = value
+func (entity *GatewayJob) SetSlackEventId(value string) {
+	entity.SlackEventId = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.RootThreadTs = true
+	entity.Has.SlackEventId = true
 }
-func (entity *Job) GetEventId() string {
-	return entity.EventId
+func (entity *GatewayJob) GetSlackChannelId() string {
+	return entity.SlackChannelId
 }
-func (entity *Job) SetEventId(value string) {
-	entity.EventId = value
+func (entity *GatewayJob) SetSlackChannelId(value string) {
+	entity.SlackChannelId = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.EventId = true
+	entity.Has.SlackChannelId = true
 }
-func (entity *Job) GetAuthorId() string {
-	return entity.AuthorId
+func (entity *GatewayJob) GetSlackConversationType() string {
+	return entity.SlackConversationType
 }
-func (entity *Job) SetAuthorId(value string) {
-	entity.AuthorId = value
+func (entity *GatewayJob) SetSlackConversationType(value string) {
+	entity.SlackConversationType = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.AuthorId = true
+	entity.Has.SlackConversationType = true
 }
-func (entity *Job) GetMessageTs() string {
-	return entity.MessageTs
+func (entity *GatewayJob) GetSlackThreadRootMessageId() string {
+	return entity.SlackThreadRootMessageId
 }
-func (entity *Job) SetMessageTs(value string) {
-	entity.MessageTs = value
+func (entity *GatewayJob) SetSlackThreadRootMessageId(value string) {
+	entity.SlackThreadRootMessageId = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.MessageTs = true
+	entity.Has.SlackThreadRootMessageId = true
 }
-func (entity *Job) GetQueryText() string {
-	return entity.QueryText
+func (entity *GatewayJob) GetSlackPromptMessageId() string {
+	return entity.SlackPromptMessageId
 }
-func (entity *Job) SetQueryText(value string) {
-	entity.QueryText = value
+func (entity *GatewayJob) SetSlackPromptMessageId(value string) {
+	entity.SlackPromptMessageId = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.QueryText = true
+	entity.Has.SlackPromptMessageId = true
 }
-func (entity *Job) GetHasAttachments() int {
-	return entity.HasAttachments
+func (entity *GatewayJob) GetSlackPromptAuthorId() string {
+	return entity.SlackPromptAuthorId
 }
-func (entity *Job) SetHasAttachments(value int) {
-	entity.HasAttachments = value
+func (entity *GatewayJob) SetSlackPromptAuthorId(value string) {
+	entity.SlackPromptAuthorId = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.HasAttachments = true
+	entity.Has.SlackPromptAuthorId = true
 }
-func (entity *Job) GetBindingId() *int {
-	return entity.BindingId
+func (entity *GatewayJob) GetPromptText() *string {
+	return entity.PromptText
 }
-func (entity *Job) SetBindingId(value *int) {
-	entity.BindingId = value
+func (entity *GatewayJob) SetPromptText(value *string) {
+	entity.PromptText = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.BindingId = true
+	entity.Has.PromptText = true
 }
-func (entity *Job) GetAccessMode() string {
-	return entity.AccessMode
+func (entity *GatewayJob) GetPromptHasAttachments() int {
+	return entity.PromptHasAttachments
 }
-func (entity *Job) SetAccessMode(value string) {
-	entity.AccessMode = value
+func (entity *GatewayJob) SetPromptHasAttachments(value int) {
+	entity.PromptHasAttachments = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.AccessMode = true
+	entity.Has.PromptHasAttachments = true
 }
-func (entity *Job) GetPrincipalId() string {
-	return entity.PrincipalId
+func (entity *GatewayJob) GetGatewayExecutionState() string {
+	return entity.GatewayExecutionState
 }
-func (entity *Job) SetPrincipalId(value string) {
-	entity.PrincipalId = value
+func (entity *GatewayJob) SetGatewayExecutionState(value string) {
+	entity.GatewayExecutionState = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.PrincipalId = true
+	entity.Has.GatewayExecutionState = true
 }
-func (entity *Job) GetOwnerId() string {
-	return entity.OwnerId
+func (entity *GatewayJob) GetGatewayExecutionReason() string {
+	return entity.GatewayExecutionReason
 }
-func (entity *Job) SetOwnerId(value string) {
-	entity.OwnerId = value
+func (entity *GatewayJob) SetGatewayExecutionReason(value string) {
+	entity.GatewayExecutionReason = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.OwnerId = true
+	entity.Has.GatewayExecutionReason = true
 }
-func (entity *Job) GetRequestId() string {
-	return entity.RequestId
+func (entity *GatewayJob) GetGatewayExecutionOutcome() string {
+	return entity.GatewayExecutionOutcome
 }
-func (entity *Job) SetRequestId(value string) {
-	entity.RequestId = value
+func (entity *GatewayJob) SetGatewayExecutionOutcome(value string) {
+	entity.GatewayExecutionOutcome = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.RequestId = true
+	entity.Has.GatewayExecutionOutcome = true
 }
-func (entity *Job) GetTurnId() string {
-	return entity.TurnId
+func (entity *GatewayJob) GetGatewayExecutionResultText() *string {
+	return entity.GatewayExecutionResultText
 }
-func (entity *Job) SetTurnId(value string) {
-	entity.TurnId = value
+func (entity *GatewayJob) SetGatewayExecutionResultText(value *string) {
+	entity.GatewayExecutionResultText = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.TurnId = true
+	entity.Has.GatewayExecutionResultText = true
 }
-func (entity *Job) GetState() string {
-	return entity.State
+func (entity *GatewayJob) GetGatewayExecutionClaimCount() int {
+	return entity.GatewayExecutionClaimCount
 }
-func (entity *Job) SetState(value string) {
-	entity.State = value
+func (entity *GatewayJob) SetGatewayExecutionClaimCount(value int) {
+	entity.GatewayExecutionClaimCount = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.State = true
+	entity.Has.GatewayExecutionClaimCount = true
 }
-func (entity *Job) GetResultText() string {
-	return entity.ResultText
+func (entity *GatewayJob) GetBackendSubmissionStartedAt() *time.Time {
+	return entity.BackendSubmissionStartedAt
 }
-func (entity *Job) SetResultText(value string) {
-	entity.ResultText = value
+func (entity *GatewayJob) SetBackendSubmissionStartedAt(value *time.Time) {
+	entity.BackendSubmissionStartedAt = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.ResultText = true
+	entity.Has.BackendSubmissionStartedAt = true
 }
-func (entity *Job) GetReason() string {
-	return entity.Reason
+func (entity *GatewayJob) GetBackendNextPollAt() *time.Time {
+	return entity.BackendNextPollAt
 }
-func (entity *Job) SetReason(value string) {
-	entity.Reason = value
+func (entity *GatewayJob) SetBackendNextPollAt(value *time.Time) {
+	entity.BackendNextPollAt = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.Reason = true
+	entity.Has.BackendNextPollAt = true
 }
-func (entity *Job) GetAttempts() int {
-	return entity.Attempts
+func (entity *GatewayJob) GetBackendPollAttempts() int {
+	return entity.BackendPollAttempts
 }
-func (entity *Job) SetAttempts(value int) {
-	entity.Attempts = value
+func (entity *GatewayJob) SetBackendPollAttempts(value int) {
+	entity.BackendPollAttempts = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.Attempts = true
+	entity.Has.BackendPollAttempts = true
 }
-func (entity *Job) GetNextAttemptAt() int {
-	return entity.NextAttemptAt
+func (entity *GatewayJob) GetBackendPollReady() int {
+	return entity.BackendPollReady
 }
-func (entity *Job) SetNextAttemptAt(value int) {
-	entity.NextAttemptAt = value
+func (entity *GatewayJob) SetBackendPollReady(value int) {
+	entity.BackendPollReady = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.NextAttemptAt = true
+	entity.Has.BackendPollReady = true
 }
-func (entity *Job) GetCreatedAt() int {
+func (entity *GatewayJob) GetBackendObservedState() string {
+	return entity.BackendObservedState
+}
+func (entity *GatewayJob) SetBackendObservedState(value string) {
+	entity.BackendObservedState = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.BackendObservedState = true
+}
+func (entity *GatewayJob) GetBackendObservedAt() *time.Time {
+	return entity.BackendObservedAt
+}
+func (entity *GatewayJob) SetBackendObservedAt(value *time.Time) {
+	entity.BackendObservedAt = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.BackendObservedAt = true
+}
+func (entity *GatewayJob) GetBackendObservationUncertain() int {
+	return entity.BackendObservationUncertain
+}
+func (entity *GatewayJob) SetBackendObservationUncertain(value int) {
+	entity.BackendObservationUncertain = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.BackendObservationUncertain = true
+}
+func (entity *GatewayJob) GetSlackProgressMode() string {
+	return entity.SlackProgressMode
+}
+func (entity *GatewayJob) SetSlackProgressMode(value string) {
+	entity.SlackProgressMode = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressMode = true
+}
+func (entity *GatewayJob) GetSlackProgressMessageId() string {
+	return entity.SlackProgressMessageId
+}
+func (entity *GatewayJob) SetSlackProgressMessageId(value string) {
+	entity.SlackProgressMessageId = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressMessageId = true
+}
+func (entity *GatewayJob) GetSlackProgressState() string {
+	return entity.SlackProgressState
+}
+func (entity *GatewayJob) SetSlackProgressState(value string) {
+	entity.SlackProgressState = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressState = true
+}
+func (entity *GatewayJob) GetSlackProgressPhase() string {
+	return entity.SlackProgressPhase
+}
+func (entity *GatewayJob) SetSlackProgressPhase(value string) {
+	entity.SlackProgressPhase = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressPhase = true
+}
+func (entity *GatewayJob) GetSlackProgressReason() string {
+	return entity.SlackProgressReason
+}
+func (entity *GatewayJob) SetSlackProgressReason(value string) {
+	entity.SlackProgressReason = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressReason = true
+}
+func (entity *GatewayJob) GetSlackProgressRevision() int {
+	return entity.SlackProgressRevision
+}
+func (entity *GatewayJob) SetSlackProgressRevision(value int) {
+	entity.SlackProgressRevision = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressRevision = true
+}
+func (entity *GatewayJob) GetSlackProgressSentRevision() int {
+	return entity.SlackProgressSentRevision
+}
+func (entity *GatewayJob) SetSlackProgressSentRevision(value int) {
+	entity.SlackProgressSentRevision = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressSentRevision = true
+}
+func (entity *GatewayJob) GetSlackProgressAttempts() int {
+	return entity.SlackProgressAttempts
+}
+func (entity *GatewayJob) SetSlackProgressAttempts(value int) {
+	entity.SlackProgressAttempts = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressAttempts = true
+}
+func (entity *GatewayJob) GetSlackProgressNextAttemptAt() *time.Time {
+	return entity.SlackProgressNextAttemptAt
+}
+func (entity *GatewayJob) SetSlackProgressNextAttemptAt(value *time.Time) {
+	entity.SlackProgressNextAttemptAt = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressNextAttemptAt = true
+}
+func (entity *GatewayJob) GetSlackProgressRefreshAt() *time.Time {
+	return entity.SlackProgressRefreshAt
+}
+func (entity *GatewayJob) SetSlackProgressRefreshAt(value *time.Time) {
+	entity.SlackProgressRefreshAt = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressRefreshAt = true
+}
+func (entity *GatewayJob) GetSlackProgressRateLimitedUntil() *time.Time {
+	return entity.SlackProgressRateLimitedUntil
+}
+func (entity *GatewayJob) SetSlackProgressRateLimitedUntil(value *time.Time) {
+	entity.SlackProgressRateLimitedUntil = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressRateLimitedUntil = true
+}
+func (entity *GatewayJob) GetSlackProgressFirstSentAt() *time.Time {
+	return entity.SlackProgressFirstSentAt
+}
+func (entity *GatewayJob) SetSlackProgressFirstSentAt(value *time.Time) {
+	entity.SlackProgressFirstSentAt = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressFirstSentAt = true
+}
+func (entity *GatewayJob) GetSlackProgressLastSentAt() *time.Time {
+	return entity.SlackProgressLastSentAt
+}
+func (entity *GatewayJob) SetSlackProgressLastSentAt(value *time.Time) {
+	entity.SlackProgressLastSentAt = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.SlackProgressLastSentAt = true
+}
+func (entity *GatewayJob) GetCreatedAt() time.Time {
 	return entity.CreatedAt
 }
-func (entity *Job) SetCreatedAt(value int) {
+func (entity *GatewayJob) SetCreatedAt(value time.Time) {
 	entity.CreatedAt = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
 	entity.Has.CreatedAt = true
 }
-func (entity *Job) GetUpdatedAt() int {
-	return entity.UpdatedAt
+func (entity *GatewayJob) GetGatewayExecutionUpdatedAt() time.Time {
+	return entity.GatewayExecutionUpdatedAt
 }
-func (entity *Job) SetUpdatedAt(value int) {
-	entity.UpdatedAt = value
+func (entity *GatewayJob) SetGatewayExecutionUpdatedAt(value time.Time) {
+	entity.GatewayExecutionUpdatedAt = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.UpdatedAt = true
+	entity.Has.GatewayExecutionUpdatedAt = true
 }
-func (entity *Job) GetQueryStartedAt() int {
-	return entity.QueryStartedAt
+func (entity *GatewayJob) GetGatewayStatusUpdatedAt() time.Time {
+	return entity.GatewayStatusUpdatedAt
 }
-func (entity *Job) SetQueryStartedAt(value int) {
-	entity.QueryStartedAt = value
+func (entity *GatewayJob) SetGatewayStatusUpdatedAt(value time.Time) {
+	entity.GatewayStatusUpdatedAt = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.QueryStartedAt = true
+	entity.Has.GatewayStatusUpdatedAt = true
 }
-func (entity *Job) GetPollAttempts() int {
-	return entity.PollAttempts
+func (entity *GatewayJob) GetGatewayExecutionFinishedAt() *time.Time {
+	return entity.GatewayExecutionFinishedAt
 }
-func (entity *Job) SetPollAttempts(value int) {
-	entity.PollAttempts = value
+func (entity *GatewayJob) SetGatewayExecutionFinishedAt(value *time.Time) {
+	entity.GatewayExecutionFinishedAt = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.PollAttempts = true
+	entity.Has.GatewayExecutionFinishedAt = true
 }
-func (entity *Job) GetPollReady() int {
-	return entity.PollReady
+func (entity *GatewayJob) GetContentPurgedAt() *time.Time {
+	return entity.ContentPurgedAt
 }
-func (entity *Job) SetPollReady(value int) {
-	entity.PollReady = value
+func (entity *GatewayJob) SetContentPurgedAt(value *time.Time) {
+	entity.ContentPurgedAt = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.PollReady = true
+	entity.Has.ContentPurgedAt = true
 }
-func (entity *Job) GetMessageSurface() string {
-	return entity.MessageSurface
+func (entity *GatewayJob) GetSlackOutgoingMessages() []*SlackOutgoingMessage {
+	return entity.SlackOutgoingMessages
 }
-func (entity *Job) SetMessageSurface(value string) {
-	entity.MessageSurface = value
+func (entity *GatewayJob) SetSlackOutgoingMessages(value []*SlackOutgoingMessage) {
+	entity.SlackOutgoingMessages = value
 	if entity.Has == nil {
-		entity.Has = &JobHas{}
+		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.MessageSurface = true
+	entity.Has.SlackOutgoingMessages = true
 }
-func (entity *Job) GetStatus() *RequestStatus {
-	return entity.Status
-}
-func (entity *Job) SetStatus(value *RequestStatus) {
-	entity.Status = value
-	if entity.Has == nil {
-		entity.Has = &JobHas{}
-	}
-	entity.Has.Status = true
-}
-func (entity *Job) GetOutbox() []*Outbox {
-	return entity.Outbox
-}
-func (entity *Job) SetOutbox(value []*Outbox) {
-	entity.Outbox = value
-	if entity.Has == nil {
-		entity.Has = &JobHas{}
-	}
-	entity.Has.Outbox = true
-}
-func (entity *RequestStatus) GetJobId() int {
-	return entity.JobId
-}
-func (entity *RequestStatus) SetJobId(value int) {
-	entity.JobId = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.JobId = true
-}
-func (entity *RequestStatus) GetSlackTs() string {
-	return entity.SlackTs
-}
-func (entity *RequestStatus) SetSlackTs(value string) {
-	entity.SlackTs = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.SlackTs = true
-}
-func (entity *RequestStatus) GetObservedState() string {
-	return entity.ObservedState
-}
-func (entity *RequestStatus) SetObservedState(value string) {
-	entity.ObservedState = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.ObservedState = true
-}
-func (entity *RequestStatus) GetObservedAt() int {
-	return entity.ObservedAt
-}
-func (entity *RequestStatus) SetObservedAt(value int) {
-	entity.ObservedAt = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.ObservedAt = true
-}
-func (entity *RequestStatus) GetObservationUncertain() int {
-	return entity.ObservationUncertain
-}
-func (entity *RequestStatus) SetObservationUncertain(value int) {
-	entity.ObservationUncertain = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.ObservationUncertain = true
-}
-func (entity *RequestStatus) GetOutcome() string {
-	return entity.Outcome
-}
-func (entity *RequestStatus) SetOutcome(value string) {
-	entity.Outcome = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.Outcome = true
-}
-func (entity *RequestStatus) GetPhase() string {
-	return entity.Phase
-}
-func (entity *RequestStatus) SetPhase(value string) {
-	entity.Phase = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.Phase = true
-}
-func (entity *RequestStatus) GetRevision() int {
-	return entity.Revision
-}
-func (entity *RequestStatus) SetRevision(value int) {
-	entity.Revision = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.Revision = true
-}
-func (entity *RequestStatus) GetSentRevision() int {
-	return entity.SentRevision
-}
-func (entity *RequestStatus) SetSentRevision(value int) {
-	entity.SentRevision = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.SentRevision = true
-}
-func (entity *RequestStatus) GetState() string {
-	return entity.State
-}
-func (entity *RequestStatus) SetState(value string) {
-	entity.State = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.State = true
-}
-func (entity *RequestStatus) GetAttempts() int {
-	return entity.Attempts
-}
-func (entity *RequestStatus) SetAttempts(value int) {
-	entity.Attempts = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.Attempts = true
-}
-func (entity *RequestStatus) GetNextAttemptAt() int {
-	return entity.NextAttemptAt
-}
-func (entity *RequestStatus) SetNextAttemptAt(value int) {
-	entity.NextAttemptAt = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.NextAttemptAt = true
-}
-func (entity *RequestStatus) GetRefreshAt() int {
-	return entity.RefreshAt
-}
-func (entity *RequestStatus) SetRefreshAt(value int) {
-	entity.RefreshAt = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.RefreshAt = true
-}
-func (entity *RequestStatus) GetRateLimitedUntil() int {
-	return entity.RateLimitedUntil
-}
-func (entity *RequestStatus) SetRateLimitedUntil(value int) {
-	entity.RateLimitedUntil = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.RateLimitedUntil = true
-}
-func (entity *RequestStatus) GetFirstSentAt() int {
-	return entity.FirstSentAt
-}
-func (entity *RequestStatus) SetFirstSentAt(value int) {
-	entity.FirstSentAt = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.FirstSentAt = true
-}
-func (entity *RequestStatus) GetLastSentAt() int {
-	return entity.LastSentAt
-}
-func (entity *RequestStatus) SetLastSentAt(value int) {
-	entity.LastSentAt = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.LastSentAt = true
-}
-func (entity *RequestStatus) GetReason() string {
-	return entity.Reason
-}
-func (entity *RequestStatus) SetReason(value string) {
-	entity.Reason = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.Reason = true
-}
-func (entity *RequestStatus) GetUpdatedAt() int {
-	return entity.UpdatedAt
-}
-func (entity *RequestStatus) SetUpdatedAt(value int) {
-	entity.UpdatedAt = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.UpdatedAt = true
-}
-func (entity *RequestStatus) GetMode() string {
-	return entity.Mode
-}
-func (entity *RequestStatus) SetMode(value string) {
-	entity.Mode = value
-	if entity.Has == nil {
-		entity.Has = &RequestStatusHas{}
-	}
-	entity.Has.Mode = true
-}
-func (entity *Outbox) GetId() int {
+func (entity *SlackOutgoingMessage) GetId() int {
 	return entity.Id
 }
-func (entity *Outbox) SetId(value int) {
+func (entity *SlackOutgoingMessage) SetId(value int) {
 	entity.Id = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
 	entity.Has.Id = true
 }
-func (entity *Outbox) GetJobId() int {
+func (entity *SlackOutgoingMessage) GetJobId() int {
 	return entity.JobId
 }
-func (entity *Outbox) SetJobId(value int) {
+func (entity *SlackOutgoingMessage) SetJobId(value int) {
 	entity.JobId = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
 	entity.Has.JobId = true
 }
-func (entity *Outbox) GetWorkspaceId() string {
-	return entity.WorkspaceId
+func (entity *SlackOutgoingMessage) GetSlackMessageIndex() int {
+	return entity.SlackMessageIndex
 }
-func (entity *Outbox) SetWorkspaceId(value string) {
-	entity.WorkspaceId = value
+func (entity *SlackOutgoingMessage) SetSlackMessageIndex(value int) {
+	entity.SlackMessageIndex = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.WorkspaceId = true
+	entity.Has.SlackMessageIndex = true
 }
-func (entity *Outbox) GetChannelId() string {
-	return entity.ChannelId
+func (entity *SlackOutgoingMessage) GetSlackMessageText() *string {
+	return entity.SlackMessageText
 }
-func (entity *Outbox) SetChannelId(value string) {
-	entity.ChannelId = value
+func (entity *SlackOutgoingMessage) SetSlackMessageText(value *string) {
+	entity.SlackMessageText = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.ChannelId = true
+	entity.Has.SlackMessageText = true
 }
-func (entity *Outbox) GetRootThreadTs() string {
-	return entity.RootThreadTs
+func (entity *SlackOutgoingMessage) GetSlackMessageKind() string {
+	return entity.SlackMessageKind
 }
-func (entity *Outbox) SetRootThreadTs(value string) {
-	entity.RootThreadTs = value
+func (entity *SlackOutgoingMessage) SetSlackMessageKind(value string) {
+	entity.SlackMessageKind = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.RootThreadTs = true
+	entity.Has.SlackMessageKind = true
 }
-func (entity *Outbox) GetPart() int {
-	return entity.Part
+func (entity *SlackOutgoingMessage) GetSlackDeliveryState() string {
+	return entity.SlackDeliveryState
 }
-func (entity *Outbox) SetPart(value int) {
-	entity.Part = value
+func (entity *SlackOutgoingMessage) SetSlackDeliveryState(value string) {
+	entity.SlackDeliveryState = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.Part = true
+	entity.Has.SlackDeliveryState = true
 }
-func (entity *Outbox) GetContent() string {
-	return entity.Content
+func (entity *SlackOutgoingMessage) GetSlackDeliveryAttempts() int {
+	return entity.SlackDeliveryAttempts
 }
-func (entity *Outbox) SetContent(value string) {
-	entity.Content = value
+func (entity *SlackOutgoingMessage) SetSlackDeliveryAttempts(value int) {
+	entity.SlackDeliveryAttempts = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.Content = true
+	entity.Has.SlackDeliveryAttempts = true
 }
-func (entity *Outbox) GetState() string {
-	return entity.State
+func (entity *SlackOutgoingMessage) GetSlackDeliveryNextAttemptAt() *time.Time {
+	return entity.SlackDeliveryNextAttemptAt
 }
-func (entity *Outbox) SetState(value string) {
-	entity.State = value
+func (entity *SlackOutgoingMessage) SetSlackDeliveryNextAttemptAt(value *time.Time) {
+	entity.SlackDeliveryNextAttemptAt = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.State = true
+	entity.Has.SlackDeliveryNextAttemptAt = true
 }
-func (entity *Outbox) GetAttempts() int {
-	return entity.Attempts
+func (entity *SlackOutgoingMessage) GetSlackMessageId() string {
+	return entity.SlackMessageId
 }
-func (entity *Outbox) SetAttempts(value int) {
-	entity.Attempts = value
+func (entity *SlackOutgoingMessage) SetSlackMessageId(value string) {
+	entity.SlackMessageId = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.Attempts = true
+	entity.Has.SlackMessageId = true
 }
-func (entity *Outbox) GetNextAttemptAt() int {
-	return entity.NextAttemptAt
-}
-func (entity *Outbox) SetNextAttemptAt(value int) {
-	entity.NextAttemptAt = value
-	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
-	}
-	entity.Has.NextAttemptAt = true
-}
-func (entity *Outbox) GetSlackTs() string {
-	return entity.SlackTs
-}
-func (entity *Outbox) SetSlackTs(value string) {
-	entity.SlackTs = value
-	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
-	}
-	entity.Has.SlackTs = true
-}
-func (entity *Outbox) GetCreatedAt() int {
+func (entity *SlackOutgoingMessage) GetCreatedAt() time.Time {
 	return entity.CreatedAt
 }
-func (entity *Outbox) SetCreatedAt(value int) {
+func (entity *SlackOutgoingMessage) SetCreatedAt(value time.Time) {
 	entity.CreatedAt = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
 	entity.Has.CreatedAt = true
 }
-func (entity *Outbox) GetUpdatedAt() int {
+func (entity *SlackOutgoingMessage) GetUpdatedAt() time.Time {
 	return entity.UpdatedAt
 }
-func (entity *Outbox) SetUpdatedAt(value int) {
+func (entity *SlackOutgoingMessage) SetUpdatedAt(value time.Time) {
 	entity.UpdatedAt = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
 	entity.Has.UpdatedAt = true
 }
-func (entity *Outbox) GetFormat() string {
-	return entity.Format
+func (entity *SlackOutgoingMessage) GetSlackMessageFormat() string {
+	return entity.SlackMessageFormat
 }
-func (entity *Outbox) SetFormat(value string) {
-	entity.Format = value
+func (entity *SlackOutgoingMessage) SetSlackMessageFormat(value string) {
+	entity.SlackMessageFormat = value
 	if entity.Has == nil {
-		entity.Has = &OutboxHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.Format = true
+	entity.Has.SlackMessageFormat = true
 }
-func (input *Input) ProjectCurrentStatusParentKeys(previous []*CurrentWriterView) ([]struct {
-	JobId int `sqlx:"job_id"`
-}, error) {
-	result := []struct {
-		JobId int `sqlx:"job_id"`
-	}{}
-	for _, row := range previous {
-		if row == nil {
-			continue
-		}
-		result = append(result, struct {
-			JobId int `sqlx:"job_id"`
-		}{JobId: row.Id})
-	}
-	return result, nil
-}
-func (input *Input) ProjectCurrentOutboxParentKeys(previous []*CurrentWriterView) ([]struct {
+func (input *Input) ProjectCurrentSlackOutgoingMessagesParentKeys(previous []*CurrentWriterView) ([]struct {
 	JobId int `sqlx:"job_id"`
 }, error) {
 	result := []struct {

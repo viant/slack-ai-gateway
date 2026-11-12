@@ -62,7 +62,7 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	// Preserve the original deadline even while the shared connection is down.
-	if j.TurnID != "" && !j.QueryStartedAt.IsZero() && time.Since(j.QueryStartedAt) >= w.Timing.defaults().MaxWait {
+	if !j.BackendSubmissionStartedAt.IsZero() && time.Since(j.BackendSubmissionStartedAt) >= w.Timing.defaults().MaxWait {
 		return true, w.review(ctx, j, "reconciliation_deadline")
 	}
 	if paused, err := w.pauseUnavailable(ctx, j); paused {
@@ -77,7 +77,7 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 		if errors.Is(err, ErrSlackAuth) {
 			return true, errors.Join(err, w.finishBeforeSubmission(ctx, j, func() error { return w.review(ctx, j, "slack_auth_rejected") }))
 		}
-		if errors.Is(err, ErrDenied) && j.TurnID == "" {
+		if errors.Is(err, ErrDenied) && j.BackendSubmissionStartedAt.IsZero() {
 			return true, w.finishBeforeSubmission(ctx, j, func() error { return w.Store.Reject(ctx, j.ID, "policy_denied") })
 		}
 		if errors.Is(err, ErrDenied) {
@@ -109,7 +109,7 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 	client, err := w.Clients.ForPrincipal(ctx, b.PrincipalID)
 	if err != nil {
 		if w.Backend != nil && (errors.Is(err, ErrBackendAuth) || errors.Is(err, ErrBackendUnavailable)) {
-			if j.TurnID != "" {
+			if !j.BackendSubmissionStartedAt.IsZero() {
 				return true, w.poll(ctx, j)
 			}
 			return true, w.deferUnavailable(ctx, j)
@@ -120,17 +120,17 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 		return true, w.review(ctx, j, "credentials_unavailable")
 	}
 	timing := w.Timing.defaults()
-	if j.TurnID != "" {
-		if b.ConversationID == "" || j.TurnID != j.RequestID || j.QueryStartedAt.IsZero() {
+	if !j.BackendSubmissionStartedAt.IsZero() {
+		if b.ConversationID == "" || j.GatewayRequestID == "" {
 			return true, w.review(ctx, j, "invalid_reconciliation_state")
 		}
-		if time.Since(j.QueryStartedAt) >= timing.MaxWait {
+		if time.Since(j.BackendSubmissionStartedAt) >= timing.MaxWait {
 			return true, w.review(ctx, j, "reconciliation_deadline")
 		}
 		return true, w.execute(func() error {
-			readCtx, cancel := context.WithDeadline(ctx, j.QueryStartedAt.Add(timing.MaxWait))
+			readCtx, cancel := context.WithDeadline(ctx, j.BackendSubmissionStartedAt.Add(timing.MaxWait))
 			defer cancel()
-			turn, readErr := client.ReadTurn(readCtx, b.ConversationID, j.TurnID, w.observer(ctx, j))
+			turn, readErr := client.ReadTurn(readCtx, b.ConversationID, j.GatewayRequestID, w.observer(ctx, j))
 			return w.settle(ctx, j, b.ConversationID, turn, readErr)
 		})
 	}
@@ -165,12 +165,11 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 		}
 		return true, err
 	}
-	j.QueryStartedAt = time.Now()
-	j.TurnID = j.RequestID
+	j.BackendSubmissionStartedAt = time.Now()
 	return true, w.execute(func() error {
-		queryCtx, cancel := context.WithDeadline(ctx, j.QueryStartedAt.Add(timing.MaxWait))
+		queryCtx, cancel := context.WithDeadline(ctx, j.BackendSubmissionStartedAt.Add(timing.MaxWait))
 		defer cancel()
-		turn, err := client.Query(queryCtx, Query{ConversationID: b.ConversationID, MessageID: j.RequestID, AgentID: w.AgentID, Text: j.Text}, w.observer(ctx, j))
+		turn, err := client.Query(queryCtx, Query{ConversationID: b.ConversationID, MessageID: j.GatewayRequestID, AgentID: w.AgentID, Text: j.Text, ProtocolMessages: b.ProtocolMessages, ProtocolState: b.ProtocolState}, w.observer(ctx, j))
 		return w.settle(ctx, j, b.ConversationID, turn, err)
 	})
 }
@@ -182,15 +181,15 @@ func (w Worker) withReady(fn func() error) error {
 	return fn()
 }
 
-func (w Worker) pauseUnavailable(ctx context.Context, j *Job) (bool, error) {
+func (w Worker) pauseUnavailable(ctx context.Context, j *GatewayJob) (bool, error) {
 	if w.Backend == nil || w.Backend.State() == BackendReady {
 		return false, nil
 	}
 	return true, w.deferUnavailable(ctx, j)
 }
 
-func (w Worker) deferUnavailable(ctx context.Context, j *Job) error {
-	if j.TurnID != "" {
+func (w Worker) deferUnavailable(ctx context.Context, j *GatewayJob) error {
+	if !j.BackendSubmissionStartedAt.IsZero() {
 		return w.poll(ctx, j)
 	}
 	// An in-flight create can succeed after the transition's sweep skipped its
@@ -207,8 +206,8 @@ func (w Worker) deferUnavailable(ctx context.Context, j *Job) error {
 	return err
 }
 
-func (w Worker) finishBeforeSubmission(ctx context.Context, j *Job, fn func() error) error {
-	if w.Backend == nil || j.TurnID != "" {
+func (w Worker) finishBeforeSubmission(ctx context.Context, j *GatewayJob, fn func() error) error {
+	if w.Backend == nil || !j.BackendSubmissionStartedAt.IsZero() {
 		return fn()
 	}
 	err := w.withReady(fn)
@@ -225,16 +224,16 @@ func (w Worker) execute(task func() error) error {
 	}
 	return task()
 }
-func (w Worker) observer(ctx context.Context, j *Job) func(Turn) error {
+func (w Worker) observer(ctx context.Context, j *GatewayJob) func(Turn) error {
 	return func(turn Turn) error {
-		if turn.ID != j.RequestID {
+		if turn.ID != j.GatewayRequestID {
 			return ErrBackendProtocol
 		}
 		return w.Store.RecordObservation(ctx, j.ID, turn.State, time.Now())
 	}
 }
 
-func (w Worker) settle(ctx context.Context, j *Job, conversationID string, turn Turn, err error) error {
+func (w Worker) settle(ctx context.Context, j *GatewayJob, conversationID string, turn Turn, err error) error {
 	// A caller timeout/shutdown must not prevent recording the need to reconcile.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
@@ -256,7 +255,7 @@ func (w Worker) settle(ctx context.Context, j *Job, conversationID string, turn 
 		}
 		return w.poll(ctx, j)
 	}
-	if turn.ID != j.RequestID {
+	if turn.ID != j.GatewayRequestID {
 		return w.review(ctx, j, "turn_identity_mismatch")
 	}
 	switch turn.State {
@@ -319,28 +318,31 @@ func (w Worker) settle(ctx context.Context, j *Job, conversationID string, turn 
 	if turn.State == "completed" {
 		parts = RenderMarkdown(text)
 	}
+	if turn.ProtocolMessages != nil || turn.ProtocolState != nil {
+		return w.Store.Complete(ctx, j.ID, turn.ID, result, parts, ProtocolSnapshot{Messages: turn.ProtocolMessages, State: turn.ProtocolState})
+	}
 	return w.Store.Complete(ctx, j.ID, turn.ID, result, parts)
 }
 
-func (w Worker) review(ctx context.Context, j *Job, reason string) error {
+func (w Worker) review(ctx context.Context, j *GatewayJob, reason string) error {
 	if err := w.Store.Review(ctx, j.ID, reason); err != nil {
 		return err
 	}
 	if w.OnReview != nil {
-		w.OnReview(j.ID, j.RequestID, reason)
+		w.OnReview(j.ID, j.GatewayRequestID, reason)
 	}
 	return nil
 }
 
-func (w Worker) authReview(ctx context.Context, j *Job, cause error) error {
+func (w Worker) authReview(ctx context.Context, j *GatewayJob, cause error) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	return errors.Join(cause, w.review(ctx, j, "backend_auth_or_identity_rejected"))
 }
 
-func (w Worker) poll(ctx context.Context, j *Job) error {
+func (w Worker) poll(ctx context.Context, j *GatewayJob) error {
 	timing := w.Timing.defaults()
-	deadline := j.QueryStartedAt.Add(timing.MaxWait)
+	deadline := j.BackendSubmissionStartedAt.Add(timing.MaxWait)
 	if !time.Now().Before(deadline) {
 		// This does NOT cancel backend execution; no cancellation endpoint is called.
 		return w.review(ctx, j, "reconciliation_deadline")

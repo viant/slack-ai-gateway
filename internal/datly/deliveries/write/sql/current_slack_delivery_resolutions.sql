@@ -1,0 +1,1 @@
+SELECT r.id, r.outgoing_message_id, r.resolution_action, r.slack_message_id, r.duplicate_delivery_risk_accepted, r.created_at FROM slack_delivery_resolution r WHERE $criteria.CompositeIn("r", $Unsafe.ProjectCurrentSlackDeliveryResolutionsParentKeys($CurrentWriter))

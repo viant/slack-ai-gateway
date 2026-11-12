@@ -37,13 +37,19 @@ func TestOperationGraphsNative(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	_, err = db.ExecContext(ctx, `INSERT INTO inbox_jobs(app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,state,created_at,updated_at)
-		VALUES ('A','T','C','1.001','event1','alice','1.001','private prompt',0,'request1','pending',1,1),
-		       ('A','T','C','1.001','event2','bob','1.002','private prompt',0,'request2','pending',1,1)`)
+	at := time.UnixMilli(1).UTC()
+	result, err := db.ExecContext(ctx, `INSERT INTO integration(name,active,slack_app_id,slack_workspace_id,backend_type,backend_endpoint,backend_agent_id,backend_principal_id,created_at,updated_at)
+	VALUES ('default',1,'A','T','agui','http://127.0.0.1/v1/ag-ui/run','','shared',?,?)`, at, at)
 	storetest.Must(t, err)
-	_, err = db.ExecContext(ctx, `INSERT INTO outbox_messages(job_id,workspace_id,channel_id,root_thread_ts,part,content,state,created_at,updated_at)
-		VALUES (1,'T','C','1.001',0,'private reply one','pending',1,1),
-		       (1,'T','C','1.001',1,'private reply two','pending',1,1)`)
+	integrationID, err := result.LastInsertId()
+	storetest.Must(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO gateway_job(integration_id,slack_channel_id,slack_thread_root_message_id,slack_event_id,slack_prompt_author_id,slack_prompt_message_id,prompt_text,prompt_has_attachments,gateway_request_id,gateway_execution_state,created_at,gateway_execution_updated_at,gateway_status_updated_at)
+	VALUES (?,'C','1.001','event1','alice','1.001','private prompt',0,'request1','pending',?,?,?),
+	       (?,'C','1.001','event2','bob','1.002','private prompt',0,'request2','pending',?,?,?)`, integrationID, at, at, at, integrationID, at, at, at)
+	storetest.Must(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO slack_outgoing_message(job_id,slack_message_index,slack_message_text,slack_delivery_state,created_at,updated_at)
+	VALUES (1,0,'private reply one','pending',?,?),
+	       (1,1,'private reply two','pending',?,?)`, at, at, at, at)
 	storetest.Must(t, err)
 	server, err := standalone.New(ctx, standalone.Options{
 		RequireLinked: true,
@@ -74,7 +80,7 @@ func TestOperationGraphsNative(t *testing.T) {
 		return value
 	}
 	selectors := state.Selectors{}
-	for _, name := range []string{"jobs", "bindings", "deliveries", "statuses", "sessions"} {
+	for _, name := range []string{"gateway_jobs", "conversation_bindings", "slack_outgoing_messages", "slack_agent_session_publications"} {
 		selectors = append(selectors, &state.NamedSelector{Name: name, Selector: state.Selector{Limit: 1}})
 	}
 	response := invoke(&status.ReaderComponent{}, "/internal/gateway/operations/status", &status.Input{}, provider.Static(handler.SelectorsKey, selectors)).(*status.Output)
@@ -82,10 +88,14 @@ func TestOperationGraphsNative(t *testing.T) {
 		t.Fatalf("snapshot root count=%d", len(response.Data))
 	}
 	snapshot := response.Data[0]
-	if len(snapshot.Jobs) != 1 || snapshot.Jobs[0].Id != 2 || len(snapshot.Deliveries) != 1 || snapshot.Deliveries[0].Id != 2 {
-		t.Fatalf("native newest-first limit did not apply: jobs=%+v deliveries=%+v", snapshot.Jobs, snapshot.Deliveries)
+	if len(snapshot.GatewayJobs) != 1 || snapshot.GatewayJobs[0].Id != 2 || len(snapshot.SlackOutgoingMessages) != 1 || snapshot.SlackOutgoingMessages[0].Id != 2 {
+		t.Fatalf("native newest-first limit did not apply: jobs=%+v deliveries=%+v", snapshot.GatewayJobs, snapshot.SlackOutgoingMessages)
 	}
-	for name, size := range map[string]int{"jobs": len(snapshot.Jobs), "bindings": len(snapshot.Bindings), "deliveries": len(snapshot.Deliveries), "statuses": len(snapshot.Statuses), "sessions": len(snapshot.Sessions)} {
+	request := snapshot.GatewayJobs[0]
+	if !request.CreatedAt.Equal(at) || !request.GatewayExecutionUpdatedAt.Equal(at) || !request.GatewayStatusUpdatedAt.Equal(at) || request.GatewayExecutionFinishedAt != nil || request.ContentPurgedAt != nil || !snapshot.SlackOutgoingMessages[0].CreatedAt.Equal(at) || !snapshot.SlackOutgoingMessages[0].UpdatedAt.Equal(at) {
+		t.Fatalf("native diagnostic dates lost millisecond precision or nullability: request=%+v outgoing=%+v", request, snapshot.SlackOutgoingMessages[0])
+	}
+	for name, size := range map[string]int{"gateway_jobs": len(snapshot.GatewayJobs), "conversation_bindings": len(snapshot.ConversationBindings), "slack_outgoing_messages": len(snapshot.SlackOutgoingMessages), "slack_agent_session_publications": len(snapshot.SlackAgentSessionPublications)} {
 		if size > 1 {
 			t.Errorf("%s metadata exceeds requested limit: %d", name, size)
 		}
@@ -94,19 +104,25 @@ func TestOperationGraphsNative(t *testing.T) {
 	for _, count := range snapshot.Counts {
 		counts[count.TableName] += count.RowCount
 	}
-	for _, table := range []string{"inbox_jobs", "conversation_bindings", "outbox_messages", "request_status", "agent_session_publications"} {
+	for dimension, table := range map[string]string{
+		"gateway_job.gateway_execution_state":                     "gateway_job",
+		"gateway_job.slack_progress_state":                        "gateway_job",
+		"conversation_binding.gateway_binding_state":              "conversation_binding",
+		"slack_outgoing_message.slack_delivery_state":             "slack_outgoing_message",
+		"slack_agent_session_publication.slack_publication_state": "slack_agent_session_publication",
+	} {
 		var actual int
 		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&actual); err != nil {
 			t.Fatal(err)
 		}
-		if counts[table] != actual {
-			t.Errorf("%s full count=%d, want %d", table, counts[table], actual)
+		if counts[dimension] != actual {
+			t.Errorf("%s full count=%d, want %d", dimension, counts[dimension], actual)
 		}
 	}
 	// The generated operator shapes have no upstream or response payload slots.
-	for _, typ := range []reflect.Type{reflect.TypeFor[status.Job](), reflect.TypeFor[status.Binding](), reflect.TypeFor[status.Delivery](), reflect.TypeFor[status.RequestStatus](), reflect.TypeFor[status.AgentSession]()} {
+	for _, typ := range []reflect.Type{reflect.TypeFor[status.GatewayJobMetadata](), reflect.TypeFor[status.ConversationBindingMetadata](), reflect.TypeFor[status.SlackOutgoingMessageMetadata](), reflect.TypeFor[status.SlackAgentSessionPublicationMetadata]()} {
 		for field := range typ.Fields() {
-			for _, forbidden := range []string{"QueryText", "ResultText", "Content"} {
+			for _, forbidden := range []string{"PromptText", "GatewayExecutionResultText", "SlackMessageText", "BackendProtocolMessages", "BackendProtocolState"} {
 				if strings.EqualFold(field.Name, forbidden) {
 					t.Errorf("operator type %s exposes %s", typ.Name(), field.Name)
 				}
@@ -127,7 +143,7 @@ func TestOperationGraphsNative(t *testing.T) {
 	cooldownInput := &notbefore.Input{}
 	cooldownInput.SetWorkspaceID(workspace)
 	cooldownResult := invoke(&notbefore.ReaderComponent{}, "/internal/gateway/operations/notbefore", cooldownInput).(*notbefore.Output)
-	if len(cooldownResult.Data) != 1 || cooldownResult.Data[0].NotBefore != 0 {
+	if len(cooldownResult.Data) != 1 || cooldownResult.Data[0].NotBefore != nil {
 		t.Fatalf("unexpected cooldown for unrelated workspace: %+v", cooldownResult)
 	}
 }

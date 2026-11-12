@@ -31,7 +31,7 @@ pipeline:
     secrets:
       gatewayMySQLCredentials: $mysqlCred
     commands:
-      - export SLACK_AI_GATEWAY_DISCOVERY_DSN='${gatewayMySQLCredentials.username}:${gatewayMySQLCredentials.password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true'
+      - export SLACK_AI_GATEWAY_DISCOVERY_DSN='${gatewayMySQLCredentials.username}:${gatewayMySQLCredentials.password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true&loc=UTC'
 
   connection:
     when: $discoveryDSN != ''
@@ -46,14 +46,17 @@ pipeline:
     checkError: true
     commands:
       - cd '$projectRoot'
-      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/bindings/read
-      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/bindings/write
-      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/deliveries/read
-      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/deliveries/write
-      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/operations/check
-      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/operations/notbefore
-      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/operations/status
-      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/read
-      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/sessions/read
-      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/sessions/write
-      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" github.com/viant/slack-ai-gateway/dql/write
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/bindings/read github.com/viant/slack-ai-gateway/dql/bindings/read
+      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/bindings/write github.com/viant/slack-ai-gateway/dql/bindings/write
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/deliveries/read github.com/viant/slack-ai-gateway/dql/deliveries/read
+      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/deliveries/write github.com/viant/slack-ai-gateway/dql/deliveries/write
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/operations/check github.com/viant/slack-ai-gateway/dql/operations/check
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/operations/notbefore github.com/viant/slack-ai-gateway/dql/operations/notbefore
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/operations/status github.com/viant/slack-ai-gateway/dql/operations/status
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/read github.com/viant/slack-ai-gateway/dql/read
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/read/event github.com/viant/slack-ai-gateway/dql/read/event
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/sessions/read github.com/viant/slack-ai-gateway/dql/sessions/read
+      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/sessions/write github.com/viant/slack-ai-gateway/dql/sessions/write
+      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/write github.com/viant/slack-ai-gateway/dql/write
+      - datly transcribe patch -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/topology/integrations/write github.com/viant/slack-ai-gateway/dql/topology/integrations/write
+      - datly transcribe get -dir . -schema -connector slack -driver '$discoveryDriver' -dsn="$SLACK_AI_GATEWAY_DISCOVERY_DSN" -exclude github.com/viant/slack-ai-gateway/internal/datly/topology/read github.com/viant/slack-ai-gateway/dql/topology/read

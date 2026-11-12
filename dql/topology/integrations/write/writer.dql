@@ -1,0 +1,13 @@
+#package('github.com/viant/slack-ai-gateway/internal/datly/topology/integrations/write')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/topology/integrations','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $Rows<[]*Integration>(body/data))
+#define($_ = $Data<[]*Integration>(output/body))
+
+SELECT records.*, type(records,'Integration') FROM integration records

@@ -1,0 +1,1 @@
+SELECT r.id, r.name, r.active, r.slack_app_id, r.slack_workspace_id, r.backend_type, r.backend_endpoint, r.backend_agent_id, r.backend_principal_id, r.created_at, r.updated_at FROM integration r WHERE $criteria.CompositeIn("r", $WriterKeys)

@@ -7,5 +7,5 @@ import "embed"
 // DatlyResourceNamespace identifies this package's generated resource filesystem.
 const WriterDatlyResourceNamespace = "internal_datly_write_writer"
 
-//go:embed "sql/current_outbox.sql" "sql/current_status.sql" "sql/current_writer.sql" "sql/writer.sql" "sql/writer_keys.sql"
+//go:embed "sql/current_slack_outgoing_messages.sql" "sql/current_writer.sql" "sql/writer.sql" "sql/writer_keys.sql"
 var WriterDatlyResources embed.FS

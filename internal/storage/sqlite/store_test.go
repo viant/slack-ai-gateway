@@ -8,13 +8,47 @@ import (
 	"testing"
 
 	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 // Fixture inspection uses its own test-only connection. Production schema
 // preparation hands its only pool over to Datly before business operations.
-func fixtureDB(t *testing.T, s *Store) *sql.DB {
+type scopedFixture struct {
+	storage.Store
+	owner *Store
+	id    int64
+}
+
+func (s *scopedFixture) Migrate(ctx context.Context) error {
+	if err := s.owner.Migrate(ctx); err != nil {
+		return err
+	}
+	s.Store = s.owner.Scope(s.id)
+	return nil
+}
+
+func (s *scopedFixture) CheckSchema(ctx context.Context) error {
+	if err := s.owner.CheckSchema(ctx); err != nil {
+		return err
+	}
+	s.Store = s.owner.Scope(s.id)
+	return nil
+}
+
+func (s *scopedFixture) Close() error { return s.owner.Close() }
+
+func fixtureDB(t *testing.T, source any) *sql.DB {
 	t.Helper()
+	var s *Store
+	switch value := source.(type) {
+	case *Store:
+		s = value
+	case *scopedFixture:
+		s = value.owner
+	default:
+		t.Fatalf("unexpected fixture store %T", source)
+	}
 	db, err := sql.Open("sqlite", s.dsn)
 	storetest.Must(t, err)
 	db.SetMaxOpenConns(1)
@@ -30,12 +64,13 @@ func fixture(t *testing.T) storetest.Fixture {
 	s, err := Open(ctx, path, true)
 	storetest.Must(t, err)
 	storetest.Must(t, s.Migrate(ctx))
+	integrationID := storetest.RegisterDefault(t, s)
 	t.Cleanup(func() {
 		if s != nil {
 			storetest.Must(t, s.Close())
 		}
 	})
-	return storetest.Fixture{Store: s, Reopen: func() gateway.Store {
+	return storetest.Fixture{Store: &scopedFixture{Store: s.Scope(integrationID), owner: s, id: integrationID}, Root: func() storage.Store { return s }, Reopen: func() gateway.Store {
 		storetest.Must(t, s.Close())
 		s = nil
 		var err error
@@ -43,7 +78,7 @@ func fixture(t *testing.T) storetest.Fixture {
 		storetest.Must(t, err)
 		storetest.Must(t, s.CheckSchema(ctx))
 		storetest.Must(t, s.Recover(ctx))
-		return s
+		return &scopedFixture{Store: s.Scope(integrationID), owner: s, id: integrationID}
 	}}
 }
 
@@ -80,11 +115,11 @@ func TestMigrations(t *testing.T) {
 	for _, tc := range []struct{ name, sql string }{
 		{"checksum", "UPDATE schema_migrations SET checksum='changed'"},
 		{"future_version", "UPDATE schema_migrations SET version=99 WHERE version=1"},
-		{"missing_table", "DROP TABLE outbox_messages"},
-		{"missing_index", "DROP INDEX inbox_thread"},
+		{"missing_table", "DROP TABLE slack_outgoing_message"},
+		{"missing_index", "DROP INDEX gateway_job_thread"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := fixture(t).Store.(*Store)
+			s := fixture(t).Store.(*scopedFixture)
 			_, err := fixtureDB(t, s).Exec(tc.sql)
 			storetest.Must(t, err)
 			if err = s.CheckSchema(ctx); err == nil {
@@ -106,22 +141,23 @@ func TestMigrations(t *testing.T) {
 
 func TestResultAndOutboxRollbackTogether(t *testing.T) {
 	ctx := context.Background()
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	_, err := s.Enqueue(ctx, storetest.Message("a", "one", "alice"))
 	storetest.Must(t, err)
 	j, err := s.ClaimJob(ctx)
 	storetest.Must(t, err)
 	// Failure on the second INSERT proves both the job update and first part roll back.
-	_, err = fixtureDB(t, s).Exec("CREATE TRIGGER reject_part BEFORE INSERT ON outbox_messages WHEN NEW.part=1 BEGIN SELECT RAISE(ABORT,'test failure'); END")
+	_, err = fixtureDB(t, s).Exec("CREATE TRIGGER reject_part BEFORE INSERT ON slack_outgoing_message WHEN NEW.slack_message_index=1 BEGIN SELECT RAISE(ABORT,'test failure'); END")
 	storetest.Must(t, err)
 	if err = s.Complete(ctx, j.ID, "", "result", []gateway.ReplyPart{{Text: "one", Format: gateway.ReplyPlain}, {Text: "two", Format: gateway.ReplyPlain}}); err == nil {
 		t.Fatal("expected injected write failure")
 	}
-	var state, result string
+	var state string
+	var result sql.NullString
 	var n int
-	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT state,result_text FROM inbox_jobs WHERE id=?", j.ID).Scan(&state, &result))
-	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM outbox_messages").Scan(&n))
-	if state != "processing" || result != "" || n != 0 {
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT gateway_execution_state,gateway_execution_result_text FROM gateway_job WHERE id=?", j.ID).Scan(&state, &result))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM slack_outgoing_message").Scan(&n))
+	if state != "processing" || result.Valid || n != 0 {
 		t.Fatal("partial result/outbox commit")
 	}
 	_, err = fixtureDB(t, s).Exec("DROP TRIGGER reject_part")
@@ -136,33 +172,34 @@ func TestReplyFormatsSurviveRestart(t *testing.T) {
 	storetest.Must(t, err)
 	t.Cleanup(func() { s.Close() })
 	storetest.Must(t, s.Migrate(ctx))
+	storetest.RegisterDefault(t, s)
 	// Omitting format must retain the plain-text default.
-	_, err = fixtureDB(t, s).ExecContext(ctx, `INSERT INTO inbox_jobs
-	(app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,state,created_at,updated_at)
-	VALUES('A','T','C','old-thread','old','alice','1','old',0,'old-request','completed',0,0)`)
+	_, err = fixtureDB(t, s).ExecContext(ctx, `INSERT INTO gateway_job(integration_id,slack_channel_id,slack_thread_root_message_id,slack_event_id,slack_prompt_author_id,slack_prompt_message_id,prompt_text,prompt_has_attachments,gateway_request_id,gateway_execution_state,created_at,gateway_execution_updated_at,gateway_status_updated_at)
+	VALUES ((SELECT id FROM integration WHERE name='default' AND active=1),'C','old-thread','old','alice','1','old',0,'old-request','completed','1970-01-01 00:00:00.000','1970-01-01 00:00:00.000','1970-01-01 00:00:00.000')`)
 	storetest.Must(t, err)
 	oldText := "&lt;literal&gt; **plain** &amp; 🙂"
-	_, err = fixtureDB(t, s).ExecContext(ctx, `INSERT INTO outbox_messages(job_id,workspace_id,channel_id,root_thread_ts,part,content,state,created_at,updated_at) VALUES(1,'T','C','old-thread',0,?,'pending',0,0)`, oldText)
+	_, err = fixtureDB(t, s).ExecContext(ctx, `INSERT INTO slack_outgoing_message(job_id,slack_message_index,slack_message_text,slack_delivery_state,created_at,updated_at)
+	VALUES (1,0,?,'pending','1970-01-01 00:00:00.000','1970-01-01 00:00:00.000')`, oldText)
 	storetest.Must(t, err)
 	storetest.Must(t, s.Close())
 	s, err = Open(ctx, path, false)
 	storetest.Must(t, err)
 	storetest.Must(t, s.CheckSchema(ctx))
-	d, err := s.ClaimDelivery(ctx)
+	d, err := storetest.Scope(t, s, "default").ClaimDelivery(ctx)
 	storetest.Must(t, err)
 	if d == nil || d.Text != oldText || d.Format != gateway.ReplyPlain {
 		t.Fatal("pending plain reply changed content or delivery format")
 	}
-	_, err = s.Enqueue(ctx, storetest.Message("new", "new-thread", "alice"))
+	_, err = storetest.Scope(t, s, "default").Enqueue(ctx, storetest.Message("new", "new-thread", "alice"))
 	storetest.Must(t, err)
-	j, err := s.ClaimJob(ctx)
+	j, err := storetest.Scope(t, s, "default").ClaimJob(ctx)
 	storetest.Must(t, err)
 	newText := "# Heading\n\n**bold** and 🙂"
-	storetest.Must(t, s.Complete(ctx, j.ID, "", newText, gateway.RenderMarkdown(newText)))
+	storetest.Must(t, storetest.Scope(t, s, "default").Complete(ctx, j.ID, "", newText, gateway.RenderMarkdown(newText)))
 	storetest.Must(t, s.Close())
 	s, err = Open(ctx, path, false)
 	storetest.Must(t, err)
-	d, err = s.ClaimDelivery(ctx)
+	d, err = storetest.Scope(t, s, "default").ClaimDelivery(ctx)
 	storetest.Must(t, err)
 	if d == nil || d.Text != newText || d.Format != gateway.ReplyMarkdown {
 		t.Fatal("new native Markdown format did not survive restart")
@@ -204,7 +241,7 @@ func TestSingleActiveInstanceAndDurablePath(t *testing.T) {
 
 func TestAuditAndConstraints(t *testing.T) {
 	ctx := context.Background()
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	_, err := s.Enqueue(ctx, storetest.Message("a", "one", "alice"))
 	storetest.Must(t, err)
 	j, err := s.ClaimJob(ctx)
@@ -212,14 +249,14 @@ func TestAuditAndConstraints(t *testing.T) {
 	_, err = s.BindJob(ctx, j.ID, gateway.Decision{Mode: "shared_channel", PrincipalID: "shared", OwnerID: "shared"})
 	storetest.Must(t, err)
 	var author, principal, owner string
-	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT author_id,principal_id,owner_id FROM inbox_jobs WHERE id=?", j.ID).Scan(&author, &principal, &owner))
+	storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT j.slack_prompt_author_id,b.backend_principal_id,b.gateway_binding_owner_id FROM gateway_job j JOIN conversation_binding b ON b.id=j.conversation_binding_id WHERE j.id=?", j.ID).Scan(&author, &principal, &owner))
 	if author != "alice" || principal != "shared" || owner != "shared" {
 		t.Fatal("audit identity conflated with execution identity")
 	}
-	if _, err = fixtureDB(t, s).Exec("UPDATE inbox_jobs SET binding_id=99999 WHERE id=?", j.ID); err == nil {
+	if _, err = fixtureDB(t, s).Exec("UPDATE gateway_job SET conversation_binding_id=99999 WHERE id=?", j.ID); err == nil {
 		t.Fatal("foreign key not enforced")
 	}
-	if _, err = fixtureDB(t, s).Exec("UPDATE inbox_jobs SET state='invalid' WHERE id=?", j.ID); err == nil {
+	if _, err = fixtureDB(t, s).Exec("UPDATE gateway_job SET gateway_execution_state='invalid' WHERE id=?", j.ID); err == nil {
 		t.Fatal("state constraint not enforced")
 	}
 }

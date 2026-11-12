@@ -1,1 +1,1 @@
-SELECT sessions.* FROM agent_session_publications sessions
+SELECT slack_agent_session_publications.* FROM slack_agent_session_publication slack_agent_session_publications

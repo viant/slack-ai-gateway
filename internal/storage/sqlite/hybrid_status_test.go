@@ -13,9 +13,9 @@ import (
 
 // Exercise the real claim/receipt path, including the original author's policy
 // context. Bound the loop so an accidentally dirty receipt cannot hang a test.
-func settleStatuses(t *testing.T, s *Store, now time.Time) []gateway.RequestStatus {
+func settleStatuses(t *testing.T, s *scopedFixture, now time.Time) []gateway.GatewayJobProgress {
 	t.Helper()
-	var calls []gateway.RequestStatus
+	var calls []gateway.GatewayJobProgress
 	for range 20 {
 		a, err := s.ClaimStatus(context.Background(), now, "urgent")
 		storetest.Must(t, err)
@@ -37,7 +37,7 @@ func settleStatuses(t *testing.T, s *Store, now time.Time) []gateway.RequestStat
 
 func TestOpenNativeCyclePublishesMessageAuthFailureDuringShutdown(t *testing.T) {
 	ctx := context.Background()
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	now := time.Now()
 	_, err := s.Enqueue(ctx, nativeMessage("a", "thread", "alice"))
 	storetest.Must(t, err)
@@ -84,7 +84,7 @@ func TestRestartDuringWorkPreservesEveryPresentationModePair(t *testing.T) {
 			t.Run(string(before)+"_to_"+string(after), func(t *testing.T) {
 				ctx := context.Background()
 				f := fixture(t)
-				s := f.Store.(*Store)
+				s := f.Store.(*scopedFixture)
 				now := time.Now()
 				first := storetest.Message("a", "thread", "alice")
 				first.StatusMode = before
@@ -112,7 +112,7 @@ func TestRestartDuringWorkPreservesEveryPresentationModePair(t *testing.T) {
 				if claimed != wantClaims {
 					t.Fatalf("claimed %d targets, want %d", claimed, wantClaims)
 				}
-				s = f.Reopen().(*Store)
+				s = f.Reopen().(*scopedFixture)
 				now = now.Add(11 * time.Minute)
 				second := storetest.Message("b", "thread", "bob")
 				second.StatusMode = after
@@ -121,7 +121,7 @@ func TestRestartDuringWorkPreservesEveryPresentationModePair(t *testing.T) {
 				settleStatuses(t, s, now)
 				resumed, err := s.ClaimJob(ctx)
 				storetest.Must(t, err)
-				if resumed == nil || resumed.ID != j.ID || resumed.TurnID != j.RequestID || resumed.QueryStartedAt.IsZero() {
+				if resumed == nil || resumed.ID != j.ID || resumed.GatewayRequestID != j.GatewayRequestID || resumed.BackendSubmissionStartedAt.IsZero() {
 					t.Fatal("restart lost the known query; it must reconcile instead of resubmitting")
 				}
 				if other, err := s.ClaimJob(ctx); err != nil || other != nil {
@@ -150,32 +150,32 @@ func TestRestartDuringWorkPreservesEveryPresentationModePair(t *testing.T) {
 				settleStatuses(t, s, now)
 				report, err := s.Status(ctx, 10)
 				storetest.Must(t, err)
-				if len(report.RequestStatuses) != 2 {
+				if len(report.GatewayJobs) != 2 {
 					t.Fatal("restart duplicated the question")
 				}
-				for _, row := range report.RequestStatuses {
+				for _, row := range report.GatewayJobs {
 					want := before
-					if row.JobID == j.ID {
+					if row.ID == j.ID {
 						want = after
 					}
 					if row.Mode != string(want) || (row.SlackTS != "") != (want != gateway.StatusAgentSession) {
 						t.Fatalf("question mode/receipt changed across restart: %+v", row)
 					}
-					if row.SlackTS != "" && (row.FirstSentAt == 0 || row.State != "settled") {
+					if row.SlackTS != "" && (row.FirstSentAt == 0 || row.ProgressState != "settled") {
 						t.Fatal("message receipt or terminal update was lost")
 					}
 				}
-				for _, a := range report.AgentSessions {
+				for _, a := range report.SlackAgentSessionPublications {
 					if a.AgentStatus != "active" || a.State != "settled" || a.Revision != a.SentRevision {
 						t.Fatalf("native indicator left open: %+v", a)
 					}
 				}
-				if len(report.AgentSessions) == 0 && (before != gateway.StatusMessage || after != gateway.StatusMessage) {
+				if len(report.SlackAgentSessionPublications) == 0 && (before != gateway.StatusMessage || after != gateway.StatusMessage) {
 					t.Fatal("native cycle missing")
 				}
 				// After active is confirmed, message-only intake must not reopen
 				// the native cycle, even after another process restart.
-				s = f.Reopen().(*Store)
+				s = f.Reopen().(*scopedFixture)
 				_, err = s.Enqueue(ctx, storetest.Message("c", "thread", "charlie"))
 				storetest.Must(t, err)
 				for _, call := range settleStatuses(t, s, now) {
@@ -190,7 +190,7 @@ func TestRestartDuringWorkPreservesEveryPresentationModePair(t *testing.T) {
 
 func TestHybridReceiptsAreIndependentAndClaimsAlternateTargets(t *testing.T) {
 	ctx := context.Background()
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	now := time.Now()
 	// Native has a backlog: the hybrid message must still get the next slot.
 	for _, root := range []string{"first", "second", "third"} {
@@ -206,7 +206,7 @@ func TestHybridReceiptsAreIndependentAndClaimsAlternateTargets(t *testing.T) {
 	if native.JobID != message.JobID || native.Target != gateway.StatusTargetAgentSession || message.Target != gateway.StatusTargetMessage || message.Mode != gateway.StatusHybrid {
 		t.Fatal("hybrid target starved or lost its mode")
 	}
-	for _, a := range []*gateway.RequestStatus{native, message} {
+	for _, a := range []*gateway.GatewayJobProgress{native, message} {
 		_, err := s.GetStatusContext(ctx, *a)
 		storetest.Must(t, err)
 		forged := *a
@@ -222,13 +222,13 @@ func TestHybridReceiptsAreIndependentAndClaimsAlternateTargets(t *testing.T) {
 	confirmStatus(t, s, message, now)
 	report, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	for _, row := range report.RequestStatuses {
-		if row.JobID == message.JobID && (row.SlackTS != "2.000001" || row.Target != "message" || row.SentRevision != message.Revision) {
+	for _, row := range report.GatewayJobs {
+		if row.ID == message.JobID && (row.SlackTS != "2.000001" || row.Target != "message" || row.SentRevision != message.Revision) {
 			t.Fatalf("message ACK corrupted: %+v", row)
 		}
 	}
-	for _, row := range report.AgentSessions {
-		if row.SourceJobID == native.JobID && (row.Mode != "hybrid" || row.Target != "agent_session" || row.SentRevision != native.Revision) {
+	for _, row := range report.SlackAgentSessionPublications {
+		if row.StatusSourceJobID == native.JobID && (row.Mode != "hybrid" || row.Target != "agent_session" || row.SentRevision != native.Revision) {
 			t.Fatalf("native ACK corrupted: %+v", row)
 		}
 	}
@@ -236,7 +236,7 @@ func TestHybridReceiptsAreIndependentAndClaimsAlternateTargets(t *testing.T) {
 
 func TestAgentSessionReprojectsMessageIntakeDuringActiveWrite(t *testing.T) {
 	ctx := context.Background()
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	now := time.Now()
 	_, err := s.Enqueue(ctx, nativeMessage("a", "root", "alice"))
 	storetest.Must(t, err)
@@ -261,14 +261,14 @@ func TestAgentSessionReprojectsMessageIntakeDuringActiveWrite(t *testing.T) {
 
 func TestSchemaInitializationPreservesPublicationFacts(t *testing.T) {
 	ctx := context.Background()
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	for _, m := range []gateway.Message{storetest.Message("a", "a", "alice"), nativeMessage("b", "b", "bob")} {
 		_, err := s.Enqueue(ctx, m)
 		storetest.Must(t, err)
 	}
 	now := time.Now()
 	settleStatuses(t, s, now)
-	_, err := fixtureDB(t, s).Exec(`UPDATE request_status SET observed_state='running',observed_at=123,observation_uncertain=1,outcome='failed',revision=9,sent_revision=8,attempts=7,next_attempt_at=6,refresh_at=5,rate_limited_until=4,reason='test_retry',updated_at=3`)
+	_, err := fixtureDB(t, s).Exec(`UPDATE gateway_job SET backend_observed_state='running',backend_observed_at='1970-01-01 00:00:00.123',backend_observation_uncertain=1,gateway_execution_outcome='failed',slack_progress_revision=9,slack_progress_sent_revision=8,slack_progress_attempts=7,slack_progress_next_attempt_at='1970-01-01 00:00:00.006',slack_progress_refresh_at='1970-01-01 00:00:00.005',slack_progress_rate_limited_until='1970-01-01 00:00:00.004',slack_progress_reason='test_retry',gateway_status_updated_at='1970-01-01 00:00:00.003'`)
 	storetest.Must(t, err)
 	before, err := s.Status(ctx, 10)
 	storetest.Must(t, err)

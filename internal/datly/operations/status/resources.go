@@ -7,5 +7,5 @@ import "embed"
 // DatlyResourceNamespace identifies this package's generated resource filesystem.
 const ReaderDatlyResourceNamespace = "datly_operations_status_reader"
 
-//go:embed "sql/bindings.sql" "sql/counts.sql" "sql/deliveries.sql" "sql/jobs.sql" "sql/reader.sql" "sql/sessions.sql" "sql/statuses.sql"
+//go:embed "sql/conversation_bindings.sql" "sql/counts.sql" "sql/gateway_jobs.sql" "sql/integrations.sql" "sql/reader.sql" "sql/slack_agent_session_publications.sql" "sql/slack_outgoing_messages.sql"
 var ReaderDatlyResources embed.FS

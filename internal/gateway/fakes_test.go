@@ -89,11 +89,11 @@ func (f *fakeAgently) snapshot() ([]string, []queryCall) {
 
 type fakeSlack struct {
 	mu       sync.Mutex
-	messages []gateway.Delivery
+	messages []gateway.SlackOutgoingMessage
 	err      error
 }
 
-func (s *fakeSlack) Send(_ context.Context, d gateway.Delivery) (string, error) {
+func (s *fakeSlack) Send(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, d)
@@ -103,8 +103,8 @@ func (s *fakeSlack) Send(_ context.Context, d gateway.Delivery) (string, error) 
 	return fmt.Sprintf("100.%06d", len(s.messages)), nil
 }
 
-func (s *fakeSlack) snapshot() []gateway.Delivery {
+func (s *fakeSlack) snapshot() []gateway.SlackOutgoingMessage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]gateway.Delivery(nil), s.messages...)
+	return append([]gateway.SlackOutgoingMessage(nil), s.messages...)
 }

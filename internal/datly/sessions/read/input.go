@@ -4,16 +4,20 @@ package read
 
 // Input is the generated input scaffold for reader.
 type Input struct {
-	WorkspaceID  string    `parameter:"WorkspaceID,kind=query,in=WorkspaceID,dataType=string,required=false"`
-	ChannelID    string    `parameter:"ChannelID,kind=query,in=ChannelID,dataType=string,required=false"`
-	RootThreadTS string    `parameter:"RootThreadTS,kind=query,in=RootThreadTS,dataType=string,required=false"`
-	Mode         string    `parameter:"Mode,kind=query,in=mode,dataType=string,value=key,required=false"`
-	Has          *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
+	IntegrationID            int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
+	AppID                    string    `parameter:"AppID,kind=query,in=AppID,dataType=string,required=false"`
+	WorkspaceID              string    `parameter:"WorkspaceID,kind=query,in=WorkspaceID,dataType=string,required=false"`
+	ChannelID                string    `parameter:"ChannelID,kind=query,in=ChannelID,dataType=string,required=false"`
+	SlackThreadRootMessageID string    `parameter:"SlackThreadRootMessageID,kind=query,in=SlackThreadRootMessageID,dataType=string,required=false"`
+	Mode                     string    `parameter:"Mode,kind=query,in=mode,dataType=string,value=key,required=false"`
+	Has                      *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
 }
 
 type InputHas struct {
-	WorkspaceID  bool
-	ChannelID    bool
-	RootThreadTS bool
-	Mode         bool
+	IntegrationID            bool
+	AppID                    bool
+	WorkspaceID              bool
+	ChannelID                bool
+	SlackThreadRootMessageID bool
+	Mode                     bool
 }

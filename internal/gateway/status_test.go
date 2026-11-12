@@ -12,7 +12,7 @@ import (
 )
 
 type statusCall struct {
-	Status gateway.RequestStatus
+	Status gateway.GatewayJobProgress
 	Text   string
 }
 type statusSlack struct {
@@ -21,7 +21,7 @@ type statusSlack struct {
 	fail  func(int) error
 }
 
-func (s *statusSlack) SendStatus(_ context.Context, status gateway.RequestStatus, text string) (gateway.StatusReceipt, error) {
+func (s *statusSlack) SendStatus(_ context.Context, status gateway.GatewayJobProgress, text string) (gateway.StatusReceipt, error) {
 	s.calls = append(s.calls, statusCall{status, text})
 	s.order = append(s.order, "status")
 	if s.fail != nil {
@@ -37,7 +37,7 @@ func (s *statusSlack) SendStatus(_ context.Context, status gateway.RequestStatus
 	}
 	return gateway.StatusReceipt{SlackTS: "2.000001"}, nil
 }
-func (s *statusSlack) Send(_ context.Context, d gateway.Delivery) (string, error) {
+func (s *statusSlack) Send(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
 	s.order = append(s.order, "final")
 	return "3.000001", nil
 }
@@ -99,10 +99,10 @@ func TestStatusUnknownUpdateRetriesLatestSnapshotWithoutNewPost(t *testing.T) {
 	statusStep(t, w, "urgent", false)
 	state, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	j := state.Jobs[0]
+	j := state.GatewayJobs[0]
 	now = now.Add(31 * time.Second)
 	storetest.Must(t, s.RecordObservation(ctx, j.ID, "completed", now))
-	storetest.Must(t, s.Complete(ctx, j.ID, j.RequestID, "latest", []gateway.ReplyPart{{Text: "latest", Format: gateway.ReplyPlain}}))
+	storetest.Must(t, s.Complete(ctx, j.ID, j.GatewayRequestID, "latest", []gateway.ReplyPart{{Text: "latest", Format: gateway.ReplyPlain}}))
 	statusStep(t, w, "urgent", true)
 	if len(sender.calls) != 3 || sender.calls[2].Status.SlackTS != "2.000001" || sender.calls[2].Status.Phase != "delivering" {
 		t.Fatal("update replayed obsolete status or created a new message")
@@ -195,7 +195,7 @@ func TestStatusChecksOriginalAuthorAndRevocationOnEveryWrite(t *testing.T) {
 			}
 			metadata, err := s.Status(ctx, 10)
 			storetest.Must(t, err)
-			if metadata.RequestStatuses[0].Reason != "policy_denied" {
+			if metadata.GatewayJobs[0].ProgressReason != "policy_denied" {
 				t.Fatal("missing denial metadata")
 			}
 		})
@@ -214,7 +214,7 @@ func TestStatusMetadataFailuresAreDurableAndFailClosed(t *testing.T) {
 		}
 		metadata, err := s.Status(context.Background(), 10)
 		storetest.Must(t, err)
-		if metadata.RequestStatuses[0].State != "ready" || metadata.RequestStatuses[0].Reason != "policy_unavailable" {
+		if metadata.GatewayJobs[0].ProgressState != "ready" || metadata.GatewayJobs[0].ProgressReason != "policy_unavailable" {
 			t.Fatal("unsent status not preserved")
 		}
 	}
@@ -230,7 +230,7 @@ func TestOutboundFairnessPacingAndHeartbeatPriority(t *testing.T) {
 	accept(t, s, storetest.Message("ack1", "one", "bob"))
 	accept(t, s, storetest.Message("ack2", "two", "carol"))
 	sender := &statusSlack{}
-	w := &gateway.OutboundWorker{Delivery: &gateway.DeliveryWorker{Store: s, Sender: sender, Policy: policy()}, Status: &gateway.StatusWorker{Store: s, Sender: sender, Policy: policy(), Now: func() time.Time { return now }}, Now: func() time.Time { return now }, Interval: time.Second}
+	w := &gateway.OutboundWorker{SlackOutgoingMessage: &gateway.DeliveryWorker{Store: s, Sender: sender, Policy: policy()}, Status: &gateway.StatusWorker{Store: s, Sender: sender, Policy: policy(), Now: func() time.Time { return now }}, Now: func() time.Time { return now }, Interval: time.Second}
 	expected := []string{"final", "status", "final", "status", "final"}
 	for i, want := range expected {
 		worked, err := w.Step(context.Background())
@@ -339,7 +339,7 @@ func TestNativeStatusErrorsAndDeliveryUseExistingWorkers(t *testing.T) {
 			statusStep(t, statuses, "urgent", true)
 			work(t, gateway.Worker{Store: s, Policy: policy(), Clients: &fakeAgently{}, AgentID: "steward"})
 			delivery := &gateway.DeliveryWorker{Store: s, Sender: sender, Policy: policy()}
-			outbound := &gateway.OutboundWorker{Delivery: delivery, Status: statuses, Now: func() time.Time { return now }}
+			outbound := &gateway.OutboundWorker{SlackOutgoingMessage: delivery, Status: statuses, Now: func() time.Time { return now }}
 			worked, err := outbound.Step(ctx)
 			storetest.Must(t, err)
 			if !worked || sender.order[len(sender.order)-1] != "final" {
@@ -395,7 +395,7 @@ func TestNativeStatusRechecksOriginalAuthor(t *testing.T) {
 	}
 	state, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	if state.AgentSessions[0].Reason != "policy_denied" {
+	if state.SlackAgentSessionPublications[0].Reason != "policy_denied" {
 		t.Fatal("denial not persisted")
 	}
 }
@@ -408,7 +408,7 @@ func TestHybridTargetFailuresSurviveRestartWithoutBlockingOtherTargetOrAnswer(t 
 				s, reopen := database(t)
 				now := time.Now()
 				if kind == gateway.SendRateLimited {
-					// Delivery uses the wall clock. Keep its persisted cooldown in
+					// SlackOutgoingMessage uses the wall clock. Keep its persisted cooldown in
 					// the past while exercising status retry with a controlled clock.
 					now = now.Add(-2 * time.Minute)
 				}

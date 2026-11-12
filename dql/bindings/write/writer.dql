@@ -7,7 +7,7 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 
-#define($_ = $Rows<[]*Binding>(body/data))
-#define($_ = $Data<[]*Binding>(output/body))
+#define($_ = $Rows<[]*ConversationBinding>(body/data))
+#define($_ = $Data<[]*ConversationBinding>(output/body))
 
-SELECT bindings.*, type(bindings,'Binding') FROM conversation_bindings bindings
+SELECT conversation_bindings.*, type(conversation_bindings,'ConversationBinding') FROM conversation_binding conversation_bindings

@@ -2,6 +2,32 @@
 
 package read
 
+import (
+	time "time"
+)
+
+func (input *Input) SetIntegrationID(value int) {
+	if input == nil {
+		return
+	}
+	input.IntegrationID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.IntegrationID = true
+}
+
+func (input *Input) SetIntegrationName(value string) {
+	if input == nil {
+		return
+	}
+	input.IntegrationName = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.IntegrationName = true
+}
+
 func (input *Input) SetID(value int64) {
 	if input == nil {
 		return
@@ -24,7 +50,7 @@ func (input *Input) SetMode(value string) {
 	input.Has.Mode = true
 }
 
-func (input *Input) SetNow(value int64) {
+func (input *Input) SetNow(value time.Time) {
 	if input == nil {
 		return
 	}

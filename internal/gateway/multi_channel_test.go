@@ -109,7 +109,7 @@ func TestMultiChannelConversationAndDeliveryAcrossRestart(t *testing.T) {
 	}
 	status, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	if len(status.Bindings) != 2 || status.Jobs[0].AuthorID != "alice" || status.Jobs[1].AuthorID != "bob" || status.Deliveries[0].ChannelID != "C2" {
+	if len(status.ConversationBindings) != 2 || status.GatewayJobs[0].AuthorID != "alice" || status.GatewayJobs[1].AuthorID != "bob" || status.SlackOutgoingMessages[0].ChannelID != "C2" {
 		t.Fatal("multi-channel diagnostics missing")
 	}
 }
@@ -161,7 +161,7 @@ func TestPolicyChangeAfterRestartRejectsQueuedButNotOtherChannels(t *testing.T) 
 	}
 	status, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	if status.Jobs[1].State != "rejected" || status.Jobs[1].Reason != "policy_denied" || status.Jobs[0].State != "completed" {
+	if status.GatewayJobs[1].State != "rejected" || status.GatewayJobs[1].Reason != "policy_denied" || status.GatewayJobs[0].State != "completed" {
 		t.Fatal("incorrect queue disposition")
 	}
 }
@@ -182,7 +182,7 @@ func TestPolicyDenialOnExistingTurnQuarantinesWithoutQueryReplay(t *testing.T) {
 	status, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
 	_, queries := backend.snapshot()
-	if len(queries) != 1 || status.Jobs[0].State != "needs_review" || status.Jobs[0].Reason != "policy_denied" || len(status.Deliveries) != 0 {
+	if len(queries) != 1 || status.GatewayJobs[0].State != "needs_review" || status.GatewayJobs[0].Reason != "policy_denied" || len(status.SlackOutgoingMessages) != 0 {
 		t.Fatal("denied turn replayed or incorrectly rejected")
 	}
 }
@@ -204,7 +204,7 @@ func TestPolicyMetadataFailureBeforeQueryHasNoBackendSideEffects(t *testing.T) {
 			}
 			status, err := s.Status(context.Background(), 10)
 			storetest.Must(t, err)
-			if status.Jobs[0].State != "needs_review" || len(status.Deliveries) != 0 {
+			if status.GatewayJobs[0].State != "needs_review" || len(status.SlackOutgoingMessages) != 0 {
 				t.Fatal("metadata failure not quarantined")
 			}
 		})
@@ -255,8 +255,8 @@ func TestOutboundRechecksOriginalAuthorAndChannelBeforePost(t *testing.T) {
 			}
 			status, statusErr := s.Status(ctx, 10)
 			storetest.Must(t, statusErr)
-			if status.Deliveries[0].State != tc.state {
-				t.Fatalf("state %s", status.Deliveries[0].State)
+			if status.SlackOutgoingMessages[0].State != tc.state {
+				t.Fatalf("state %s", status.SlackOutgoingMessages[0].State)
 			}
 			if len(tc.directory.fresh) > 0 && !tc.directory.fresh[0] {
 				t.Fatal("post used stale channel info")

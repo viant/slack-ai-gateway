@@ -64,8 +64,8 @@ func TestBackendOutageKeepsSlackConnectedWithoutReplayingQuestions(t *testing.T)
 		<-ctx.Done()
 		return nil
 	})
-	deliveries := make(chan gateway.Delivery, 8)
-	r.Sender = senderFunc(func(_ context.Context, d gateway.Delivery) (string, error) {
+	deliveries := make(chan gateway.SlackOutgoingMessage, 8)
+	r.Sender = senderFunc(func(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
 		deliveries <- d
 		return "confirmed", nil
 	})
@@ -99,7 +99,7 @@ func TestBackendOutageKeepsSlackConnectedWithoutReplayingQuestions(t *testing.T)
 	for range 2 {
 		select {
 		case d := <-deliveries:
-			if !strings.Contains(d.Text, "Viant Steward") || !strings.Contains(d.Text, "not submitted") {
+			if !strings.Contains(d.Text, "backend is temporarily unavailable") || !strings.Contains(d.Text, "not submitted") || !strings.Contains(d.Text, "try again later") {
 				t.Fatalf("unexpected outage reply: %s", d.Text)
 			}
 		case err := <-done:
@@ -194,7 +194,7 @@ func TestBackendRecoveryAfterRestartOnlyAttachesStartedQuery(t *testing.T) {
 		return nil
 	})
 	sent := make(chan struct{}, 1)
-	r.Sender = senderFunc(func(_ context.Context, d gateway.Delivery) (string, error) {
+	r.Sender = senderFunc(func(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
 		if d.Text == "recovered result" {
 			sent <- struct{}{}
 		}
@@ -242,9 +242,9 @@ func (b *controlledAvailability) WithReady(fn func() error) error {
 	return fn()
 }
 
-type outagePolicy func(context.Context, gateway.Message, *gateway.Binding) (gateway.Decision, error)
+type outagePolicy func(context.Context, gateway.Message, *gateway.ConversationBinding) (gateway.Decision, error)
 
-func (f outagePolicy) Authorize(ctx context.Context, m gateway.Message, b *gateway.Binding) (gateway.Decision, error) {
+func (f outagePolicy) Authorize(ctx context.Context, m gateway.Message, b *gateway.ConversationBinding) (gateway.Decision, error) {
 	return f(ctx, m, b)
 }
 
@@ -265,7 +265,7 @@ func TestBackendOutageDuringPolicyDoesNotOverwriteLocalReply(t *testing.T) {
 				_, err := s.Enqueue(ctx, m)
 				storetest.Must(t, err)
 				availability := &controlledAvailability{state: gateway.BackendReady}
-				policy := outagePolicy(func(ctx context.Context, m gateway.Message, binding *gateway.Binding) (gateway.Decision, error) {
+				policy := outagePolicy(func(ctx context.Context, m gateway.Message, binding *gateway.ConversationBinding) (gateway.Decision, error) {
 					availability.state = gateway.BackendRecovering
 					storetest.Must(t, s.FailUnstarted(ctx, "backend_unavailable"))
 					if recovered {
@@ -284,8 +284,8 @@ func TestBackendOutageDuringPolicyDoesNotOverwriteLocalReply(t *testing.T) {
 				storetest.Must(t, err)
 				state, err := s.Status(ctx, 10)
 				storetest.Must(t, err)
-				if !worked || len(state.Jobs) != 1 || state.Jobs[0].State != "completed" || state.Jobs[0].Reason != "backend_unavailable" || state.Jobs[0].TurnID != "" || b.queries.Load() != 0 {
-					t.Fatalf("stale policy result replaced outage disposition: worked=%t state=%+v queries=%d", worked, state.Jobs, b.queries.Load())
+				if !worked || len(state.GatewayJobs) != 1 || state.GatewayJobs[0].State != "completed" || state.GatewayJobs[0].Reason != "backend_unavailable" || state.GatewayJobs[0].BackendSubmissionStartedAt != 0 || b.queries.Load() != 0 {
+					t.Fatalf("stale policy result replaced outage disposition: worked=%t state=%+v queries=%d", worked, state.GatewayJobs, b.queries.Load())
 				}
 				d, err := s.ClaimDelivery(ctx)
 				storetest.Must(t, err)
@@ -326,8 +326,8 @@ func TestBackendOutageAfterCreateSuccessClosesOnlyUnsubmittedQuestion(t *testing
 	storetest.Must(t, err)
 	state, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	if !worked || len(state.Jobs) != 1 || state.Jobs[0].State != "completed" || state.Jobs[0].Reason != "backend_unavailable" || state.Jobs[0].TurnID != "" || b.queries.Load() != 0 {
-		t.Fatalf("late create left unsubmitted work stuck: worked=%t state=%+v queries=%d", worked, state.Jobs, b.queries.Load())
+	if !worked || len(state.GatewayJobs) != 1 || state.GatewayJobs[0].State != "completed" || state.GatewayJobs[0].Reason != "backend_unavailable" || state.GatewayJobs[0].BackendSubmissionStartedAt != 0 || b.queries.Load() != 0 {
+		t.Fatalf("late create left unsubmitted work stuck: worked=%t state=%+v queries=%d", worked, state.GatewayJobs, b.queries.Load())
 	}
 	binding, err := s.GetBinding(ctx, storetest.Message("", "one", "alice").ThreadKey)
 	storetest.Must(t, err)

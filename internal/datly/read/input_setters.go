@@ -2,6 +2,32 @@
 
 package read
 
+import (
+	time "time"
+)
+
+func (input *Input) SetIntegrationID(value int) {
+	if input == nil {
+		return
+	}
+	input.IntegrationID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.IntegrationID = true
+}
+
+func (input *Input) SetIntegrationName(value string) {
+	if input == nil {
+		return
+	}
+	input.IntegrationName = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.IntegrationName = true
+}
+
 func (input *Input) SetMode(value string) {
 	if input == nil {
 		return
@@ -13,7 +39,7 @@ func (input *Input) SetMode(value string) {
 	input.Has.Mode = true
 }
 
-func (input *Input) SetNow(value int64) {
+func (input *Input) SetNow(value time.Time) {
 	if input == nil {
 		return
 	}
@@ -90,24 +116,24 @@ func (input *Input) SetChannelID(value string) {
 	input.Has.ChannelID = true
 }
 
-func (input *Input) SetRootThreadTS(value string) {
+func (input *Input) SetSlackThreadRootMessageID(value string) {
 	if input == nil {
 		return
 	}
-	input.RootThreadTS = value
+	input.SlackThreadRootMessageID = value
 	if input.Has == nil {
 		input.Has = &InputHas{}
 	}
-	input.Has.RootThreadTS = true
+	input.Has.SlackThreadRootMessageID = true
 }
 
-func (input *Input) SetRequestID(value string) {
+func (input *Input) SetGatewayRequestID(value string) {
 	if input == nil {
 		return
 	}
-	input.RequestID = value
+	input.GatewayRequestID = value
 	if input.Has == nil {
 		input.Has = &InputHas{}
 	}
-	input.Has.RequestID = true
+	input.Has.GatewayRequestID = true
 }

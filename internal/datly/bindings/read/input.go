@@ -4,18 +4,24 @@ package read
 
 // Input is the generated input scaffold for reader.
 type Input struct {
-	ID           int64     `parameter:"ID,kind=query,in=ID,dataType=int64,required=false" predicate:"equal,b,id"`
-	WorkspaceID  string    `parameter:"WorkspaceID,kind=query,in=WorkspaceID,dataType=string,required=false" predicate:"equal,b,workspace_id"`
-	ChannelID    string    `parameter:"ChannelID,kind=query,in=ChannelID,dataType=string,required=false" predicate:"equal,b,channel_id"`
-	RootThreadTS string    `parameter:"RootThreadTS,kind=query,in=RootThreadTS,dataType=string,required=false" predicate:"equal,b,root_thread_ts"`
-	State        string    `parameter:"State,kind=query,in=State,dataType=string,required=false" predicate:"equal,b,state"`
-	Has          *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
+	IntegrationID            int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
+	Mode                     string    `parameter:"Mode,kind=query,in=mode,dataType=string,value=key,required=false"`
+	ID                       int64     `parameter:"ID,kind=query,in=ID,dataType=int64,required=false" predicate:"equal,b,id"`
+	AppID                    string    `parameter:"AppID,kind=query,in=AppID,dataType=string,required=false" predicate:"equal,group=1,integration,slack_app_id"`
+	WorkspaceID              string    `parameter:"WorkspaceID,kind=query,in=WorkspaceID,dataType=string,required=false" predicate:"equal,group=1,integration,slack_workspace_id"`
+	ChannelID                string    `parameter:"ChannelID,kind=query,in=ChannelID,dataType=string,required=false" predicate:"equal,b,slack_channel_id"`
+	SlackThreadRootMessageID string    `parameter:"SlackThreadRootMessageID,kind=query,in=SlackThreadRootMessageID,dataType=string,required=false" predicate:"equal,b,slack_thread_root_message_id"`
+	State                    string    `parameter:"State,kind=query,in=State,dataType=string,required=false" predicate:"equal,b,gateway_binding_state"`
+	Has                      *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
 }
 
 type InputHas struct {
-	ID           bool
-	WorkspaceID  bool
-	ChannelID    bool
-	RootThreadTS bool
-	State        bool
+	IntegrationID            bool
+	Mode                     bool
+	ID                       bool
+	AppID                    bool
+	WorkspaceID              bool
+	ChannelID                bool
+	SlackThreadRootMessageID bool
+	State                    bool
 }

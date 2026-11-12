@@ -2,30 +2,38 @@
 
 package read
 
+import (
+	time "time"
+)
+
 // Input is the generated input scaffold for reader.
 type Input struct {
-	Mode         string    `parameter:"Mode,kind=query,in=mode,dataType=string,value=key,required=false"`
-	Now          int64     `parameter:"Now,kind=query,in=now,dataType=int64,required=false"`
-	ID           int64     `parameter:"ID,kind=query,in=ID,dataType=int64,required=false" predicate:"equal,j,id"`
-	AppID        string    `parameter:"AppID,kind=query,in=AppID,dataType=string,required=false" predicate:"equal,j,app_id"`
-	EventID      string    `parameter:"EventID,kind=query,in=EventID,dataType=string,required=false" predicate:"equal,j,event_id"`
-	State        string    `parameter:"State,kind=query,in=State,dataType=string,required=false" predicate:"equal,j,state"`
-	WorkspaceID  string    `parameter:"WorkspaceID,kind=query,in=WorkspaceID,dataType=string,required=false" predicate:"equal,j,workspace_id"`
-	ChannelID    string    `parameter:"ChannelID,kind=query,in=ChannelID,dataType=string,required=false" predicate:"equal,j,channel_id"`
-	RootThreadTS string    `parameter:"RootThreadTS,kind=query,in=RootThreadTS,dataType=string,required=false" predicate:"equal,j,root_thread_ts"`
-	RequestID    string    `parameter:"RequestID,kind=query,in=RequestID,dataType=string,required=false" predicate:"equal,j,request_id"`
-	Has          *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
+	IntegrationID            int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
+	IntegrationName          string    `parameter:"IntegrationName,kind=query,in=IntegrationName,dataType=string,value=,required=false"`
+	Mode                     string    `parameter:"Mode,kind=query,in=mode,dataType=string,value=key,required=false"`
+	Now                      time.Time `parameter:"Now,kind=query,in=now,dataType=time.Time,required=false"`
+	ID                       int64     `parameter:"ID,kind=query,in=ID,dataType=int64,required=false" predicate:"equal,j,id"`
+	AppID                    string    `parameter:"AppID,kind=query,in=AppID,dataType=string,required=false" predicate:"equal,group=1,integration,slack_app_id"`
+	EventID                  string    `parameter:"EventID,kind=query,in=EventID,dataType=string,required=false" predicate:"equal,j,slack_event_id"`
+	State                    string    `parameter:"State,kind=query,in=State,dataType=string,required=false" predicate:"equal,j,gateway_execution_state"`
+	WorkspaceID              string    `parameter:"WorkspaceID,kind=query,in=WorkspaceID,dataType=string,required=false" predicate:"equal,group=1,integration,slack_workspace_id"`
+	ChannelID                string    `parameter:"ChannelID,kind=query,in=ChannelID,dataType=string,required=false" predicate:"equal,j,slack_channel_id"`
+	SlackThreadRootMessageID string    `parameter:"SlackThreadRootMessageID,kind=query,in=SlackThreadRootMessageID,dataType=string,required=false" predicate:"equal,j,slack_thread_root_message_id"`
+	GatewayRequestID         string    `parameter:"GatewayRequestID,kind=query,in=GatewayRequestID,dataType=string,required=false" predicate:"equal,j,gateway_request_id"`
+	Has                      *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
 }
 
 type InputHas struct {
-	Mode         bool
-	Now          bool
-	ID           bool
-	AppID        bool
-	EventID      bool
-	State        bool
-	WorkspaceID  bool
-	ChannelID    bool
-	RootThreadTS bool
-	RequestID    bool
+	IntegrationID            bool
+	IntegrationName          bool
+	Mode                     bool
+	Now                      bool
+	ID                       bool
+	AppID                    bool
+	EventID                  bool
+	State                    bool
+	WorkspaceID              bool
+	ChannelID                bool
+	SlackThreadRootMessageID bool
+	GatewayRequestID         bool
 }

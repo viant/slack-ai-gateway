@@ -13,15 +13,15 @@ func (input *Input) SetExpectedState(value string) {
 	input.Has.ExpectedState = true
 }
 
-func (input *Input) SetJobs(value []*Job) {
+func (input *Input) SetGatewayJobs(value []*GatewayJob) {
 	if input == nil {
 		return
 	}
-	input.Jobs = value
+	input.GatewayJobs = value
 	if input.Has == nil {
 		input.Has = &InputHas{}
 	}
-	input.Has.Jobs = true
+	input.Has.GatewayJobs = true
 }
 
 func (input *Input) SetWriterKeys(value []WriterKeysRow) {
@@ -46,24 +46,13 @@ func (input *Input) SetCurrentWriter(value []*CurrentWriterView) {
 	input.Has.CurrentWriter = true
 }
 
-func (input *Input) SetCurrentStatus(value []*CurrentStatusView) {
+func (input *Input) SetCurrentSlackOutgoingMessages(value []*CurrentSlackOutgoingMessagesView) {
 	if input == nil {
 		return
 	}
-	input.CurrentStatus = value
+	input.CurrentSlackOutgoingMessages = value
 	if input.Has == nil {
 		input.Has = &InputHas{}
 	}
-	input.Has.CurrentStatus = true
-}
-
-func (input *Input) SetCurrentOutbox(value []*CurrentOutboxView) {
-	if input == nil {
-		return
-	}
-	input.CurrentOutbox = value
-	if input.Has == nil {
-		input.Has = &InputHas{}
-	}
-	input.Has.CurrentOutbox = true
+	input.Has.CurrentSlackOutgoingMessages = true
 }

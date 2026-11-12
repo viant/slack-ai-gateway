@@ -21,6 +21,7 @@ import (
 	presentation "github.com/viant/agently-core/sdk/slack"
 	"github.com/viant/slack-ai-gateway/internal/agently"
 	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
@@ -39,16 +40,19 @@ func TestResponsePresentationThroughHTTPAndDurableOutbox(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/recovery=%v", mode, recoverQuery), func(t *testing.T) {
 				ctx := context.Background()
 				path := filepath.Join(t.TempDir(), "gateway.sqlite")
-				s, err := sqlite.Open(ctx, path, true)
+				root, err := sqlite.Open(ctx, path, true)
 				storetest.Must(t, err)
-				defer func() { storetest.Must(t, s.Close()) }()
-				storetest.Must(t, s.Migrate(ctx))
+				defer func() { storetest.Must(t, root.Close()) }()
+				storetest.Must(t, root.Migrate(ctx))
+				var s storage.Store
+				var integrationID int64
 				reopen := func() {
-					storetest.Must(t, s.Close())
-					s, err = sqlite.Open(ctx, path, false)
+					storetest.Must(t, root.Close())
+					root, err = sqlite.Open(ctx, path, false)
 					storetest.Must(t, err)
-					storetest.Must(t, s.CheckSchema(ctx))
-					storetest.Must(t, s.Recover(ctx))
+					storetest.Must(t, root.CheckSchema(ctx))
+					s = root.Scope(integrationID)
+					storetest.Must(t, root.Recover(ctx))
 				}
 				content := strings.Repeat("Public conclusion. 🙂\n", 700) + "\n```forge-report\n" +
 					`{"version":1,"id":"example","sequence":1,"mode":"start","grammar":"report-document-v1","title":"Example report","blocks":[{"id":"summary","kind":"markdownBlock","markdown":"Authored summary."},{"id":"details","kind":"markdownBlock","markdown":"Authored detail."}]}` +
@@ -103,6 +107,12 @@ func TestResponsePresentationThroughHTTPAndDurableOutbox(t *testing.T) {
 				baseURL := backend.URL + "/app/"
 				factory, err := agently.NewFactory(baseURL, backend.Client(), presentationCredentials{})
 				storetest.Must(t, err)
+				identity := storetest.DefaultIntegration()
+				identity.BackendAgentID, identity.BackendURL = "example", strings.TrimRight(baseURL, "/")
+				registered, err := root.ReconcileIntegrations(ctx, []storage.Integration{identity})
+				storetest.Must(t, err)
+				integrationID = registered[0].ID
+				s = root.Scope(integrationID)
 				m := storetest.Message("example-event", "1.000001", "example-user")
 				_, err = (gateway.Intake{Store: s, Route: testRoute}).Accept(ctx, m)
 				storetest.Must(t, err)
@@ -120,7 +130,7 @@ func TestResponsePresentationThroughHTTPAndDurableOutbox(t *testing.T) {
 				if recoverQuery {
 					status, err := s.Status(ctx, 10)
 					storetest.Must(t, err)
-					if len(status.Deliveries) != 0 {
+					if len(status.SlackOutgoingMessages) != 0 {
 						t.Fatal("nonterminal query published a reply")
 					}
 					reopen()
@@ -148,7 +158,7 @@ func TestResponsePresentationThroughHTTPAndDurableOutbox(t *testing.T) {
 				db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
 				storetest.Must(t, err)
 				var stored string
-				storetest.Must(t, db.QueryRowContext(ctx, "SELECT result_text FROM inbox_jobs WHERE event_id=?", m.EventID).Scan(&stored))
+				storetest.Must(t, db.QueryRowContext(ctx, "SELECT gateway_execution_result_text FROM gateway_job WHERE slack_event_id=?", m.EventID).Scan(&stored))
 				storetest.Must(t, db.Close())
 				if stored != content {
 					t.Fatal("presentation replaced canonical result")

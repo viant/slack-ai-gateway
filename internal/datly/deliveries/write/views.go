@@ -2,90 +2,88 @@
 
 package write
 
-// Delivery is generated canonical view metadata for writer.
-type Delivery struct {
-	Id            int           `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	JobId         int           `sqlx:"job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	WorkspaceId   string        `sqlx:"workspace_id,required=true"`
-	ChannelId     string        `sqlx:"channel_id,required=true"`
-	RootThreadTs  string        `sqlx:"root_thread_ts,required=true"`
-	Part          int           `sqlx:"part,required=true"`
-	Content       string        `sqlx:"content,required=true"`
-	State         string        `sqlx:"state,required=true"`
-	Attempts      int           `sqlx:"attempts,required=true"`
-	NextAttemptAt int           `sqlx:"next_attempt_at,required=true"`
-	SlackTs       string        `sqlx:"slack_ts,required=true"`
-	CreatedAt     int           `sqlx:"created_at,required=true"`
-	UpdatedAt     int           `sqlx:"updated_at,required=true"`
-	Format        string        `sqlx:"format,required=true"`
-	Resolutions   []*Resolution `on:"Id:deliveries.id=DeliveryId:resolutions.delivery_id" view:"resolutions,type=Resolution,table=delivery_resolutions"`
-	Has           *DeliveryHas  `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"DeliveryHas"`
+import (
+	time "time"
+)
+
+// SlackOutgoingMessage is generated canonical view metadata for writer.
+type SlackOutgoingMessage struct {
+	Id                         int                        `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	JobId                      int                        `sqlx:"job_id,refTable=gateway_job,refColumn=id,required=true"`
+	SlackMessageIndex          int                        `sqlx:"slack_message_index,required=true"`
+	SlackMessageText           *string                    `json:",omitempty" sqlx:"slack_message_text"`
+	SlackMessageKind           string                     `sqlx:"slack_message_kind,required=true"`
+	SlackDeliveryState         string                     `sqlx:"slack_delivery_state,required=true"`
+	SlackDeliveryAttempts      int                        `sqlx:"slack_delivery_attempts,required=true"`
+	SlackDeliveryNextAttemptAt *time.Time                 `json:",omitempty" sqlx:"slack_delivery_next_attempt_at"`
+	SlackMessageId             string                     `sqlx:"slack_message_id,required=true"`
+	CreatedAt                  time.Time                  `sqlx:"created_at,required=true"`
+	UpdatedAt                  time.Time                  `sqlx:"updated_at,required=true"`
+	SlackMessageFormat         string                     `sqlx:"slack_message_format,required=true"`
+	SlackDeliveryResolutions   []*SlackDeliveryResolution `on:"Id:slack_outgoing_messages.id=OutgoingMessageId:slack_delivery_resolutions.outgoing_message_id" view:"slack_delivery_resolutions,type=SlackDeliveryResolution,table=slack_delivery_resolution"`
+	Has                        *SlackOutgoingMessageHas   `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"SlackOutgoingMessageHas"`
 }
 
-type DeliveryHas struct {
-	Id            bool
-	JobId         bool
-	WorkspaceId   bool
-	ChannelId     bool
-	RootThreadTs  bool
-	Part          bool
-	Content       bool
-	State         bool
-	Attempts      bool
-	NextAttemptAt bool
-	SlackTs       bool
-	CreatedAt     bool
-	UpdatedAt     bool
-	Format        bool
-	Resolutions   bool
+type SlackOutgoingMessageHas struct {
+	Id                         bool
+	JobId                      bool
+	SlackMessageIndex          bool
+	SlackMessageText           bool
+	SlackMessageKind           bool
+	SlackDeliveryState         bool
+	SlackDeliveryAttempts      bool
+	SlackDeliveryNextAttemptAt bool
+	SlackMessageId             bool
+	CreatedAt                  bool
+	UpdatedAt                  bool
+	SlackMessageFormat         bool
+	SlackDeliveryResolutions   bool
 }
 
-// Resolution is generated canonical view metadata for writer.
-type Resolution struct {
-	Id                    int            `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	DeliveryId            int            `sqlx:"delivery_id,refTable=outbox_messages,refColumn=id,required=true"`
-	Action                string         `sqlx:"action,required=true"`
-	SlackTs               string         `sqlx:"slack_ts,required=true"`
-	DuplicateRiskAccepted int            `sqlx:"duplicate_risk_accepted,required=true"`
-	CreatedAt             int            `sqlx:"created_at,required=true"`
-	Has                   *ResolutionHas `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"ResolutionHas"`
+// SlackDeliveryResolution is generated canonical view metadata for writer.
+type SlackDeliveryResolution struct {
+	Id                            int                         `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	OutgoingMessageId             int                         `sqlx:"outgoing_message_id,refTable=slack_outgoing_message,refColumn=id,required=true"`
+	ResolutionAction              string                      `sqlx:"resolution_action,required=true"`
+	SlackMessageId                string                      `sqlx:"slack_message_id,required=true"`
+	DuplicateDeliveryRiskAccepted int                         `sqlx:"duplicate_delivery_risk_accepted,required=true"`
+	CreatedAt                     time.Time                   `sqlx:"created_at,required=true"`
+	Has                           *SlackDeliveryResolutionHas `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"SlackDeliveryResolutionHas"`
 }
 
-type ResolutionHas struct {
-	Id                    bool
-	DeliveryId            bool
-	Action                bool
-	SlackTs               bool
-	DuplicateRiskAccepted bool
-	CreatedAt             bool
+type SlackDeliveryResolutionHas struct {
+	Id                            bool
+	OutgoingMessageId             bool
+	ResolutionAction              bool
+	SlackMessageId                bool
+	DuplicateDeliveryRiskAccepted bool
+	CreatedAt                     bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id            int    `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	JobId         int    `json:"jobId" sqlx:"job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	WorkspaceId   string `json:"workspaceId" sqlx:"workspace_id,required=true"`
-	ChannelId     string `json:"channelId" sqlx:"channel_id,required=true"`
-	RootThreadTs  string `json:"rootThreadTs" sqlx:"root_thread_ts,required=true"`
-	Part          int    `json:"part" sqlx:"part,required=true"`
-	Content       string `json:"content" sqlx:"content,required=true"`
-	State         string `json:"state" sqlx:"state,required=true"`
-	Attempts      int    `json:"attempts" sqlx:"attempts,required=true"`
-	NextAttemptAt int    `json:"nextAttemptAt" sqlx:"next_attempt_at,required=true"`
-	SlackTs       string `json:"slackTs" sqlx:"slack_ts,required=true"`
-	CreatedAt     int    `json:"createdAt" sqlx:"created_at,required=true"`
-	UpdatedAt     int    `json:"updatedAt" sqlx:"updated_at,required=true"`
-	Format        string `json:"format" sqlx:"format,required=true"`
+	Id                         int        `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	JobId                      int        `json:"jobId" sqlx:"job_id,refTable=gateway_job,refColumn=id,required=true"`
+	SlackMessageIndex          int        `json:"slackMessageIndex" sqlx:"slack_message_index,required=true"`
+	SlackMessageText           *string    `json:"slackMessageText,omitempty" sqlx:"slack_message_text"`
+	SlackMessageKind           string     `json:"slackMessageKind" sqlx:"slack_message_kind,required=true"`
+	SlackDeliveryState         string     `json:"slackDeliveryState" sqlx:"slack_delivery_state,required=true"`
+	SlackDeliveryAttempts      int        `json:"slackDeliveryAttempts" sqlx:"slack_delivery_attempts,required=true"`
+	SlackDeliveryNextAttemptAt *time.Time `json:"slackDeliveryNextAttemptAt,omitempty" sqlx:"slack_delivery_next_attempt_at"`
+	SlackMessageId             string     `json:"slackMessageId" sqlx:"slack_message_id,required=true"`
+	CreatedAt                  time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	UpdatedAt                  time.Time  `json:"updatedAt" sqlx:"updated_at,required=true"`
+	SlackMessageFormat         string     `json:"slackMessageFormat" sqlx:"slack_message_format,required=true"`
 }
 
-// CurrentResolutionsView is generated canonical view metadata for writer.
-type CurrentResolutionsView struct {
-	Id                    int    `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	DeliveryId            int    `json:"deliveryId" sqlx:"delivery_id,refTable=outbox_messages,refColumn=id,required=true"`
-	Action                string `json:"action" sqlx:"action,required=true"`
-	SlackTs               string `json:"slackTs" sqlx:"slack_ts,required=true"`
-	DuplicateRiskAccepted int    `json:"duplicateRiskAccepted" sqlx:"duplicate_risk_accepted,required=true"`
-	CreatedAt             int    `json:"createdAt" sqlx:"created_at,required=true"`
+// CurrentSlackDeliveryResolutionsView is generated canonical view metadata for writer.
+type CurrentSlackDeliveryResolutionsView struct {
+	Id                            int       `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	OutgoingMessageId             int       `json:"outgoingMessageId" sqlx:"outgoing_message_id,refTable=slack_outgoing_message,refColumn=id,required=true"`
+	ResolutionAction              string    `json:"resolutionAction" sqlx:"resolution_action,required=true"`
+	SlackMessageId                string    `json:"slackMessageId" sqlx:"slack_message_id,required=true"`
+	DuplicateDeliveryRiskAccepted int       `json:"duplicateDeliveryRiskAccepted" sqlx:"duplicate_delivery_risk_accepted,required=true"`
+	CreatedAt                     time.Time `json:"createdAt" sqlx:"created_at,required=true"`
 }
 
 type WriterKeysRow struct {

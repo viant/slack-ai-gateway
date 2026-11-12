@@ -1,0 +1,1 @@
+SELECT records.* FROM integration records

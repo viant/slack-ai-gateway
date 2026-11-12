@@ -15,6 +15,7 @@ import (
 
 	"github.com/viant/slack-ai-gateway/internal/gateway"
 	runner "github.com/viant/slack-ai-gateway/internal/runtime"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
@@ -29,11 +30,13 @@ func (f sourceFunc) Run(c context.Context, s gateway.EventSink, ready func()) er
 	return f(c, s, ready)
 }
 
-type senderFunc func(context.Context, gateway.Delivery) (string, error)
+type senderFunc func(context.Context, gateway.SlackOutgoingMessage) (string, error)
 
-func (f senderFunc) Send(c context.Context, d gateway.Delivery) (string, error) { return f(c, d) }
+func (f senderFunc) Send(c context.Context, d gateway.SlackOutgoingMessage) (string, error) {
+	return f(c, d)
+}
 
-func (f senderFunc) SendStatus(_ context.Context, s gateway.RequestStatus, _ string) (gateway.StatusReceipt, error) {
+func (f senderFunc) SendStatus(_ context.Context, s gateway.GatewayJobProgress, _ string) (gateway.StatusReceipt, error) {
 	if s.SlackTS != "" {
 		return gateway.StatusReceipt{SlackTS: s.SlackTS}, nil
 	}
@@ -61,23 +64,25 @@ func (b *backend) Query(ctx context.Context, q gateway.Query, _ func(gateway.Tur
 	return gateway.Turn{ID: q.MessageID, State: "completed", Content: "reply"}, nil
 }
 
-func setup(t *testing.T) (*runner.Runtime, *sqlite.Store, *backend) {
+func setup(t *testing.T) (*runner.Runtime, storage.Store, *backend) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "gateway.sqlite"), true)
 	storetest.Must(t, err)
 	t.Cleanup(func() { s.Close() })
 	storetest.Must(t, s.Migrate(ctx))
+	integrationID := storetest.RegisterDefault(t, s)
+	scope := s.Scope(integrationID)
 	b := &backend{}
-	r := &runner.Runtime{Store: s, Clients: b, AgentID: "steward", Route: gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"},
+	r := &runner.Runtime{Store: scope, Clients: b, AgentID: "steward", Route: gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"},
 		Policy: gateway.SharedChannelPolicy{AppID: "A", WorkspaceID: "T", ChannelID: "C", PrincipalID: "shared"},
 		Source: sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error { ready(); <-ctx.Done(); return nil }),
-		Sender: senderFunc(func(context.Context, gateway.Delivery) (string, error) { return "2.000001", nil }),
+		Sender: senderFunc(func(context.Context, gateway.SlackOutgoingMessage) (string, error) { return "2.000001", nil }),
 		Log:    slog.New(slog.NewTextHandler(io.Discard, nil))}
-	return r, s, b
+	return r, scope, b
 }
 
-func seedReply(t *testing.T, s *sqlite.Store, event, root string) {
+func seedReply(t *testing.T, s storage.Store, event, root string) {
 	t.Helper()
 	ctx := context.Background()
 	_, err := s.Enqueue(ctx, storetest.Message(event, root, "alice"))
@@ -128,7 +133,10 @@ func TestIdentityReadinessGatesAllWorkers(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	})
-	r.Sender = senderFunc(func(context.Context, gateway.Delivery) (string, error) { sent <- struct{}{}; return "2", nil })
+	r.Sender = senderFunc(func(context.Context, gateway.SlackOutgoingMessage) (string, error) {
+		sent <- struct{}{}
+		return "2", nil
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -212,7 +220,7 @@ func TestShutdownPersistsInFlightDelivery(t *testing.T) {
 		close(stopped)
 		return nil
 	})
-	r.Sender = senderFunc(func(ctx context.Context, _ gateway.Delivery) (string, error) {
+	r.Sender = senderFunc(func(ctx context.Context, _ gateway.SlackOutgoingMessage) (string, error) {
 		close(started)
 		select {
 		case <-release:
@@ -243,7 +251,7 @@ func TestShutdownPersistsInFlightDelivery(t *testing.T) {
 func TestCredentialRejectionStopsRuntimeWithoutLosingReply(t *testing.T) {
 	r, s, _ := setup(t)
 	seedReply(t, s, "first", "one")
-	r.Sender = senderFunc(func(context.Context, gateway.Delivery) (string, error) {
+	r.Sender = senderFunc(func(context.Context, gateway.SlackOutgoingMessage) (string, error) {
 		return "", &gateway.SendError{Kind: gateway.SendCredentials}
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -283,10 +291,10 @@ func TestBackendIdentityRejectionStopsIntakeAndPreservesPendingWork(t *testing.T
 	await(t, stopped)
 	status, err := s.Status(context.Background(), 10)
 	storetest.Must(t, err)
-	if b.queries.Load() != 1 || len(status.Deliveries) != 0 || status.Counts["inbox_jobs"]["needs_review"] != 1 || status.Counts["inbox_jobs"]["pending"] != 1 {
+	if b.queries.Load() != 1 || len(status.SlackOutgoingMessages) != 0 || status.Counts["gateway_job.gateway_execution_state"]["needs_review"] != 1 || status.Counts["gateway_job.gateway_execution_state"]["pending"] != 1 {
 		t.Fatal("unsafe auth failure recovery")
 	}
-	if status.Jobs[1].Reason != "backend_auth_or_identity_rejected" {
+	if status.GatewayJobs[1].Reason != "backend_auth_or_identity_rejected" {
 		t.Fatal("missing redacted review reason")
 	}
 }
@@ -313,23 +321,23 @@ func TestQueryReviewLogsPersistedMetadataWithoutContent(t *testing.T) {
 	storetest.Must(t, r.Run(ctx)) // Joins all workers before logs are inspected.
 	status, err := s.Status(context.Background(), 10)
 	storetest.Must(t, err)
-	if len(status.Jobs) != 1 || status.Jobs[0].State != "needs_review" || len(status.Deliveries) != 0 || b.queries.Load() != 1 || r.Delivered() != 0 {
+	if len(status.GatewayJobs) != 1 || status.GatewayJobs[0].State != "needs_review" || len(status.SlackOutgoingMessages) != 0 || b.queries.Load() != 1 || r.Delivered() != 0 {
 		t.Fatal("review caused replay or delivery, or was not persisted")
 	}
 	var record struct {
-		Level     string `json:"level"`
-		Message   string `json:"msg"`
-		JobID     int64  `json:"job_id"`
-		RequestID string `json:"request_id"`
-		Reason    string `json:"reason"`
+		Level            string `json:"level"`
+		Message          string `json:"msg"`
+		JobID            int64  `json:"job_id"`
+		GatewayRequestID string `json:"gateway_request_id"`
+		Reason           string `json:"reason"`
 	}
 	for _, line := range bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
 		if bytes.Contains(line, []byte(`"msg":"query_needs_review"`)) {
 			storetest.Must(t, json.Unmarshal(line, &record))
 		}
 	}
-	j := status.Jobs[0]
-	if record.Level != "WARN" || record.Message != "query_needs_review" || record.JobID != j.ID || record.RequestID != j.RequestID || record.Reason != "backend_protocol_or_access_error" || record.Reason != j.Reason {
+	j := status.GatewayJobs[0]
+	if record.Level != "WARN" || record.Message != "query_needs_review" || record.JobID != j.ID || record.GatewayRequestID != j.GatewayRequestID || record.Reason != "backend_protocol_or_access_error" || record.Reason != j.Reason {
 		t.Fatalf("unexpected review log: %s", logs.String())
 	}
 	if strings.Contains(logs.String(), "private-") {
@@ -344,7 +352,7 @@ func TestUncertainDeliveryDoesNotBlockOtherThreads(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sent := make(chan struct{}, 1)
-	r.Sender = senderFunc(func(_ context.Context, d gateway.Delivery) (string, error) {
+	r.Sender = senderFunc(func(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
 		if d.RootTS == "one" {
 			return "", &gateway.SendError{Kind: gateway.SendUnknown}
 		}
@@ -376,7 +384,7 @@ func (s brokenStore) Recover(ctx context.Context) error {
 	}
 	return s.Store.Recover(ctx)
 }
-func (s brokenStore) ClaimJob(context.Context) (*gateway.Job, error) {
+func (s brokenStore) ClaimJob(context.Context) (*gateway.GatewayJob, error) {
 	return nil, errors.New("secret-marker")
 }
 

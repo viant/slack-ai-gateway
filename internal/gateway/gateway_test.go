@@ -11,23 +11,25 @@ import (
 	"time"
 
 	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
-func database(t *testing.T) (*sqlite.Store, func() *sqlite.Store) {
+func database(t *testing.T) (storage.Store, func() storage.Store) {
 	t.Helper()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "gateway.sqlite")
 	s, err := sqlite.Open(ctx, path, true)
 	storetest.Must(t, err)
 	storetest.Must(t, s.Migrate(ctx))
+	integrationID := storetest.RegisterDefault(t, s)
 	t.Cleanup(func() {
 		if s != nil {
 			storetest.Must(t, s.Close())
 		}
 	})
-	return s, func() *sqlite.Store {
+	return s.Scope(integrationID), func() storage.Store {
 		storetest.Must(t, s.Close())
 		s = nil
 		var err error
@@ -35,7 +37,7 @@ func database(t *testing.T) (*sqlite.Store, func() *sqlite.Store) {
 		storetest.Must(t, err)
 		storetest.Must(t, s.CheckSchema(ctx))
 		storetest.Must(t, s.Recover(ctx))
-		return s
+		return s.Scope(integrationID)
 	}
 }
 
@@ -195,7 +197,7 @@ func TestSharedPolicyAndConfigurationChange(t *testing.T) {
 	m := storetest.Message("a", "one", "alice")
 	d, err := p.Authorize(ctx, m, nil)
 	storetest.Must(t, err)
-	b := &gateway.Binding{ThreadKey: m.ThreadKey, Decision: d, ConversationID: "existing"}
+	b := &gateway.ConversationBinding{ThreadKey: m.ThreadKey, Decision: d, ConversationID: "existing"}
 	m.AuthorID = "bob"
 	again, err := p.Authorize(ctx, m, b)
 	storetest.Must(t, err)
@@ -287,7 +289,7 @@ func TestFailedDeliveryDoesNotRepeatQuery(t *testing.T) {
 
 type alternatePolicy struct{}
 
-func (alternatePolicy) Authorize(_ context.Context, m gateway.Message, b *gateway.Binding) (gateway.Decision, error) {
+func (alternatePolicy) Authorize(_ context.Context, m gateway.Message, b *gateway.ConversationBinding) (gateway.Decision, error) {
 	d := gateway.Decision{Mode: "test_policy", PrincipalID: "test-execution", OwnerID: "test-owner"}
 	if b != nil && b.Decision != d {
 		return gateway.Decision{}, gateway.ErrDenied

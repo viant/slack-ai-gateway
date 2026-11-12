@@ -7,7 +7,7 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 
-#define($_ = $Rows<[]*Publication>(body/data))
-#define($_ = $Data<[]*Publication>(output/body))
+#define($_ = $Rows<[]*SlackAgentSessionPublication>(body/data))
+#define($_ = $Data<[]*SlackAgentSessionPublication>(output/body))
 
-SELECT sessions.*,type(sessions,'Publication') FROM agent_session_publications sessions
+SELECT slack_agent_session_publications.*,type(slack_agent_session_publications,'SlackAgentSessionPublication') FROM slack_agent_session_publication slack_agent_session_publications

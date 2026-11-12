@@ -21,7 +21,9 @@ import (
 	sdk "github.com/slack-go/slack"
 	"github.com/slack-go/slack/socketmode"
 	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 var testRoute = gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}
@@ -111,7 +113,7 @@ func (f *fakeSession) RunContext(ctx context.Context) error             { <-ctx.
 func (f *fakeSession) AckCtx(_ context.Context, id string, _ any) error { return f.ack(id) }
 func (f *fakeSession) events() <-chan socketmode.Event                  { return f.stream }
 
-func testStore(t *testing.T) *sqlite.Store {
+func testStore(t *testing.T) storage.Store {
 	t.Helper()
 	s, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "gateway.sqlite"), true)
 	if err != nil {
@@ -121,7 +123,8 @@ func testStore(t *testing.T) *sqlite.Store {
 	if err = s.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	return s
+	integrationID := storetest.RegisterDefault(t, s)
+	return s.Scope(integrationID)
 }
 
 func TestACKAfterCommitAndForDuplicate(t *testing.T) {
@@ -165,8 +168,14 @@ func TestACKFailureAndIgnoredPayloads(t *testing.T) {
 	err := source.handle(context.Background(), req, sinkFunc(func(context.Context, gateway.Message) (gateway.AcceptResult, error) {
 		return gateway.AcceptResult{}, errors.New("secret-marker")
 	}))
-	if err == nil || acks != 0 || strings.Contains(err.Error(), "secret-marker") {
+	if !errors.Is(err, gateway.ErrIntakePersistence) || acks != 0 || strings.Contains(err.Error(), "secret-marker") {
 		t.Fatal("storage failure acknowledged or leaked")
+	}
+	err = source.handle(context.Background(), req, sinkFunc(func(context.Context, gateway.Message) (gateway.AcceptResult, error) {
+		return gateway.AcceptResult{}, nil
+	}))
+	if !errors.Is(err, gateway.ErrIntakePersistence) || acks != 0 {
+		t.Fatal("missing durable admission disposition was acknowledged or lost its category")
 	}
 	err = source.handle(context.Background(), req, sinkFunc(func(context.Context, gateway.Message) (gateway.AcceptResult, error) {
 		return gateway.AcceptResult{Accepted: true}, nil
@@ -236,7 +245,7 @@ func TestSenderAmbiguousTransportErrorsAndRouteGuard(t *testing.T) {
 	for _, err := range []error{context.DeadlineExceeded, context.Canceled, errors.New("secret-marker")} {
 		api := &failingPost{err: err}
 		sender := Sender{api: api, route: testRoute}
-		d := gateway.Delivery{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1"}, Text: "reply", Format: gateway.ReplyPlain}
+		d := gateway.SlackOutgoingMessage{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1"}, Text: "reply", Format: gateway.ReplyPlain}
 		_, err := sender.Send(context.Background(), d)
 		var classified *gateway.SendError
 		if !errors.As(err, &classified) || classified.Kind != gateway.SendUnknown || api.calls != 1 {
@@ -288,7 +297,7 @@ func TestSenderHTTPContractAndClassification(t *testing.T) {
 			}))
 			defer server.Close()
 			sender := Sender{api: sdk.New("xoxb-test", sdk.OptionAPIURL(server.URL+"/"), sdk.OptionHTTPClient(server.Client())), route: testRoute}
-			ts, err := sender.Send(context.Background(), gateway.Delivery{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}, Text: "&lt;!here&gt; &amp;", Format: gateway.ReplyPlain})
+			ts, err := sender.Send(context.Background(), gateway.SlackOutgoingMessage{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}, Text: "&lt;!here&gt; &amp;", Format: gateway.ReplyPlain})
 			if tc.kind == "" {
 				if err != nil || ts == "" {
 					t.Fatal("success lost")
@@ -338,7 +347,7 @@ func TestNativeMarkdownPayloadAndAccessibleFallback(t *testing.T) {
 			io.WriteString(w, `{"ok":true,"channel":"C","ts":"2.000001"}`)
 		}))
 		sender := Sender{api: sdk.New("xoxb-test", sdk.OptionAPIURL(server.URL+"/"), sdk.OptionHTTPClient(server.Client())), route: testRoute}
-		_, err := sender.Send(context.Background(), gateway.Delivery{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}, Text: text, Format: gateway.ReplyMarkdown})
+		_, err := sender.Send(context.Background(), gateway.SlackOutgoingMessage{ThreadKey: gateway.ThreadKey{WorkspaceID: "T", ChannelID: "C", RootTS: "1.000001"}, Text: text, Format: gateway.ReplyMarkdown})
 		server.Close()
 		if err != nil {
 			t.Fatal(err)

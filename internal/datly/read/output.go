@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Job `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/read.Job" sql:"uri=internal_datly_read_reader:sql/reader.sql" view:"reader,type=Job,rowLock=inbox_jobs j,rowLockOrder=j.id,selectorNoLimit=true"`
+	Data []*GatewayJob `json:"data" parameter:"Data,kind=output,in=view,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/read.GatewayJob" sql:"uri=internal_datly_read_reader:sql/reader.sql" view:"reader,type=GatewayJob,rowLock=gateway_job j,rowLockOrder=j.id,selectorNoLimit=true"`
 }

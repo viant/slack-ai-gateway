@@ -42,7 +42,7 @@ type DeliveryWorker struct {
 	Policy DeliveryPolicy
 	// Interval is zero for isolated worker tests; the runtime enforces >=1s.
 	Interval    time.Duration
-	OnDelivered func(Delivery)
+	OnDelivered func(SlackOutgoingMessage)
 	nextSend    time.Time
 	verifiedJob int64
 	verifiedAt  time.Time

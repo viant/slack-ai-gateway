@@ -29,7 +29,7 @@ type sessionAPI interface {
 	SetAgentSessionStatusContext(context.Context, sdk.AgentSessionSetStatusParameters) (*sdk.AgentSessionSetStatusResponse, error)
 }
 
-func (s *Sender) SendStatus(ctx context.Context, status gateway.RequestStatus, text string) (gateway.StatusReceipt, error) {
+func (s *Sender) SendStatus(ctx context.Context, status gateway.GatewayJobProgress, text string) (gateway.StatusReceipt, error) {
 	if status.Target != gateway.StatusTargetAgentSession {
 		ts, err := s.sendMessageStatus(ctx, status, text)
 		return gateway.StatusReceipt{SlackTS: ts}, err
@@ -59,9 +59,9 @@ func (s *Sender) SendStatus(ctx context.Context, status gateway.RequestStatus, t
 	return gateway.StatusReceipt{Acknowledged: true, AgentStatus: response.AgentStatus, SessionStatus: response.Status, Warning: warning}, nil
 }
 
-func (s *Sender) sendMessageStatus(ctx context.Context, status gateway.RequestStatus, text string) (string, error) {
+func (s *Sender) sendMessageStatus(ctx context.Context, status gateway.GatewayJobProgress, text string) (string, error) {
 	if status.SlackTS == "" {
-		return s.Send(ctx, gateway.Delivery{ThreadKey: status.ThreadKey, Text: text, Format: gateway.ReplyPlain})
+		return s.Send(ctx, gateway.SlackOutgoingMessage{ThreadKey: status.ThreadKey, Text: text, Format: gateway.ReplyPlain})
 	}
 	if !s.route.AllowsChannel(status.WorkspaceID, status.ChannelID) || status.RootTS == "" || text == "" {
 		return "", &gateway.SendError{Kind: gateway.SendRejected}
@@ -84,7 +84,7 @@ func (s *Sender) sendMessageStatus(ctx context.Context, status gateway.RequestSt
 	return ts, nil
 }
 
-func (s *Sender) Send(ctx context.Context, d gateway.Delivery) (string, error) {
+func (s *Sender) Send(ctx context.Context, d gateway.SlackOutgoingMessage) (string, error) {
 	if !s.route.AllowsChannel(d.WorkspaceID, d.ChannelID) || d.RootTS == "" || d.Text == "" {
 		return "", &gateway.SendError{Kind: gateway.SendRejected}
 	}

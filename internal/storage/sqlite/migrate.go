@@ -13,10 +13,6 @@ import (
 	"github.com/viant/slack-ai-gateway/migrations"
 )
 
-const jobColumns = "id,app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,COALESCE(binding_id,0),access_mode,principal_id,owner_id,request_id,turn_id,state,result_text,reason,query_started_at,poll_attempts,message_surface"
-const bindingColumns = "id,workspace_id,channel_id,root_thread_ts,COALESCE(conversation_id,''),access_mode,principal_id,owner_id,state"
-const deliveryColumns = "id,job_id,workspace_id,channel_id,root_thread_ts,part,content,format,state,slack_ts,attempts"
-
 type migration struct {
 	version       int
 	sql, checksum string
@@ -105,7 +101,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if _, err = tx.ExecContext(ctx, m.sql); err != nil {
 			return fmt.Errorf("migration %d: %w", m.version, err)
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version,checksum,applied_at) VALUES(?,?,?)", m.version, m.checksum, time.Now().UnixMilli()); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version,checksum,applied_at) VALUES(?,?,?)", m.version, m.checksum, time.Now().UTC().Truncate(time.Millisecond)); err != nil {
 			return err
 		}
 	}
@@ -144,13 +140,13 @@ func (s *Store) checkSchema(ctx context.Context) error {
 	}
 	// Catch missing tables/columns without performing any DDL.
 	for _, query := range []string{
-		"SELECT workspace_id,channel_id,root_thread_ts,latest_job_id,source_job_id,initiator_user_id,desired_status,agent_status,session_status,revision,sent_revision,claimed_revision,state,attempts,next_attempt_at,refresh_at,rate_limited_until,first_sent_at,last_sent_at,reason,warning,updated_at FROM agent_session_publications LIMIT 0",
 		"SELECT version,checksum,applied_at FROM schema_migrations LIMIT 0",
-		"SELECT " + jobColumns + ",poll_ready,attempts,next_attempt_at,created_at,updated_at FROM inbox_jobs LIMIT 0",
-		"SELECT " + bindingColumns + ",created_at,updated_at FROM conversation_bindings LIMIT 0",
-		"SELECT " + deliveryColumns + ",next_attempt_at,created_at,updated_at FROM outbox_messages LIMIT 0",
-		"SELECT id,delivery_id,action,slack_ts,duplicate_risk_accepted,created_at FROM delivery_resolutions LIMIT 0",
-		"SELECT mode,job_id,slack_ts,observed_state,observed_at,observation_uncertain,outcome,phase,revision,sent_revision,state,attempts,next_attempt_at,refresh_at,rate_limited_until,first_sent_at,last_sent_at,reason,updated_at FROM request_status LIMIT 0",
+		"SELECT id,name,active,slack_app_id,slack_workspace_id,backend_type,backend_endpoint,backend_agent_id,backend_principal_id,created_at,updated_at FROM integration LIMIT 0",
+		"SELECT id,integration_id,slack_channel_id,slack_thread_root_message_id,backend_conversation_id,gateway_access_mode,backend_principal_id,gateway_binding_owner_id,gateway_binding_state,backend_protocol_messages,backend_protocol_state,created_at,updated_at,last_activity_at,closed_at FROM conversation_binding LIMIT 0",
+		"SELECT id,gateway_request_id,integration_id,conversation_binding_id,slack_event_id,slack_channel_id,slack_conversation_type,slack_thread_root_message_id,slack_prompt_message_id,slack_prompt_author_id,prompt_text,prompt_has_attachments,gateway_execution_state,gateway_execution_reason,gateway_execution_outcome,gateway_execution_result_text,gateway_execution_claim_count,backend_submission_started_at,backend_next_poll_at,backend_poll_attempts,backend_poll_ready,backend_observed_state,backend_observed_at,backend_observation_uncertain,slack_progress_mode,slack_progress_message_id,slack_progress_state,slack_progress_phase,slack_progress_reason,slack_progress_revision,slack_progress_sent_revision,slack_progress_attempts,slack_progress_next_attempt_at,slack_progress_refresh_at,slack_progress_rate_limited_until,slack_progress_first_sent_at,slack_progress_last_sent_at,created_at,gateway_execution_updated_at,gateway_status_updated_at,gateway_execution_finished_at,content_purged_at FROM gateway_job LIMIT 0",
+		"SELECT id,job_id,slack_message_index,slack_message_text,slack_message_kind,slack_delivery_state,slack_delivery_attempts,slack_delivery_next_attempt_at,slack_message_id,created_at,updated_at,slack_message_format FROM slack_outgoing_message LIMIT 0",
+		"SELECT id,outgoing_message_id,resolution_action,slack_message_id,duplicate_delivery_risk_accepted,created_at FROM slack_delivery_resolution LIMIT 0",
+		"SELECT id,initial_integration_id,slack_channel_id,slack_thread_root_message_id,latest_status_job_id,status_source_job_id,slack_initiator_user_id,slack_agent_desired_status,slack_agent_observed_status,slack_session_observed_status,slack_publication_revision,slack_publication_sent_revision,slack_publication_claimed_revision,slack_publication_state,slack_publication_attempts,slack_publication_next_attempt_at,slack_publication_refresh_at,slack_publication_rate_limited_until,slack_publication_first_sent_at,slack_publication_last_sent_at,slack_publication_reason,slack_publication_warning,created_at,updated_at FROM slack_agent_session_publication LIMIT 0",
 	} {
 		rows, err := tx.QueryContext(ctx, query)
 		if err != nil {
@@ -160,7 +156,7 @@ func (s *Store) checkSchema(ctx context.Context) error {
 			return err
 		}
 	}
-	for _, name := range []string{"inbox_pending", "inbox_thread", "outbox_pending", "outbox_thread", "request_status_due", "agent_session_due"} {
+	for _, name := range []string{"integration_name_active", "integration_slack", "gateway_job_pending", "gateway_job_thread", "slack_outgoing_message_pending", "slack_outgoing_message_job_state", "slack_outgoing_message_cooldown", "gateway_job_progress_due", "gateway_job_progress_cooldown", "slack_agent_session_publication_due", "gateway_job_retention_content", "gateway_job_binding_finished", "conversation_binding_last_activity", "slack_delivery_resolution_outgoing", "slack_agent_session_publication_latest_status_job", "slack_agent_session_publication_status_source_job"} {
 		var count int
 		if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?", name).Scan(&count); err != nil {
 			return err

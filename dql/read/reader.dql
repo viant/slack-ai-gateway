@@ -7,26 +7,30 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 
-#define($_ = $Mode<string>(query/mode).Optional().Value('key'))
-#define($_ = $Now<int64>(query/now).Optional())
-#define($_ = $ID<int64>(query/ID).Optional().WithPredicate(0,'equal','j','id'))
-#define($_ = $AppID<string>(query/AppID).Optional().WithPredicate(0,'equal','j','app_id'))
-#define($_ = $EventID<string>(query/EventID).Optional().WithPredicate(0,'equal','j','event_id'))
-#define($_ = $State<string>(query/State).Optional().WithPredicate(0,'equal','j','state'))
-#define($_ = $WorkspaceID<string>(query/WorkspaceID).Optional().WithPredicate(0,'equal','j','workspace_id'))
-#define($_ = $ChannelID<string>(query/ChannelID).Optional().WithPredicate(0,'equal','j','channel_id'))
-#define($_ = $RootThreadTS<string>(query/RootThreadTS).Optional().WithPredicate(0,'equal','j','root_thread_ts'))
-#define($_ = $RequestID<string>(query/RequestID).Optional().WithPredicate(0,'equal','j','request_id'))
-#define($_ = $Data<[]*Job>(output/view))
 
-SELECT jobs.*, binding.*, status.*, outbox.*, resolutions.*,
-       type(jobs,'Job'), type(binding,'Binding'),
-       CAST(jobs.earlier AS int), CAST(jobs.blocked AS int),
-       type(status,'RequestStatus'), type(outbox,'Outbox'), type(resolutions,'Resolution'),
-       row_lock(jobs,'inbox_jobs j','j.id'),
-       set_limit(jobs,0), set_limit(outbox,0), set_limit(resolutions,0)
-FROM (${embed:sql/jobs.sql}) jobs
-LEFT JOIN conversation_bindings binding ON binding.id=jobs.binding_id AND 1=1
-LEFT JOIN request_status status ON status.job_id=jobs.id AND 1=1
-LEFT JOIN outbox_messages outbox ON outbox.job_id=jobs.id
-LEFT JOIN delivery_resolutions resolutions ON resolutions.delivery_id=outbox.id
+#define($_ = $IntegrationID<int>(query/IntegrationID).Optional().Value(0))
+#define($_ = $IntegrationName<string>(query/IntegrationName).Optional().Value(''))
+#define($_ = $Mode<string>(query/mode).Optional().Value('key'))
+#define($_ = $Now<time.Time>(query/now).Optional())
+#define($_ = $ID<int64>(query/ID).Optional().WithPredicate(0,'equal','j','id'))
+#define($_ = $AppID<string>(query/AppID).Optional().WithPredicate(1,'equal','integration','slack_app_id'))
+#define($_ = $EventID<string>(query/EventID).Optional().WithPredicate(0,'equal','j','slack_event_id'))
+#define($_ = $State<string>(query/State).Optional().WithPredicate(0,'equal','j','gateway_execution_state'))
+#define($_ = $WorkspaceID<string>(query/WorkspaceID).Optional().WithPredicate(1,'equal','integration','slack_workspace_id'))
+#define($_ = $ChannelID<string>(query/ChannelID).Optional().WithPredicate(0,'equal','j','slack_channel_id'))
+#define($_ = $SlackThreadRootMessageID<string>(query/SlackThreadRootMessageID).Optional().WithPredicate(0,'equal','j','slack_thread_root_message_id'))
+#define($_ = $GatewayRequestID<string>(query/GatewayRequestID).Optional().WithPredicate(0,'equal','j','gateway_request_id'))
+#define($_ = $Data<[]*GatewayJob>(output/view))
+
+SELECT gateway_jobs.*, conversation_binding.*, slack_outgoing_messages.*, slack_delivery_resolutions.*,
+       type(gateway_jobs,'GatewayJob'), required(gateway_jobs.slack_app_id), required(gateway_jobs.slack_workspace_id),
+       required(gateway_jobs.integration_name), required(gateway_jobs.integration_active), required(gateway_jobs.integration_principal_id),
+       CAST(gateway_jobs.integration_active AS int), type(conversation_binding,'ConversationBinding'),
+       CAST(gateway_jobs.earlier AS int), CAST(gateway_jobs.blocked AS int),
+       type(slack_outgoing_messages,'SlackOutgoingMessage'), type(slack_delivery_resolutions,'SlackDeliveryResolution'),
+       row_lock(gateway_jobs,'gateway_job j','j.id'),
+       set_limit(gateway_jobs,0), set_limit(slack_outgoing_messages,0), set_limit(slack_delivery_resolutions,0)
+FROM (${embed:sql/jobs.sql}) gateway_jobs
+LEFT JOIN (${embed:sql/binding.sql}) conversation_binding ON conversation_binding.integration_id=gateway_jobs.integration_id AND conversation_binding.id=gateway_jobs.conversation_binding_id AND 1=1
+LEFT JOIN slack_outgoing_message slack_outgoing_messages ON slack_outgoing_messages.job_id=gateway_jobs.id
+LEFT JOIN slack_delivery_resolution slack_delivery_resolutions ON slack_delivery_resolutions.outgoing_message_id=slack_outgoing_messages.id

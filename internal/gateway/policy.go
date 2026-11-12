@@ -16,11 +16,11 @@ type SharedChannelPolicy struct {
 // Legacy policy remains useful for isolated/offline tests. Production runtime
 // uses ConfiguredPolicy, including Slack metadata verification.
 func (p SharedChannelPolicy) AuthorizeDelivery(ctx context.Context, d DeliveryContext, _ bool) error {
-	_, err := p.Authorize(ctx, d.Message, d.Binding)
+	_, err := p.Authorize(ctx, d.Message, d.ConversationBinding)
 	return err
 }
 
-func (p SharedChannelPolicy) Authorize(_ context.Context, m Message, b *Binding) (Decision, error) {
+func (p SharedChannelPolicy) Authorize(_ context.Context, m Message, b *ConversationBinding) (Decision, error) {
 	if strings.TrimSpace(p.AppID) == "" || strings.TrimSpace(p.WorkspaceID) == "" ||
 		strings.TrimSpace(p.ChannelID) == "" || strings.TrimSpace(p.PrincipalID) == "" {
 		return Decision{}, fmt.Errorf("%w: incomplete shared channel configuration", ErrDenied)

@@ -100,10 +100,10 @@ func (s *Source) handle(ctx context.Context, req socketmode.Request, sink gatewa
 			result, err := sink.Accept(acceptCtx, m)
 			cancel()
 			if err != nil {
-				return fmt.Errorf("Slack intake persistence failed; envelope not acknowledged")
+				return fmt.Errorf("%w; envelope not acknowledged", gateway.ErrIntakePersistence)
 			}
 			if !result.Accepted && !result.Duplicate && !result.Ignored {
-				return fmt.Errorf("Slack intake returned no disposition; envelope not acknowledged")
+				return fmt.Errorf("%w: intake returned no disposition; envelope not acknowledged", gateway.ErrIntakePersistence)
 			}
 			s.log.Info("slack_intake", "event_id", m.EventID, "workspace_id", m.WorkspaceID, "channel_id", m.ChannelID, "author_id", m.AuthorID, "duplicate", result.Duplicate, "ignored", result.Ignored)
 		}

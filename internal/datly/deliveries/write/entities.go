@@ -2,229 +2,213 @@
 
 package write
 
-func (entity *Delivery) GetId() int {
+import (
+	time "time"
+)
+
+func (entity *SlackOutgoingMessage) GetId() int {
 	return entity.Id
 }
-func (entity *Delivery) SetId(value int) {
+func (entity *SlackOutgoingMessage) SetId(value int) {
 	entity.Id = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
 	entity.Has.Id = true
 }
-func (entity *Delivery) GetJobId() int {
+func (entity *SlackOutgoingMessage) GetJobId() int {
 	return entity.JobId
 }
-func (entity *Delivery) SetJobId(value int) {
+func (entity *SlackOutgoingMessage) SetJobId(value int) {
 	entity.JobId = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
 	entity.Has.JobId = true
 }
-func (entity *Delivery) GetWorkspaceId() string {
-	return entity.WorkspaceId
+func (entity *SlackOutgoingMessage) GetSlackMessageIndex() int {
+	return entity.SlackMessageIndex
 }
-func (entity *Delivery) SetWorkspaceId(value string) {
-	entity.WorkspaceId = value
+func (entity *SlackOutgoingMessage) SetSlackMessageIndex(value int) {
+	entity.SlackMessageIndex = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.WorkspaceId = true
+	entity.Has.SlackMessageIndex = true
 }
-func (entity *Delivery) GetChannelId() string {
-	return entity.ChannelId
+func (entity *SlackOutgoingMessage) GetSlackMessageText() *string {
+	return entity.SlackMessageText
 }
-func (entity *Delivery) SetChannelId(value string) {
-	entity.ChannelId = value
+func (entity *SlackOutgoingMessage) SetSlackMessageText(value *string) {
+	entity.SlackMessageText = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.ChannelId = true
+	entity.Has.SlackMessageText = true
 }
-func (entity *Delivery) GetRootThreadTs() string {
-	return entity.RootThreadTs
+func (entity *SlackOutgoingMessage) GetSlackMessageKind() string {
+	return entity.SlackMessageKind
 }
-func (entity *Delivery) SetRootThreadTs(value string) {
-	entity.RootThreadTs = value
+func (entity *SlackOutgoingMessage) SetSlackMessageKind(value string) {
+	entity.SlackMessageKind = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.RootThreadTs = true
+	entity.Has.SlackMessageKind = true
 }
-func (entity *Delivery) GetPart() int {
-	return entity.Part
+func (entity *SlackOutgoingMessage) GetSlackDeliveryState() string {
+	return entity.SlackDeliveryState
 }
-func (entity *Delivery) SetPart(value int) {
-	entity.Part = value
+func (entity *SlackOutgoingMessage) SetSlackDeliveryState(value string) {
+	entity.SlackDeliveryState = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.Part = true
+	entity.Has.SlackDeliveryState = true
 }
-func (entity *Delivery) GetContent() string {
-	return entity.Content
+func (entity *SlackOutgoingMessage) GetSlackDeliveryAttempts() int {
+	return entity.SlackDeliveryAttempts
 }
-func (entity *Delivery) SetContent(value string) {
-	entity.Content = value
+func (entity *SlackOutgoingMessage) SetSlackDeliveryAttempts(value int) {
+	entity.SlackDeliveryAttempts = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.Content = true
+	entity.Has.SlackDeliveryAttempts = true
 }
-func (entity *Delivery) GetState() string {
-	return entity.State
+func (entity *SlackOutgoingMessage) GetSlackDeliveryNextAttemptAt() *time.Time {
+	return entity.SlackDeliveryNextAttemptAt
 }
-func (entity *Delivery) SetState(value string) {
-	entity.State = value
+func (entity *SlackOutgoingMessage) SetSlackDeliveryNextAttemptAt(value *time.Time) {
+	entity.SlackDeliveryNextAttemptAt = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.State = true
+	entity.Has.SlackDeliveryNextAttemptAt = true
 }
-func (entity *Delivery) GetAttempts() int {
-	return entity.Attempts
+func (entity *SlackOutgoingMessage) GetSlackMessageId() string {
+	return entity.SlackMessageId
 }
-func (entity *Delivery) SetAttempts(value int) {
-	entity.Attempts = value
+func (entity *SlackOutgoingMessage) SetSlackMessageId(value string) {
+	entity.SlackMessageId = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.Attempts = true
+	entity.Has.SlackMessageId = true
 }
-func (entity *Delivery) GetNextAttemptAt() int {
-	return entity.NextAttemptAt
-}
-func (entity *Delivery) SetNextAttemptAt(value int) {
-	entity.NextAttemptAt = value
-	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
-	}
-	entity.Has.NextAttemptAt = true
-}
-func (entity *Delivery) GetSlackTs() string {
-	return entity.SlackTs
-}
-func (entity *Delivery) SetSlackTs(value string) {
-	entity.SlackTs = value
-	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
-	}
-	entity.Has.SlackTs = true
-}
-func (entity *Delivery) GetCreatedAt() int {
+func (entity *SlackOutgoingMessage) GetCreatedAt() time.Time {
 	return entity.CreatedAt
 }
-func (entity *Delivery) SetCreatedAt(value int) {
+func (entity *SlackOutgoingMessage) SetCreatedAt(value time.Time) {
 	entity.CreatedAt = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
 	entity.Has.CreatedAt = true
 }
-func (entity *Delivery) GetUpdatedAt() int {
+func (entity *SlackOutgoingMessage) GetUpdatedAt() time.Time {
 	return entity.UpdatedAt
 }
-func (entity *Delivery) SetUpdatedAt(value int) {
+func (entity *SlackOutgoingMessage) SetUpdatedAt(value time.Time) {
 	entity.UpdatedAt = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
 	entity.Has.UpdatedAt = true
 }
-func (entity *Delivery) GetFormat() string {
-	return entity.Format
+func (entity *SlackOutgoingMessage) GetSlackMessageFormat() string {
+	return entity.SlackMessageFormat
 }
-func (entity *Delivery) SetFormat(value string) {
-	entity.Format = value
+func (entity *SlackOutgoingMessage) SetSlackMessageFormat(value string) {
+	entity.SlackMessageFormat = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.Format = true
+	entity.Has.SlackMessageFormat = true
 }
-func (entity *Delivery) GetResolutions() []*Resolution {
-	return entity.Resolutions
+func (entity *SlackOutgoingMessage) GetSlackDeliveryResolutions() []*SlackDeliveryResolution {
+	return entity.SlackDeliveryResolutions
 }
-func (entity *Delivery) SetResolutions(value []*Resolution) {
-	entity.Resolutions = value
+func (entity *SlackOutgoingMessage) SetSlackDeliveryResolutions(value []*SlackDeliveryResolution) {
+	entity.SlackDeliveryResolutions = value
 	if entity.Has == nil {
-		entity.Has = &DeliveryHas{}
+		entity.Has = &SlackOutgoingMessageHas{}
 	}
-	entity.Has.Resolutions = true
+	entity.Has.SlackDeliveryResolutions = true
 }
-func (entity *Resolution) GetId() int {
+func (entity *SlackDeliveryResolution) GetId() int {
 	return entity.Id
 }
-func (entity *Resolution) SetId(value int) {
+func (entity *SlackDeliveryResolution) SetId(value int) {
 	entity.Id = value
 	if entity.Has == nil {
-		entity.Has = &ResolutionHas{}
+		entity.Has = &SlackDeliveryResolutionHas{}
 	}
 	entity.Has.Id = true
 }
-func (entity *Resolution) GetDeliveryId() int {
-	return entity.DeliveryId
+func (entity *SlackDeliveryResolution) GetOutgoingMessageId() int {
+	return entity.OutgoingMessageId
 }
-func (entity *Resolution) SetDeliveryId(value int) {
-	entity.DeliveryId = value
+func (entity *SlackDeliveryResolution) SetOutgoingMessageId(value int) {
+	entity.OutgoingMessageId = value
 	if entity.Has == nil {
-		entity.Has = &ResolutionHas{}
+		entity.Has = &SlackDeliveryResolutionHas{}
 	}
-	entity.Has.DeliveryId = true
+	entity.Has.OutgoingMessageId = true
 }
-func (entity *Resolution) GetAction() string {
-	return entity.Action
+func (entity *SlackDeliveryResolution) GetResolutionAction() string {
+	return entity.ResolutionAction
 }
-func (entity *Resolution) SetAction(value string) {
-	entity.Action = value
+func (entity *SlackDeliveryResolution) SetResolutionAction(value string) {
+	entity.ResolutionAction = value
 	if entity.Has == nil {
-		entity.Has = &ResolutionHas{}
+		entity.Has = &SlackDeliveryResolutionHas{}
 	}
-	entity.Has.Action = true
+	entity.Has.ResolutionAction = true
 }
-func (entity *Resolution) GetSlackTs() string {
-	return entity.SlackTs
+func (entity *SlackDeliveryResolution) GetSlackMessageId() string {
+	return entity.SlackMessageId
 }
-func (entity *Resolution) SetSlackTs(value string) {
-	entity.SlackTs = value
+func (entity *SlackDeliveryResolution) SetSlackMessageId(value string) {
+	entity.SlackMessageId = value
 	if entity.Has == nil {
-		entity.Has = &ResolutionHas{}
+		entity.Has = &SlackDeliveryResolutionHas{}
 	}
-	entity.Has.SlackTs = true
+	entity.Has.SlackMessageId = true
 }
-func (entity *Resolution) GetDuplicateRiskAccepted() int {
-	return entity.DuplicateRiskAccepted
+func (entity *SlackDeliveryResolution) GetDuplicateDeliveryRiskAccepted() int {
+	return entity.DuplicateDeliveryRiskAccepted
 }
-func (entity *Resolution) SetDuplicateRiskAccepted(value int) {
-	entity.DuplicateRiskAccepted = value
+func (entity *SlackDeliveryResolution) SetDuplicateDeliveryRiskAccepted(value int) {
+	entity.DuplicateDeliveryRiskAccepted = value
 	if entity.Has == nil {
-		entity.Has = &ResolutionHas{}
+		entity.Has = &SlackDeliveryResolutionHas{}
 	}
-	entity.Has.DuplicateRiskAccepted = true
+	entity.Has.DuplicateDeliveryRiskAccepted = true
 }
-func (entity *Resolution) GetCreatedAt() int {
+func (entity *SlackDeliveryResolution) GetCreatedAt() time.Time {
 	return entity.CreatedAt
 }
-func (entity *Resolution) SetCreatedAt(value int) {
+func (entity *SlackDeliveryResolution) SetCreatedAt(value time.Time) {
 	entity.CreatedAt = value
 	if entity.Has == nil {
-		entity.Has = &ResolutionHas{}
+		entity.Has = &SlackDeliveryResolutionHas{}
 	}
 	entity.Has.CreatedAt = true
 }
-func (input *Input) ProjectCurrentResolutionsParentKeys(previous []*CurrentWriterView) ([]struct {
-	DeliveryId int `sqlx:"delivery_id"`
+func (input *Input) ProjectCurrentSlackDeliveryResolutionsParentKeys(previous []*CurrentWriterView) ([]struct {
+	OutgoingMessageId int `sqlx:"outgoing_message_id"`
 }, error) {
 	result := []struct {
-		DeliveryId int `sqlx:"delivery_id"`
+		OutgoingMessageId int `sqlx:"outgoing_message_id"`
 	}{}
 	for _, row := range previous {
 		if row == nil {
 			continue
 		}
 		result = append(result, struct {
-			DeliveryId int `sqlx:"delivery_id"`
-		}{DeliveryId: row.Id})
+			OutgoingMessageId int `sqlx:"outgoing_message_id"`
+		}{OutgoingMessageId: row.Id})
 	}
 	return result, nil
 }

@@ -65,8 +65,9 @@ Agently.` Incomplete, unsupported or malformed rich content adds `Some content
 could not be presented here. View the full response in Agently.` Only one notice
 is added across messages, with incomplete presentation taking precedence. It is a
 presentation limitation, not a failed backend query. The gateway stores the
-original final result in `inbox_jobs.result_text`; complete presentation is stored separately in
-the existing outbox. The source history, browser output, prompts, client
+original final result in `gateway_job.gateway_execution_result_text`; complete
+presentation is stored separately in `slack_outgoing_message.slack_message_text`.
+The source history, browser output, prompts, client
 capabilities and progress/status behavior remain on their existing paths.
 Logs include mode, duration, character count and fixed diagnostic codes without
 answer payloads.

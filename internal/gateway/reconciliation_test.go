@@ -114,7 +114,7 @@ func TestHTTPQueryReconciliationAcrossRestart(t *testing.T) {
 						t.Error(err)
 						return
 					}
-					if len(status.Jobs) != 1 || status.Jobs[0].TurnID != in.RunID || status.Jobs[0].QueryStartedAt == 0 || status.Bindings[0].ConversationID != "c" || status.Bindings[0].OwnerID != "shared" {
+					if len(status.GatewayJobs) != 1 || status.GatewayJobs[0].GatewayRequestID != in.RunID || status.GatewayJobs[0].BackendSubmissionStartedAt == 0 || status.ConversationBindings[0].ConversationID != "c" || status.ConversationBindings[0].OwnerID != "shared" {
 						t.Error("side effect preceded durable correlation")
 					}
 					if mode == "lost_post_result" {
@@ -170,7 +170,7 @@ func TestHTTPQueryReconciliationAcrossRestart(t *testing.T) {
 			if mode != "sync" {
 				status, err := s.Status(ctx, 10)
 				storetest.Must(t, err)
-				if status.Jobs[0].State != "querying" || len(status.Deliveries) != 0 {
+				if status.GatewayJobs[0].State != "querying" || len(status.SlackOutgoingMessages) != 0 {
 					t.Fatal("nonterminal query published a reply")
 				}
 			}
@@ -272,7 +272,7 @@ func TestHTTPPresentationPersistsSlackDeduplicationAcrossRestart(t *testing.T) {
 			s = reopen() // Deliver stored presentation without another API call.
 			status, err := s.Status(ctx, 10)
 			storetest.Must(t, err)
-			if len(status.Jobs) != 1 || status.Jobs[0].State != "completed" {
+			if len(status.GatewayJobs) != 1 || status.GatewayJobs[0].State != "completed" {
 				t.Fatal("query was not completed before restart")
 			}
 			sender := &fakeSlack{}
@@ -348,17 +348,17 @@ func TestPollingReviewAndDeadline(t *testing.T) {
 			work(t, w)
 			status, err := s.Status(context.Background(), 10)
 			storetest.Must(t, err)
-			j := status.Jobs[0]
+			j := status.GatewayJobs[0]
 			if tc.reason != "" {
-				if j.State != "needs_review" || j.Reason != tc.reason || len(status.Deliveries) != 0 {
+				if j.State != "needs_review" || j.Reason != tc.reason || len(status.SlackOutgoingMessages) != 0 {
 					t.Fatalf("bad review: %+v", status)
 				}
 			} else if tc.state == "completed" || tc.state == "failed" || tc.state == "canceled" {
-				if j.State != "completed" || len(status.Deliveries) != 1 {
+				if j.State != "completed" || len(status.SlackOutgoingMessages) != 1 {
 					t.Fatal("terminal result not delivered")
 				}
 			} else {
-				if j.State != "querying" || j.PollAttempts != 2 || len(status.Deliveries) != 0 {
+				if j.State != "querying" || j.PollAttempts != 2 || len(status.SlackOutgoingMessages) != 0 {
 					t.Fatal("transient read not rescheduled")
 				}
 			}
@@ -380,10 +380,10 @@ func TestPollingReviewAndDeadline(t *testing.T) {
 		work(t, w)
 		status, err := s.Status(context.Background(), 10)
 		storetest.Must(t, err)
-		if status.Jobs[0].Reason != "reconciliation_deadline" || backend.readCalls != 0 {
+		if status.GatewayJobs[0].Reason != "reconciliation_deadline" || backend.readCalls != 0 {
 			t.Fatal("deadline ignored or reset")
 		}
-		if len(status.Deliveries) != 0 {
+		if len(status.SlackOutgoingMessages) != 0 {
 			t.Fatal("timeout incorrectly published as completion")
 		}
 	})
@@ -413,7 +413,7 @@ func TestCanceledWorkerPersistsReconciliation(t *testing.T) {
 	storetest.Must(t, <-done)
 	status, err := s.Status(context.Background(), 10)
 	storetest.Must(t, err)
-	if status.Jobs[0].State != "querying" || status.Jobs[0].PollAttempts != 1 || len(status.Deliveries) != 0 {
+	if status.GatewayJobs[0].State != "querying" || status.GatewayJobs[0].PollAttempts != 1 || len(status.SlackOutgoingMessages) != 0 {
 		t.Fatal("cancellation prevented durable reconciliation")
 	}
 	s = reopen()
@@ -445,7 +445,7 @@ func TestDeliveryResolutionNeverRepeatsQuery(t *testing.T) {
 			dw.Store = s
 			status, err := s.Status(ctx, 10)
 			storetest.Must(t, err)
-			id := status.Deliveries[0].ID
+			id := status.SlackOutgoingMessages[0].ID
 			ts := ""
 			if action == "delivered" {
 				ts = "123.00001"
@@ -468,7 +468,7 @@ func TestDeliveryResolutionNeverRepeatsQuery(t *testing.T) {
 			if action == "retry" && (len(messages) != 2 || messages[0].Text != messages[1].Text || messages[0].ID != messages[1].ID) {
 				t.Fatal("persisted part changed")
 			}
-			if strings.Contains(status.Jobs[0].Reason, "lost result") {
+			if strings.Contains(status.GatewayJobs[0].Reason, "lost result") {
 				t.Fatal("raw error persisted")
 			}
 		})

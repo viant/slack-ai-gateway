@@ -8,45 +8,138 @@ import (
 	xshape "github.com/viant/x/shape"
 	xhandler "github.com/viant/xdatly/handler"
 	reflect "reflect"
+	time "time"
 )
 
 type WriterHandlerCurrentWriterSlice []*CurrentWriterView
 
-func WriterHandlerCurrentWriterIndexByWorkspaceIdKey(value *CurrentWriterView) (string, bool) {
+func WriterHandlerCurrentWriterIndexByIdKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	return value.Id, true
+}
+
+type WriterHandlerCurrentWriterIndexedById map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexById() (WriterHandlerCurrentWriterIndexedById, error) {
+	result := make(WriterHandlerCurrentWriterIndexedById)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexById")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedById) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedById map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupById() WriterHandlerCurrentWriterGroupedById {
+	result := make(WriterHandlerCurrentWriterGroupedById)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedById) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByInitialIntegrationIdKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	return value.InitialIntegrationId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByInitialIntegrationId map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByInitialIntegrationId() (WriterHandlerCurrentWriterIndexedByInitialIntegrationId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByInitialIntegrationId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByInitialIntegrationIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByInitialIntegrationId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByInitialIntegrationId) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByInitialIntegrationId map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByInitialIntegrationId() WriterHandlerCurrentWriterGroupedByInitialIntegrationId {
+	result := make(WriterHandlerCurrentWriterGroupedByInitialIntegrationId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByInitialIntegrationIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByInitialIntegrationId) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySlackChannelIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
 		return zero, false
 	}
-	return value.WorkspaceId, true
+	return value.SlackChannelId, true
 }
 
-type WriterHandlerCurrentWriterIndexedByWorkspaceId map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackChannelId map[string]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByWorkspaceId() (WriterHandlerCurrentWriterIndexedByWorkspaceId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByWorkspaceId)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackChannelId() (WriterHandlerCurrentWriterIndexedBySlackChannelId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackChannelId)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByWorkspaceIdKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackChannelIdKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByWorkspaceId")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackChannelId")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByWorkspaceId) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackChannelId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByWorkspaceId map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackChannelId map[string][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByWorkspaceId() WriterHandlerCurrentWriterGroupedByWorkspaceId {
-	result := make(WriterHandlerCurrentWriterGroupedByWorkspaceId)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackChannelId() WriterHandlerCurrentWriterGroupedBySlackChannelId {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackChannelId)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByWorkspaceIdKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackChannelIdKey(row)
 		if !ok {
 			continue
 		}
@@ -54,45 +147,45 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByWorkspaceId() WriterHandlerCu
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByWorkspaceId) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackChannelId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByChannelIdKey(value *CurrentWriterView) (string, bool) {
+func WriterHandlerCurrentWriterIndexBySlackThreadRootMessageIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
 		return zero, false
 	}
-	return value.ChannelId, true
+	return value.SlackThreadRootMessageId, true
 }
 
-type WriterHandlerCurrentWriterIndexedByChannelId map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackThreadRootMessageId map[string]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByChannelId() (WriterHandlerCurrentWriterIndexedByChannelId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByChannelId)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackThreadRootMessageId() (WriterHandlerCurrentWriterIndexedBySlackThreadRootMessageId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackThreadRootMessageId)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByChannelIdKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackThreadRootMessageIdKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByChannelId")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackThreadRootMessageId")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByChannelId) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackThreadRootMessageId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByChannelId map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackThreadRootMessageId map[string][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByChannelId() WriterHandlerCurrentWriterGroupedByChannelId {
-	result := make(WriterHandlerCurrentWriterGroupedByChannelId)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackThreadRootMessageId() WriterHandlerCurrentWriterGroupedBySlackThreadRootMessageId {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackThreadRootMessageId)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByChannelIdKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackThreadRootMessageIdKey(row)
 		if !ok {
 			continue
 		}
@@ -100,45 +193,137 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByChannelId() WriterHandlerCurr
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByChannelId) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackThreadRootMessageId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByRootThreadTsKey(value *CurrentWriterView) (string, bool) {
+func WriterHandlerCurrentWriterIndexByLatestStatusJobIdKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	return value.LatestStatusJobId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByLatestStatusJobId map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByLatestStatusJobId() (WriterHandlerCurrentWriterIndexedByLatestStatusJobId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByLatestStatusJobId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByLatestStatusJobIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByLatestStatusJobId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByLatestStatusJobId) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByLatestStatusJobId map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByLatestStatusJobId() WriterHandlerCurrentWriterGroupedByLatestStatusJobId {
+	result := make(WriterHandlerCurrentWriterGroupedByLatestStatusJobId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByLatestStatusJobIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByLatestStatusJobId) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByStatusSourceJobIdKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	return value.StatusSourceJobId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByStatusSourceJobId map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByStatusSourceJobId() (WriterHandlerCurrentWriterIndexedByStatusSourceJobId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByStatusSourceJobId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByStatusSourceJobIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByStatusSourceJobId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByStatusSourceJobId) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByStatusSourceJobId map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByStatusSourceJobId() WriterHandlerCurrentWriterGroupedByStatusSourceJobId {
+	result := make(WriterHandlerCurrentWriterGroupedByStatusSourceJobId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByStatusSourceJobIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByStatusSourceJobId) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySlackInitiatorUserIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
 		return zero, false
 	}
-	return value.RootThreadTs, true
+	return value.SlackInitiatorUserId, true
 }
 
-type WriterHandlerCurrentWriterIndexedByRootThreadTs map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackInitiatorUserId map[string]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByRootThreadTs() (WriterHandlerCurrentWriterIndexedByRootThreadTs, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByRootThreadTs)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackInitiatorUserId() (WriterHandlerCurrentWriterIndexedBySlackInitiatorUserId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackInitiatorUserId)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRootThreadTsKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackInitiatorUserIdKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByRootThreadTs")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackInitiatorUserId")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByRootThreadTs) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackInitiatorUserId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByRootThreadTs map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackInitiatorUserId map[string][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByRootThreadTs() WriterHandlerCurrentWriterGroupedByRootThreadTs {
-	result := make(WriterHandlerCurrentWriterGroupedByRootThreadTs)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackInitiatorUserId() WriterHandlerCurrentWriterGroupedBySlackInitiatorUserId {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackInitiatorUserId)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRootThreadTsKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackInitiatorUserIdKey(row)
 		if !ok {
 			continue
 		}
@@ -146,137 +331,45 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByRootThreadTs() WriterHandlerC
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByRootThreadTs) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackInitiatorUserId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByLatestJobIdKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	return value.LatestJobId, true
-}
-
-type WriterHandlerCurrentWriterIndexedByLatestJobId map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByLatestJobId() (WriterHandlerCurrentWriterIndexedByLatestJobId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByLatestJobId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByLatestJobIdKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByLatestJobId")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByLatestJobId) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByLatestJobId map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByLatestJobId() WriterHandlerCurrentWriterGroupedByLatestJobId {
-	result := make(WriterHandlerCurrentWriterGroupedByLatestJobId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByLatestJobIdKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByLatestJobId) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexBySourceJobIdKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	return value.SourceJobId, true
-}
-
-type WriterHandlerCurrentWriterIndexedBySourceJobId map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexBySourceJobId() (WriterHandlerCurrentWriterIndexedBySourceJobId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedBySourceJobId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySourceJobIdKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySourceJobId")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedBySourceJobId) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedBySourceJobId map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupBySourceJobId() WriterHandlerCurrentWriterGroupedBySourceJobId {
-	result := make(WriterHandlerCurrentWriterGroupedBySourceJobId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySourceJobIdKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedBySourceJobId) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByInitiatorUserIdKey(value *CurrentWriterView) (string, bool) {
+func WriterHandlerCurrentWriterIndexBySlackAgentDesiredStatusKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
 		return zero, false
 	}
-	return value.InitiatorUserId, true
+	return value.SlackAgentDesiredStatus, true
 }
 
-type WriterHandlerCurrentWriterIndexedByInitiatorUserId map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackAgentDesiredStatus map[string]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByInitiatorUserId() (WriterHandlerCurrentWriterIndexedByInitiatorUserId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByInitiatorUserId)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackAgentDesiredStatus() (WriterHandlerCurrentWriterIndexedBySlackAgentDesiredStatus, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackAgentDesiredStatus)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByInitiatorUserIdKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackAgentDesiredStatusKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByInitiatorUserId")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackAgentDesiredStatus")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByInitiatorUserId) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackAgentDesiredStatus) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByInitiatorUserId map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackAgentDesiredStatus map[string][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByInitiatorUserId() WriterHandlerCurrentWriterGroupedByInitiatorUserId {
-	result := make(WriterHandlerCurrentWriterGroupedByInitiatorUserId)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackAgentDesiredStatus() WriterHandlerCurrentWriterGroupedBySlackAgentDesiredStatus {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackAgentDesiredStatus)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByInitiatorUserIdKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackAgentDesiredStatusKey(row)
 		if !ok {
 			continue
 		}
@@ -284,45 +377,45 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByInitiatorUserId() WriterHandl
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByInitiatorUserId) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackAgentDesiredStatus) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByDesiredStatusKey(value *CurrentWriterView) (string, bool) {
+func WriterHandlerCurrentWriterIndexBySlackAgentObservedStatusKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
 		return zero, false
 	}
-	return value.DesiredStatus, true
+	return value.SlackAgentObservedStatus, true
 }
 
-type WriterHandlerCurrentWriterIndexedByDesiredStatus map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackAgentObservedStatus map[string]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByDesiredStatus() (WriterHandlerCurrentWriterIndexedByDesiredStatus, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByDesiredStatus)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackAgentObservedStatus() (WriterHandlerCurrentWriterIndexedBySlackAgentObservedStatus, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackAgentObservedStatus)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByDesiredStatusKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackAgentObservedStatusKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByDesiredStatus")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackAgentObservedStatus")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByDesiredStatus) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackAgentObservedStatus) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByDesiredStatus map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackAgentObservedStatus map[string][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByDesiredStatus() WriterHandlerCurrentWriterGroupedByDesiredStatus {
-	result := make(WriterHandlerCurrentWriterGroupedByDesiredStatus)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackAgentObservedStatus() WriterHandlerCurrentWriterGroupedBySlackAgentObservedStatus {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackAgentObservedStatus)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByDesiredStatusKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackAgentObservedStatusKey(row)
 		if !ok {
 			continue
 		}
@@ -330,45 +423,45 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByDesiredStatus() WriterHandler
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByDesiredStatus) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackAgentObservedStatus) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByAgentStatusKey(value *CurrentWriterView) (string, bool) {
+func WriterHandlerCurrentWriterIndexBySlackSessionObservedStatusKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
 		return zero, false
 	}
-	return value.AgentStatus, true
+	return value.SlackSessionObservedStatus, true
 }
 
-type WriterHandlerCurrentWriterIndexedByAgentStatus map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackSessionObservedStatus map[string]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByAgentStatus() (WriterHandlerCurrentWriterIndexedByAgentStatus, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByAgentStatus)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackSessionObservedStatus() (WriterHandlerCurrentWriterIndexedBySlackSessionObservedStatus, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackSessionObservedStatus)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByAgentStatusKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackSessionObservedStatusKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByAgentStatus")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackSessionObservedStatus")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByAgentStatus) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackSessionObservedStatus) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByAgentStatus map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackSessionObservedStatus map[string][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByAgentStatus() WriterHandlerCurrentWriterGroupedByAgentStatus {
-	result := make(WriterHandlerCurrentWriterGroupedByAgentStatus)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackSessionObservedStatus() WriterHandlerCurrentWriterGroupedBySlackSessionObservedStatus {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackSessionObservedStatus)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByAgentStatusKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackSessionObservedStatusKey(row)
 		if !ok {
 			continue
 		}
@@ -376,45 +469,183 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByAgentStatus() WriterHandlerCu
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByAgentStatus) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackSessionObservedStatus) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexBySessionStatusKey(value *CurrentWriterView) (string, bool) {
+func WriterHandlerCurrentWriterIndexBySlackPublicationRevisionKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	return value.SlackPublicationRevision, true
+}
+
+type WriterHandlerCurrentWriterIndexedBySlackPublicationRevision map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationRevision() (WriterHandlerCurrentWriterIndexedBySlackPublicationRevision, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationRevision)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationRevisionKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationRevision")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationRevision) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedBySlackPublicationRevision map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationRevision() WriterHandlerCurrentWriterGroupedBySlackPublicationRevision {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationRevision)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationRevisionKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationRevision) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySlackPublicationSentRevisionKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	return value.SlackPublicationSentRevision, true
+}
+
+type WriterHandlerCurrentWriterIndexedBySlackPublicationSentRevision map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationSentRevision() (WriterHandlerCurrentWriterIndexedBySlackPublicationSentRevision, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationSentRevision)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationSentRevisionKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationSentRevision")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationSentRevision) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedBySlackPublicationSentRevision map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationSentRevision() WriterHandlerCurrentWriterGroupedBySlackPublicationSentRevision {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationSentRevision)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationSentRevisionKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationSentRevision) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySlackPublicationClaimedRevisionKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	return value.SlackPublicationClaimedRevision, true
+}
+
+type WriterHandlerCurrentWriterIndexedBySlackPublicationClaimedRevision map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationClaimedRevision() (WriterHandlerCurrentWriterIndexedBySlackPublicationClaimedRevision, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationClaimedRevision)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationClaimedRevisionKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationClaimedRevision")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationClaimedRevision) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedBySlackPublicationClaimedRevision map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationClaimedRevision() WriterHandlerCurrentWriterGroupedBySlackPublicationClaimedRevision {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationClaimedRevision)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationClaimedRevisionKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationClaimedRevision) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySlackPublicationStateKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
 		return zero, false
 	}
-	return value.SessionStatus, true
+	return value.SlackPublicationState, true
 }
 
-type WriterHandlerCurrentWriterIndexedBySessionStatus map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackPublicationState map[string]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexBySessionStatus() (WriterHandlerCurrentWriterIndexedBySessionStatus, error) {
-	result := make(WriterHandlerCurrentWriterIndexedBySessionStatus)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationState() (WriterHandlerCurrentWriterIndexedBySlackPublicationState, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationState)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySessionStatusKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationStateKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySessionStatus")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationState")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedBySessionStatus) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationState) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedBySessionStatus map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackPublicationState map[string][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupBySessionStatus() WriterHandlerCurrentWriterGroupedBySessionStatus {
-	result := make(WriterHandlerCurrentWriterGroupedBySessionStatus)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationState() WriterHandlerCurrentWriterGroupedBySlackPublicationState {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationState)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySessionStatusKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationStateKey(row)
 		if !ok {
 			continue
 		}
@@ -422,45 +653,45 @@ func (rows WriterHandlerCurrentWriterSlice) GroupBySessionStatus() WriterHandler
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedBySessionStatus) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationState) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByRevisionKey(value *CurrentWriterView) (int, bool) {
+func WriterHandlerCurrentWriterIndexBySlackPublicationAttemptsKey(value *CurrentWriterView) (int, bool) {
 	var zero int
 	if value == nil {
 		return zero, false
 	}
-	return value.Revision, true
+	return value.SlackPublicationAttempts, true
 }
 
-type WriterHandlerCurrentWriterIndexedByRevision map[int]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackPublicationAttempts map[int]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByRevision() (WriterHandlerCurrentWriterIndexedByRevision, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByRevision)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationAttempts() (WriterHandlerCurrentWriterIndexedBySlackPublicationAttempts, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationAttempts)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRevisionKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationAttemptsKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByRevision")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationAttempts")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByRevision) Has(key int) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationAttempts) Has(key int) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByRevision map[int][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackPublicationAttempts map[int][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByRevision() WriterHandlerCurrentWriterGroupedByRevision {
-	result := make(WriterHandlerCurrentWriterGroupedByRevision)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationAttempts() WriterHandlerCurrentWriterGroupedBySlackPublicationAttempts {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationAttempts)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRevisionKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationAttemptsKey(row)
 		if !ok {
 			continue
 		}
@@ -468,45 +699,48 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByRevision() WriterHandlerCurre
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByRevision) Has(key int) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationAttempts) Has(key int) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexBySentRevisionKey(value *CurrentWriterView) (int, bool) {
-	var zero int
+func WriterHandlerCurrentWriterIndexBySlackPublicationNextAttemptAtKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
 	if value == nil {
 		return zero, false
 	}
-	return value.SentRevision, true
+	if value.SlackPublicationNextAttemptAt == nil {
+		return zero, false
+	}
+	return *value.SlackPublicationNextAttemptAt, true
 }
 
-type WriterHandlerCurrentWriterIndexedBySentRevision map[int]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackPublicationNextAttemptAt map[time.Time]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexBySentRevision() (WriterHandlerCurrentWriterIndexedBySentRevision, error) {
-	result := make(WriterHandlerCurrentWriterIndexedBySentRevision)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationNextAttemptAt() (WriterHandlerCurrentWriterIndexedBySlackPublicationNextAttemptAt, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationNextAttemptAt)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySentRevisionKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationNextAttemptAtKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySentRevision")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationNextAttemptAt")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedBySentRevision) Has(key int) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationNextAttemptAt) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedBySentRevision map[int][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackPublicationNextAttemptAt map[time.Time][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupBySentRevision() WriterHandlerCurrentWriterGroupedBySentRevision {
-	result := make(WriterHandlerCurrentWriterGroupedBySentRevision)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationNextAttemptAt() WriterHandlerCurrentWriterGroupedBySlackPublicationNextAttemptAt {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationNextAttemptAt)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySentRevisionKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationNextAttemptAtKey(row)
 		if !ok {
 			continue
 		}
@@ -514,45 +748,48 @@ func (rows WriterHandlerCurrentWriterSlice) GroupBySentRevision() WriterHandlerC
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedBySentRevision) Has(key int) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationNextAttemptAt) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByClaimedRevisionKey(value *CurrentWriterView) (int, bool) {
-	var zero int
+func WriterHandlerCurrentWriterIndexBySlackPublicationRefreshAtKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
 	if value == nil {
 		return zero, false
 	}
-	return value.ClaimedRevision, true
+	if value.SlackPublicationRefreshAt == nil {
+		return zero, false
+	}
+	return *value.SlackPublicationRefreshAt, true
 }
 
-type WriterHandlerCurrentWriterIndexedByClaimedRevision map[int]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackPublicationRefreshAt map[time.Time]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByClaimedRevision() (WriterHandlerCurrentWriterIndexedByClaimedRevision, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByClaimedRevision)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationRefreshAt() (WriterHandlerCurrentWriterIndexedBySlackPublicationRefreshAt, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationRefreshAt)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByClaimedRevisionKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationRefreshAtKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByClaimedRevision")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationRefreshAt")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByClaimedRevision) Has(key int) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationRefreshAt) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByClaimedRevision map[int][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackPublicationRefreshAt map[time.Time][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByClaimedRevision() WriterHandlerCurrentWriterGroupedByClaimedRevision {
-	result := make(WriterHandlerCurrentWriterGroupedByClaimedRevision)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationRefreshAt() WriterHandlerCurrentWriterGroupedBySlackPublicationRefreshAt {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationRefreshAt)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByClaimedRevisionKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationRefreshAtKey(row)
 		if !ok {
 			continue
 		}
@@ -560,45 +797,192 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByClaimedRevision() WriterHandl
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByClaimedRevision) Has(key int) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationRefreshAt) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByStateKey(value *CurrentWriterView) (string, bool) {
+func WriterHandlerCurrentWriterIndexBySlackPublicationRateLimitedUntilKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
+	if value == nil {
+		return zero, false
+	}
+	if value.SlackPublicationRateLimitedUntil == nil {
+		return zero, false
+	}
+	return *value.SlackPublicationRateLimitedUntil, true
+}
+
+type WriterHandlerCurrentWriterIndexedBySlackPublicationRateLimitedUntil map[time.Time]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationRateLimitedUntil() (WriterHandlerCurrentWriterIndexedBySlackPublicationRateLimitedUntil, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationRateLimitedUntil)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationRateLimitedUntilKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationRateLimitedUntil")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationRateLimitedUntil) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedBySlackPublicationRateLimitedUntil map[time.Time][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationRateLimitedUntil() WriterHandlerCurrentWriterGroupedBySlackPublicationRateLimitedUntil {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationRateLimitedUntil)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationRateLimitedUntilKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationRateLimitedUntil) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySlackPublicationFirstSentAtKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
+	if value == nil {
+		return zero, false
+	}
+	if value.SlackPublicationFirstSentAt == nil {
+		return zero, false
+	}
+	return *value.SlackPublicationFirstSentAt, true
+}
+
+type WriterHandlerCurrentWriterIndexedBySlackPublicationFirstSentAt map[time.Time]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationFirstSentAt() (WriterHandlerCurrentWriterIndexedBySlackPublicationFirstSentAt, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationFirstSentAt)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationFirstSentAtKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationFirstSentAt")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationFirstSentAt) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedBySlackPublicationFirstSentAt map[time.Time][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationFirstSentAt() WriterHandlerCurrentWriterGroupedBySlackPublicationFirstSentAt {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationFirstSentAt)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationFirstSentAtKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationFirstSentAt) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySlackPublicationLastSentAtKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
+	if value == nil {
+		return zero, false
+	}
+	if value.SlackPublicationLastSentAt == nil {
+		return zero, false
+	}
+	return *value.SlackPublicationLastSentAt, true
+}
+
+type WriterHandlerCurrentWriterIndexedBySlackPublicationLastSentAt map[time.Time]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationLastSentAt() (WriterHandlerCurrentWriterIndexedBySlackPublicationLastSentAt, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationLastSentAt)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationLastSentAtKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationLastSentAt")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationLastSentAt) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedBySlackPublicationLastSentAt map[time.Time][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationLastSentAt() WriterHandlerCurrentWriterGroupedBySlackPublicationLastSentAt {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationLastSentAt)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationLastSentAtKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationLastSentAt) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySlackPublicationReasonKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
 		return zero, false
 	}
-	return value.State, true
+	return value.SlackPublicationReason, true
 }
 
-type WriterHandlerCurrentWriterIndexedByState map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackPublicationReason map[string]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByState() (WriterHandlerCurrentWriterIndexedByState, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByState)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationReason() (WriterHandlerCurrentWriterIndexedBySlackPublicationReason, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationReason)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByStateKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationReasonKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByState")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationReason")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByState) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationReason) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByState map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackPublicationReason map[string][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByState() WriterHandlerCurrentWriterGroupedByState {
-	result := make(WriterHandlerCurrentWriterGroupedByState)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationReason() WriterHandlerCurrentWriterGroupedBySlackPublicationReason {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationReason)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByStateKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationReasonKey(row)
 		if !ok {
 			continue
 		}
@@ -606,321 +990,45 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByState() WriterHandlerCurrentW
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByState) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationReason) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByAttemptsKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	return value.Attempts, true
-}
-
-type WriterHandlerCurrentWriterIndexedByAttempts map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByAttempts() (WriterHandlerCurrentWriterIndexedByAttempts, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByAttempts)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByAttemptsKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByAttempts")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByAttempts) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByAttempts map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByAttempts() WriterHandlerCurrentWriterGroupedByAttempts {
-	result := make(WriterHandlerCurrentWriterGroupedByAttempts)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByAttemptsKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByAttempts) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByNextAttemptAtKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	return value.NextAttemptAt, true
-}
-
-type WriterHandlerCurrentWriterIndexedByNextAttemptAt map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByNextAttemptAt() (WriterHandlerCurrentWriterIndexedByNextAttemptAt, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByNextAttemptAt)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByNextAttemptAtKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByNextAttemptAt")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByNextAttemptAt) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByNextAttemptAt map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByNextAttemptAt() WriterHandlerCurrentWriterGroupedByNextAttemptAt {
-	result := make(WriterHandlerCurrentWriterGroupedByNextAttemptAt)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByNextAttemptAtKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByNextAttemptAt) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByRefreshAtKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	return value.RefreshAt, true
-}
-
-type WriterHandlerCurrentWriterIndexedByRefreshAt map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByRefreshAt() (WriterHandlerCurrentWriterIndexedByRefreshAt, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByRefreshAt)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRefreshAtKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByRefreshAt")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByRefreshAt) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByRefreshAt map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByRefreshAt() WriterHandlerCurrentWriterGroupedByRefreshAt {
-	result := make(WriterHandlerCurrentWriterGroupedByRefreshAt)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRefreshAtKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByRefreshAt) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByRateLimitedUntilKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	return value.RateLimitedUntil, true
-}
-
-type WriterHandlerCurrentWriterIndexedByRateLimitedUntil map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByRateLimitedUntil() (WriterHandlerCurrentWriterIndexedByRateLimitedUntil, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByRateLimitedUntil)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRateLimitedUntilKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByRateLimitedUntil")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByRateLimitedUntil) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByRateLimitedUntil map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByRateLimitedUntil() WriterHandlerCurrentWriterGroupedByRateLimitedUntil {
-	result := make(WriterHandlerCurrentWriterGroupedByRateLimitedUntil)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRateLimitedUntilKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByRateLimitedUntil) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByFirstSentAtKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	return value.FirstSentAt, true
-}
-
-type WriterHandlerCurrentWriterIndexedByFirstSentAt map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByFirstSentAt() (WriterHandlerCurrentWriterIndexedByFirstSentAt, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByFirstSentAt)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByFirstSentAtKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByFirstSentAt")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByFirstSentAt) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByFirstSentAt map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByFirstSentAt() WriterHandlerCurrentWriterGroupedByFirstSentAt {
-	result := make(WriterHandlerCurrentWriterGroupedByFirstSentAt)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByFirstSentAtKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByFirstSentAt) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByLastSentAtKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	return value.LastSentAt, true
-}
-
-type WriterHandlerCurrentWriterIndexedByLastSentAt map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByLastSentAt() (WriterHandlerCurrentWriterIndexedByLastSentAt, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByLastSentAt)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByLastSentAtKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByLastSentAt")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByLastSentAt) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByLastSentAt map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByLastSentAt() WriterHandlerCurrentWriterGroupedByLastSentAt {
-	result := make(WriterHandlerCurrentWriterGroupedByLastSentAt)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByLastSentAtKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByLastSentAt) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByReasonKey(value *CurrentWriterView) (string, bool) {
+func WriterHandlerCurrentWriterIndexBySlackPublicationWarningKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
 		return zero, false
 	}
-	return value.Reason, true
+	return value.SlackPublicationWarning, true
 }
 
-type WriterHandlerCurrentWriterIndexedByReason map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedBySlackPublicationWarning map[string]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByReason() (WriterHandlerCurrentWriterIndexedByReason, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByReason)
+func (rows WriterHandlerCurrentWriterSlice) IndexBySlackPublicationWarning() (WriterHandlerCurrentWriterIndexedBySlackPublicationWarning, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySlackPublicationWarning)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByReasonKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationWarningKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByReason")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySlackPublicationWarning")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByReason) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedBySlackPublicationWarning) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByReason map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedBySlackPublicationWarning map[string][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByReason() WriterHandlerCurrentWriterGroupedByReason {
-	result := make(WriterHandlerCurrentWriterGroupedByReason)
+func (rows WriterHandlerCurrentWriterSlice) GroupBySlackPublicationWarning() WriterHandlerCurrentWriterGroupedBySlackPublicationWarning {
+	result := make(WriterHandlerCurrentWriterGroupedBySlackPublicationWarning)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByReasonKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexBySlackPublicationWarningKey(row)
 		if !ok {
 			continue
 		}
@@ -928,45 +1036,45 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByReason() WriterHandlerCurrent
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByReason) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedBySlackPublicationWarning) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByWarningKey(value *CurrentWriterView) (string, bool) {
-	var zero string
+func WriterHandlerCurrentWriterIndexByCreatedAtKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
 	if value == nil {
 		return zero, false
 	}
-	return value.Warning, true
+	return value.CreatedAt, true
 }
 
-type WriterHandlerCurrentWriterIndexedByWarning map[string]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedByCreatedAt map[time.Time]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByWarning() (WriterHandlerCurrentWriterIndexedByWarning, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByWarning)
+func (rows WriterHandlerCurrentWriterSlice) IndexByCreatedAt() (WriterHandlerCurrentWriterIndexedByCreatedAt, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByCreatedAt)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByWarningKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexByCreatedAtKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByWarning")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByCreatedAt")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByWarning) Has(key string) bool {
+func (index WriterHandlerCurrentWriterIndexedByCreatedAt) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByWarning map[string][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedByCreatedAt map[time.Time][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByWarning() WriterHandlerCurrentWriterGroupedByWarning {
-	result := make(WriterHandlerCurrentWriterGroupedByWarning)
+func (rows WriterHandlerCurrentWriterSlice) GroupByCreatedAt() WriterHandlerCurrentWriterGroupedByCreatedAt {
+	result := make(WriterHandlerCurrentWriterGroupedByCreatedAt)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByWarningKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexByCreatedAtKey(row)
 		if !ok {
 			continue
 		}
@@ -974,19 +1082,19 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByWarning() WriterHandlerCurren
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByWarning) Has(key string) bool {
+func (index WriterHandlerCurrentWriterGroupedByCreatedAt) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByUpdatedAtKey(value *CurrentWriterView) (int, bool) {
-	var zero int
+func WriterHandlerCurrentWriterIndexByUpdatedAtKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
 	if value == nil {
 		return zero, false
 	}
 	return value.UpdatedAt, true
 }
 
-type WriterHandlerCurrentWriterIndexedByUpdatedAt map[int]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedByUpdatedAt map[time.Time]*CurrentWriterView
 
 func (rows WriterHandlerCurrentWriterSlice) IndexByUpdatedAt() (WriterHandlerCurrentWriterIndexedByUpdatedAt, error) {
 	result := make(WriterHandlerCurrentWriterIndexedByUpdatedAt)
@@ -1002,12 +1110,12 @@ func (rows WriterHandlerCurrentWriterSlice) IndexByUpdatedAt() (WriterHandlerCur
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByUpdatedAt) Has(key int) bool {
+func (index WriterHandlerCurrentWriterIndexedByUpdatedAt) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByUpdatedAt map[int][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedByUpdatedAt map[time.Time][]*CurrentWriterView
 
 func (rows WriterHandlerCurrentWriterSlice) GroupByUpdatedAt() WriterHandlerCurrentWriterGroupedByUpdatedAt {
 	result := make(WriterHandlerCurrentWriterGroupedByUpdatedAt)
@@ -1020,67 +1128,14 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByUpdatedAt() WriterHandlerCurr
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByUpdatedAt) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterKey struct {
-	WorkspaceId  string
-	ChannelId    string
-	RootThreadTs string
-}
-
-func WriterHandlerCurrentWriterIndexByKeyKey(value *CurrentWriterView) (WriterHandlerCurrentWriterKey, bool) {
-	var zero WriterHandlerCurrentWriterKey
-	if value == nil {
-		return zero, false
-	}
-	return WriterHandlerCurrentWriterKey{WorkspaceId: value.WorkspaceId, ChannelId: value.ChannelId, RootThreadTs: value.RootThreadTs}, true
-}
-
-type WriterHandlerCurrentWriterIndexedByKey map[WriterHandlerCurrentWriterKey]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByKey() (WriterHandlerCurrentWriterIndexedByKey, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByKey)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByKeyKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByKey")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByKey) Has(key WriterHandlerCurrentWriterKey) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByKey map[WriterHandlerCurrentWriterKey][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByKey() WriterHandlerCurrentWriterGroupedByKey {
-	result := make(WriterHandlerCurrentWriterGroupedByKey)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByKeyKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByKey) Has(key WriterHandlerCurrentWriterKey) bool {
+func (index WriterHandlerCurrentWriterGroupedByUpdatedAt) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
 
 type WriterHandlerReadIndexes struct {
-	CurrentWriter      WriterHandlerCurrentWriterSlice
-	CurrentWriterByKey WriterHandlerCurrentWriterIndexedByKey
+	CurrentWriter     WriterHandlerCurrentWriterSlice
+	CurrentWriterById WriterHandlerCurrentWriterIndexedById
 }
 
 func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHandlerReadIndexes, error) {
@@ -1146,68 +1201,74 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if err != nil {
 				return nil, err
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("WorkspaceId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.WorkspaceId")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Id") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Id")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ChannelId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ChannelId")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("InitialIntegrationId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.InitialIntegrationId")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RootThreadTs") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RootThreadTs")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackChannelId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackChannelId")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("LatestJobId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.LatestJobId")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackThreadRootMessageId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackThreadRootMessageId")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SourceJobId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SourceJobId")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("LatestStatusJobId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.LatestStatusJobId")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("InitiatorUserId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.InitiatorUserId")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("StatusSourceJobId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.StatusSourceJobId")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("DesiredStatus") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.DesiredStatus")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackInitiatorUserId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackInitiatorUserId")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("AgentStatus") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.AgentStatus")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackAgentDesiredStatus") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackAgentDesiredStatus")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SessionStatus") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SessionStatus")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackAgentObservedStatus") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackAgentObservedStatus")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Revision") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Revision")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackSessionObservedStatus") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackSessionObservedStatus")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SentRevision") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SentRevision")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationRevision") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationRevision")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ClaimedRevision") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ClaimedRevision")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationSentRevision") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationSentRevision")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("State") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.State")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationClaimedRevision") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationClaimedRevision")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Attempts") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Attempts")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationState") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationState")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("NextAttemptAt") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.NextAttemptAt")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationAttempts") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationAttempts")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RefreshAt") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RefreshAt")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationNextAttemptAt") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationNextAttemptAt")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RateLimitedUntil") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RateLimitedUntil")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationRefreshAt") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationRefreshAt")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("FirstSentAt") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.FirstSentAt")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationRateLimitedUntil") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationRateLimitedUntil")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("LastSentAt") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.LastSentAt")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationFirstSentAt") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationFirstSentAt")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Reason") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Reason")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationLastSentAt") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationLastSentAt")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Warning") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Warning")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationReason") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationReason")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackPublicationWarning") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackPublicationWarning")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("CreatedAt") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.CreatedAt")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("UpdatedAt") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.UpdatedAt")
@@ -1218,7 +1279,7 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			return nil, err
 		}
 		result.CurrentWriter = WriterHandlerCurrentWriterSlice(cloned.([]*CurrentWriterView))
-		result.CurrentWriterByKey, err = result.CurrentWriter.IndexByKey()
+		result.CurrentWriterById, err = result.CurrentWriter.IndexById()
 		if err != nil {
 			return nil, err
 		}

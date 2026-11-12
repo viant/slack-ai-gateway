@@ -15,17 +15,17 @@ func nativeMessage(event, root, author string) gateway.Message {
 	m.StatusMode = gateway.StatusAgentSession
 	return m
 }
-func acknowledgeSession(t *testing.T, s *Store, a *gateway.RequestStatus, now time.Time) {
+func acknowledgeSession(t *testing.T, s *Store, a *gateway.GatewayJobProgress, now time.Time) {
 	t.Helper()
 	storetest.Must(t, s.FinishStatus(context.Background(), *a, gateway.StatusResult{State: "settled", Acknowledged: true, AgentStatus: a.SessionState, SessionStatus: "processing", NextRefreshAt: now.Add(gateway.AgentSessionRefresh)}, now))
 }
-func finishNativeJob(t *testing.T, s *Store, j *gateway.Job, count int) {
+func finishNativeJob(t *testing.T, s *Store, j *gateway.GatewayJob, count int) {
 	t.Helper()
 	parts := make([]gateway.ReplyPart, count)
 	for i := range parts {
 		parts[i] = gateway.ReplyPart{Text: "answer", Format: gateway.ReplyPlain}
 	}
-	storetest.Must(t, s.Complete(context.Background(), j.ID, j.RequestID, "answer", parts))
+	storetest.Must(t, s.Complete(context.Background(), j.ID, j.GatewayRequestID, "answer", parts))
 }
 func deliverNativePart(t *testing.T, s *Store) {
 	t.Helper()
@@ -83,10 +83,10 @@ func TestAgentSessionThreadAggregationAndInFlightIntake(t *testing.T) {
 	claimStatus(t, s, now.Add(time.Hour), "heartbeat", "")
 	report, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	if len(report.AgentSessions) != 1 || report.AgentSessions[0].AgentStatus != "active" || report.AgentSessions[0].SessionStatus != "processing" {
+	if len(report.SlackAgentSessionPublications) != 1 || report.SlackAgentSessionPublications[0].AgentStatus != "active" || report.SlackAgentSessionPublications[0].SessionStatus != "processing" {
 		t.Fatal("own and aggregate status lost")
 	}
-	for _, row := range report.RequestStatuses {
+	for _, row := range report.GatewayJobs {
 		if row.SlackTS != "" {
 			t.Fatal("native publication invented message timestamp")
 		}
@@ -156,7 +156,7 @@ func TestAgentSessionRecoveryRetryCooldownAndLatestProjection(t *testing.T) {
 	}
 	claimStatus(t, s, now, "urgent", "")
 	// Expire persisted cooldown; retry must project the latest final delivery state.
-	_, err = db.Exec("UPDATE agent_session_publications SET rate_limited_until=0,next_attempt_at=0")
+	_, err = db.Exec("UPDATE slack_agent_session_publication SET slack_publication_rate_limited_until=NULL,slack_publication_next_attempt_at=NULL")
 	storetest.Must(t, err)
 	deliverNativePart(t, s)
 	a = claimStatus(t, s, now, "urgent", "active")

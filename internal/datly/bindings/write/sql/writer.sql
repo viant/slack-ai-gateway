@@ -1,1 +1,1 @@
-SELECT bindings.* FROM conversation_bindings bindings
+SELECT conversation_bindings.* FROM conversation_binding conversation_bindings

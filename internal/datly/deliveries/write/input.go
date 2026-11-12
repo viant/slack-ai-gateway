@@ -4,17 +4,17 @@ package write
 
 // Input is the generated input scaffold for writer.
 type Input struct {
-	Rows                      []*Delivery               `parameter:"Rows,kind=body,in=data,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/deliveries/write.Delivery" view:"writer,type=Delivery,table=outbox_messages"`
-	WriterKeys                []WriterKeysRow           `codec:"structql,'uri=datly_deliveries_write_writer:sql/writer_keys.sql'" parameter:"WriterKeys,kind=param,in=Rows,cardinality=Many"`
-	CurrentWriter             []*CurrentWriterView      `parameter:"CurrentWriter,kind=view,in=CurrentWriter,cardinality=Many" sql:"uri=datly_deliveries_write_writer:sql/current_writer.sql" view:"CurrentWriter,table=outbox_messages"`
-	CurrentResolutions        []*CurrentResolutionsView `parameter:"CurrentResolutions,kind=view,in=CurrentResolutions,cardinality=Many" sql:"uri=datly_deliveries_write_writer:sql/current_resolutions.sql" view:"CurrentResolutions,table=delivery_resolutions"`
-	_writerHandlerReadIndexes *WriterHandlerReadIndexes `json:"-" sqlx:"-"`
-	Has                       *InputHas                 `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
+	Rows                            []*SlackOutgoingMessage                `parameter:"Rows,kind=body,in=data,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/deliveries/write.SlackOutgoingMessage" view:"writer,type=SlackOutgoingMessage,table=slack_outgoing_message"`
+	WriterKeys                      []WriterKeysRow                        `codec:"structql,'uri=datly_deliveries_write_writer:sql/writer_keys.sql'" parameter:"WriterKeys,kind=param,in=Rows,cardinality=Many"`
+	CurrentWriter                   []*CurrentWriterView                   `parameter:"CurrentWriter,kind=view,in=CurrentWriter,cardinality=Many" sql:"uri=datly_deliveries_write_writer:sql/current_writer.sql" view:"CurrentWriter,table=slack_outgoing_message"`
+	CurrentSlackDeliveryResolutions []*CurrentSlackDeliveryResolutionsView `parameter:"CurrentSlackDeliveryResolutions,kind=view,in=CurrentSlackDeliveryResolutions,cardinality=Many" sql:"uri=datly_deliveries_write_writer:sql/current_slack_delivery_resolutions.sql" view:"CurrentSlackDeliveryResolutions,table=slack_delivery_resolution"`
+	_writerHandlerReadIndexes       *WriterHandlerReadIndexes              `json:"-" sqlx:"-"`
+	Has                             *InputHas                              `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
 }
 
 type InputHas struct {
-	Rows               bool
-	WriterKeys         bool
-	CurrentWriter      bool
-	CurrentResolutions bool
+	Rows                            bool
+	WriterKeys                      bool
+	CurrentWriter                   bool
+	CurrentSlackDeliveryResolutions bool
 }

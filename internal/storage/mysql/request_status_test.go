@@ -11,7 +11,7 @@ import (
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
-func claimStatus(t *testing.T, s *Store, now time.Time, kind, phase string) *gateway.RequestStatus {
+func claimStatus(t *testing.T, s *Store, now time.Time, kind, phase string) *gateway.GatewayJobProgress {
 	t.Helper()
 	status, err := s.ClaimStatus(context.Background(), now, kind)
 	storetest.Must(t, err)
@@ -26,7 +26,7 @@ func claimStatus(t *testing.T, s *Store, now time.Time, kind, phase string) *gat
 	}
 	return status
 }
-func confirmStatus(t *testing.T, s *Store, status *gateway.RequestStatus, now time.Time) {
+func confirmStatus(t *testing.T, s *Store, status *gateway.GatewayJobProgress, now time.Time) {
 	t.Helper()
 	state := "ready"
 	if status.Terminal {
@@ -38,7 +38,7 @@ func confirmStatus(t *testing.T, s *Store, status *gateway.RequestStatus, now ti
 	}
 	storetest.Must(t, s.FinishStatus(context.Background(), *status, gateway.StatusResult{State: state, SlackTS: ts, NextRefreshAt: now.Add(gateway.DefaultStatusRefresh)}, now))
 }
-func startStatusJob(t *testing.T, s *Store) *gateway.Job {
+func startStatusJob(t *testing.T, s *Store) *gateway.GatewayJob {
 	t.Helper()
 	ctx := context.Background()
 	j, err := s.ClaimJob(ctx)
@@ -60,13 +60,13 @@ func TestStatusIntentionAtomicDeduplicatedAndConstrained(t *testing.T) {
 	s, db := fixtureDB(t)
 	ctx := context.Background()
 	m := storetest.Message("event", "root", "alice")
-	_, err := db.Exec(`CREATE TRIGGER fail_status BEFORE INSERT ON request_status FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='test failure'`)
+	_, err := db.Exec(`CREATE TRIGGER fail_status BEFORE INSERT ON gateway_job FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='test failure'`)
 	storetest.Must(t, err)
 	if _, err := s.Enqueue(ctx, m); err == nil {
 		t.Fatal("ignored status persistence failure")
 	}
 	var n int
-	storetest.Must(t, db.QueryRow("SELECT COUNT(*) FROM inbox_jobs").Scan(&n))
+	storetest.Must(t, db.QueryRow("SELECT COUNT(*) FROM gateway_job").Scan(&n))
 	if n != 0 {
 		t.Fatal("partially committed intake")
 	}
@@ -79,14 +79,14 @@ func TestStatusIntentionAtomicDeduplicatedAndConstrained(t *testing.T) {
 			t.Fatal("incorrect dedup")
 		}
 	}
-	storetest.Must(t, db.QueryRow("SELECT COUNT(*) FROM request_status").Scan(&n))
+	storetest.Must(t, db.QueryRow("SELECT COUNT(*) FROM gateway_job").Scan(&n))
 	if n != 1 {
 		t.Fatal("duplicated status")
 	}
-	if _, err = db.Exec("INSERT INTO request_status(job_id,updated_at) VALUES(999,0)"); err == nil {
-		t.Fatal("missing FK")
+	if _, err = db.Exec("UPDATE gateway_job SET integration_id=999999"); err == nil {
+		t.Fatal("missing integration FK")
 	}
-	if _, err = db.Exec("INSERT INTO request_status(job_id,updated_at) SELECT job_id,0 FROM request_status"); err == nil {
+	if _, err = db.Exec("INSERT INTO gateway_job SELECT * FROM gateway_job"); err == nil {
 		t.Fatal("missing unique job")
 	}
 }
@@ -116,7 +116,7 @@ func TestStatusProjectionLongRequestAndMultipartDelivery(t *testing.T) {
 	}
 	confirmStatus(t, s, a, now)
 	storetest.Must(t, s.RecordObservation(ctx, j.ID, "completed", now))
-	storetest.Must(t, s.Complete(ctx, j.ID, j.RequestID, "result", []gateway.ReplyPart{{Text: "one", Format: gateway.ReplyPlain}, {Text: "two", Format: gateway.ReplyPlain}}))
+	storetest.Must(t, s.Complete(ctx, j.ID, j.GatewayRequestID, "result", []gateway.ReplyPart{{Text: "one", Format: gateway.ReplyPlain}, {Text: "two", Format: gateway.ReplyPlain}}))
 	a = claimStatus(t, s, now, "urgent", "delivering")
 	confirmStatus(t, s, a, now)
 	for i := 0; i < 2; i++ {
@@ -138,7 +138,7 @@ func TestStatusProjectionLongRequestAndMultipartDelivery(t *testing.T) {
 	claimStatus(t, s, now.Add(time.Hour), "heartbeat", "")
 	metadata, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	if metadata.RequestStatuses[0].Outcome != "completed" || metadata.RequestStatuses[0].AckLatencyMS == nil {
+	if metadata.GatewayJobs[0].Outcome != "completed" || metadata.GatewayJobs[0].AckLatencyMS == nil {
 		t.Fatal("missing diagnostics")
 	}
 }
@@ -156,7 +156,7 @@ func TestStatusQueueBlockAndOriginalIdentity(t *testing.T) {
 	b := claimStatus(t, s, now, "urgent", "queued")
 	metadata, err := s.GetStatusContext(ctx, *b)
 	storetest.Must(t, err)
-	if metadata.Message.AuthorID != "bob" || metadata.Binding != nil {
+	if metadata.Message.AuthorID != "bob" || metadata.ConversationBinding != nil {
 		t.Fatal("wrong original identity or status created binding")
 	}
 	forged := *b
@@ -194,7 +194,7 @@ func TestStatusBackendFailureCancellationAndFastPath(t *testing.T) {
 			confirmStatus(t, s, a, now)
 			j := startStatusJob(t, s)
 			storetest.Must(t, s.RecordObservation(ctx, j.ID, outcome, now))
-			storetest.Must(t, s.Complete(ctx, j.ID, j.RequestID, "reply", []gateway.ReplyPart{{Text: "reply", Format: gateway.ReplyPlain}}))
+			storetest.Must(t, s.Complete(ctx, j.ID, j.GatewayRequestID, "reply", []gateway.ReplyPart{{Text: "reply", Format: gateway.ReplyPlain}}))
 			d, err := s.ClaimDelivery(ctx)
 			storetest.Must(t, err)
 			storetest.Must(t, s.Delivered(ctx, d.ID, "4.000001"))
@@ -207,11 +207,11 @@ func TestStatusBackendFailureCancellationAndFastPath(t *testing.T) {
 	storetest.Must(t, err)
 	j := startStatusJob(t, s)
 	storetest.Must(t, s.RecordObservation(ctx, j.ID, "completed", time.Now()))
-	storetest.Must(t, s.Complete(ctx, j.ID, j.RequestID, "reply", []gateway.ReplyPart{{Text: "reply", Format: gateway.ReplyPlain}}))
+	storetest.Must(t, s.Complete(ctx, j.ID, j.GatewayRequestID, "reply", []gateway.ReplyPart{{Text: "reply", Format: gateway.ReplyPlain}}))
 	claimStatus(t, s, time.Now(), "urgent", "")
 	metadata, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	if metadata.RequestStatuses[0].State != "skipped" {
+	if metadata.GatewayJobs[0].ProgressState != "skipped" {
 		t.Fatal("fast path not persisted")
 	}
 }
@@ -259,7 +259,7 @@ func TestStatusRateLimitGatesFinalRepliesAndSurvivesRestart(t *testing.T) {
 	until := now.Add(time.Hour)
 	storetest.Must(t, s.FinishStatus(ctx, *a, gateway.StatusResult{State: "ready", Reason: "rate_limited", RetryAt: until, RateLimitedUntil: until}, now))
 	j := startStatusJob(t, s)
-	storetest.Must(t, s.Complete(ctx, j.ID, j.RequestID, "reply", []gateway.ReplyPart{{Text: "reply", Format: gateway.ReplyPlain}}))
+	storetest.Must(t, s.Complete(ctx, j.ID, j.GatewayRequestID, "reply", []gateway.ReplyPart{{Text: "reply", Format: gateway.ReplyPlain}}))
 	s = f.Reopen().(*Store)
 	if d, err := s.ClaimDelivery(ctx); err != nil || d != nil {
 		t.Fatal("status cooldown did not gate final reply")
@@ -271,7 +271,7 @@ func TestStatusRateLimitGatesFinalRepliesAndSurvivesRestart(t *testing.T) {
 	}
 	claimStatus(t, s, now, "urgent", "")
 	// The converse: a final POST's Retry-After gates status writes too.
-	_, err = db.Exec("UPDATE request_status SET rate_limited_until=0,next_attempt_at=0")
+	_, err = db.Exec("UPDATE gateway_job SET slack_progress_rate_limited_until=NULL,slack_progress_next_attempt_at=NULL")
 	storetest.Must(t, err)
 	d, err := s.ClaimDelivery(ctx)
 	storetest.Must(t, err)
@@ -279,27 +279,4 @@ func TestStatusRateLimitGatesFinalRepliesAndSurvivesRestart(t *testing.T) {
 	_, err = s.Enqueue(ctx, storetest.Message("b", "two", "bob"))
 	storetest.Must(t, err)
 	claimStatus(t, s, now, "urgent", "")
-}
-
-func TestRecoveryDoesNotCreateMissingStatusPublications(t *testing.T) {
-	ctx := context.Background()
-	s, db := fixtureDB(t)
-	for _, state := range []string{"completed", "pending", "needs_review"} {
-		_, err := db.Exec(`INSERT INTO inbox_jobs(app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,state,created_at,updated_at) VALUES('A','T','C',?,?, 'alice','1.001','old',0,?,?,1,1)`, state, state, state, state)
-		storetest.Must(t, err)
-	}
-	storetest.Must(t, s.Recover(ctx))
-	claimStatus(t, s, time.Now(), "urgent", "")
-	var n int
-	storetest.Must(t, db.QueryRow("SELECT COUNT(*) FROM request_status").Scan(&n))
-	if n != 0 {
-		t.Fatal("recovery invented a status publication")
-	}
-	j, err := s.ClaimJob(ctx)
-	storetest.Must(t, err)
-	if j == nil {
-		t.Fatal("pending job without status cannot progress")
-	}
-	storetest.Must(t, s.RecordObservation(ctx, j.ID, "completed", time.Now()))
-	storetest.Must(t, s.Complete(ctx, j.ID, "", "reply", []gateway.ReplyPart{{Text: "reply", Format: gateway.ReplyPlain}}))
 }

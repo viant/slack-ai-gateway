@@ -19,21 +19,17 @@ func backendStatusKind(kind string) bool {
 
 // The normal nested writer owns both the terminal job and its local reply.
 // A failed write rolls back the whole invocation, including new transport intake.
-func closeUnstarted(row *jw.Job, reason string, now int) {
+func closeUnstarted(row *jw.GatewayJob, reason string, now time.Time) {
 	notice := gateway.BackendNotice(reason)
-	row.SetState("completed")
-	row.SetReason(reason)
-	row.SetResultText(notice)
-	row.SetPollReady(0)
-	row.SetUpdatedAt(now)
-	row.SetOutbox([]*jw.Outbox{{JobId: row.Id, WorkspaceId: row.WorkspaceId, ChannelId: row.ChannelId, RootThreadTs: row.RootThreadTs, Part: 0, Content: notice, Format: string(gateway.ReplyPlain), State: "pending", CreatedAt: now, UpdatedAt: now}})
-	if row.Status == nil {
-		s := &jw.RequestStatus{}
-		s.SetJobId(row.Id)
-		row.SetStatus(s)
-	}
-	row.Status.SetOutcome("failed")
-	row.Status.SetUpdatedAt(now)
+	row.SetGatewayExecutionState("completed")
+	row.SetGatewayExecutionFinishedAt(timePointer(now))
+	row.SetGatewayExecutionReason(reason)
+	row.SetGatewayExecutionResultText(&notice)
+	row.SetBackendPollReady(0)
+	row.SetGatewayExecutionUpdatedAt(now)
+	row.SetSlackOutgoingMessages([]*jw.SlackOutgoingMessage{{JobId: row.Id, SlackMessageIndex: 0, SlackMessageKind: gateway.DeliveryResponse, SlackMessageText: &notice, SlackMessageFormat: string(gateway.ReplyPlain), SlackDeliveryState: "pending", CreatedAt: now, UpdatedAt: now}})
+	row.SetGatewayExecutionOutcome("failed")
+	row.SetGatewayStatusUpdatedAt(now)
 }
 
 func (x *execution) failUnstarted(ctx context.Context, in *Input, _ *Output) error {
@@ -46,29 +42,32 @@ func (x *execution) failUnstarted(ctx context.Context, in *Input, _ *Output) err
 	if err != nil {
 		return err
 	}
-	updates := make([]*jw.Job, 0, len(jobs))
-	now := int(time.Now().UnixMilli())
+	updates := make([]*jw.GatewayJob, 0, len(jobs))
+	bindings := map[int]bool{}
+	now := timestamp(time.Now())
 	for _, j := range jobs {
 		// Recheck the native, locked row before any mutation. A claimed worker
 		// cannot overwrite this terminal transition with BeginQuery/Complete.
-		if (j.State != "pending" && j.State != "processing") || j.TurnId != "" || (j.Binding != nil && (j.Binding.State == "creating" || j.Binding.State == "needs_review")) {
+		if (j.GatewayExecutionState != "pending" && j.GatewayExecutionState != "processing") || j.BackendSubmissionStartedAt != nil || (j.ConversationBinding != nil && (j.ConversationBinding.GatewayBindingState == "creating" || j.ConversationBinding.GatewayBindingState == "needs_review")) {
 			continue
 		}
 		row := jobUpdate(j)
-		// Outbox transport scope is carried explicitly; sparse job fields stay
-		// untouched and the generated writer propagates the parent identity.
-		row.WorkspaceId, row.ChannelId, row.RootThreadTs = j.WorkspaceId, j.ChannelId, j.RootThreadTs
 		closeUnstarted(row, in.Text, now)
-		if j.Status == nil {
-			// Preserve the established rule that legacy rows receive no status
-			// backfill. The ordinary reply outbox still publishes the notice.
-			row.Status = nil
-			row.Has.Status = false
-		}
 		updates = append(updates, row)
+		if id := deref(j.ConversationBindingId); id != 0 {
+			bindings[id] = true
+		}
 	}
 	if len(updates) == 0 {
 		return nil
 	}
-	return x.writeJobs(ctx, updates)
+	if err := x.writeJobs(ctx, updates); err != nil {
+		return err
+	}
+	for id := range bindings {
+		if err := x.touchBinding(ctx, id, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }

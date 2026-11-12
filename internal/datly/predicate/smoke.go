@@ -25,7 +25,7 @@ func (*SmokeConversation) Compute(ctx context.Context, _ any) (*predicate.Criter
 	if dialect == nil {
 		return nil, fmt.Errorf("smoke namespace predicate requires a database dialect")
 	}
-	column := "conversation_id"
+	column := "backend_conversation_id"
 	switch strings.ToLower(dialect.Name) {
 	case "mysql":
 		// This is the original MySQL case/accent-insensitive comparison.

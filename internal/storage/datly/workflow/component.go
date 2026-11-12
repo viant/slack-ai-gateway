@@ -7,6 +7,8 @@ import (
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
 	"github.com/viant/datly/runtime/handler/custom"
+	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/xdatly/handler"
 )
 
@@ -20,7 +22,12 @@ func (Component) DatlyHandler(name string) func() (rh.TypedHandler, error) {
 	return custom.Factory(NewWorkflow)
 }
 
-type execution struct{ invoke handler.ComponentInvoker }
+type execution struct {
+	invoke   handler.ComponentInvoker
+	scope    int64
+	name     string
+	identity *storage.Integration
+}
 
 func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, out *Output) error {
 	if in == nil || out == nil || session == nil || session.Binder() == nil {
@@ -43,14 +50,39 @@ func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, o
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
 	}
-	x := &execution{invoke: deps.Invoker}
+	x := &execution{invoke: deps.Invoker, scope: in.Scope, name: in.IntegrationName}
+	if in.Scope != 0 {
+		identity, err := x.readIdentity(ctx, in.Scope)
+		if err != nil {
+			return err
+		}
+		x.identity = identity
+		if !identity.Active {
+			switch in.Action {
+			case "claim_job":
+				return nil
+			case "enqueue", "bind_job", "begin_create", "set_conversation", "begin_query", "schedule_poll", "complete", "observe", "review", "reject", "fail_unstarted":
+				return gateway.ErrConflict
+			}
+		}
+	} else {
+		switch in.Action {
+		case "reconcile_integrations", "status", "recover", "resolve_delivery":
+		default:
+			return fmt.Errorf("an explicit integration scope is required")
+		}
+	}
 	switch in.Action {
+	case "reconcile_integrations":
+		return x.reconcileIntegrations(ctx, in.Integrations, out)
 	case "existing_event":
 		return x.existingEvent(ctx, in, out)
 	case "enqueue":
 		return x.enqueue(ctx, in, out)
 	case "fail_unstarted":
 		return x.failUnstarted(ctx, in, out)
+	case "fail_cleanup":
+		return x.failCleanup(ctx, in.Text)
 	case "claim_job", "bind_job", "begin_query", "schedule_poll", "complete", "review", "reject":
 		return x.jobs(ctx, in, out)
 	case "get_binding", "begin_create", "set_conversation":

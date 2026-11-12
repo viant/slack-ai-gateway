@@ -20,6 +20,7 @@ import (
 	"github.com/viant/slack-ai-gateway/internal/gateway"
 	gatewayruntime "github.com/viant/slack-ai-gateway/internal/runtime"
 	slackadapter "github.com/viant/slack-ai-gateway/internal/slack"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storage/sqlite"
 )
 
@@ -66,17 +67,22 @@ func TestSlackSmoke(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	route := policy.Route
+	assignments, err := s.ReconcileIntegrations(ctx, []storage.Integration{{Name: "smoke", AppID: route.AppID, WorkspaceID: route.WorkspaceID, BackendType: "smoke", BackendURL: "https://smoke.example.test", BackendAgentID: "slack-smoke", PrincipalID: smokePrincipal}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	source, sender, err := slackadapter.Connect(ctx, tokens, route, log)
 	if err != nil {
 		t.Fatal(err)
 	}
 	policy.Directory = gateway.NewCachedDirectory(slackadapter.NewDirectory(tokens.Bot, route.WorkspaceID))
 	backend := &smokeBackend{}
-	r := gatewayruntime.Runtime{StatusMode: c.StatusMode(), StatusRefreshInterval: c.StatusRefreshInterval(), Store: s, Source: source, Route: route,
+	r := gatewayruntime.Runtime{StatusMode: c.StatusMode(), StatusRefreshInterval: c.StatusRefreshInterval(), Store: s.Scope(assignments[0].ID), Source: source, Route: route,
 		Policy:  policy,
 		Clients: backend, Sender: sender, AgentID: "slack-smoke", Log: log}
 	t.Log("LIVE SLACK TEST: no Agently calls. Configured access policy and Slack metadata checks apply. Wait for slack_connection state=ready, then mention the bot on an allowed test channel or send a DM if explicitly enabled. Ctrl+C stops the session gracefully.")
-	if err = r.Run(ctx); err != nil {
+	group := gatewayruntime.Group{Store: s, Integrations: []gatewayruntime.Integration{{ID: "smoke", Runtime: &r}}, Log: log}
+	if err = group.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("Smoke session: %d test queries, %d persisted deliveries. Verify thread mapping and visible replies manually.", backend.queries.Load(), r.Delivered())

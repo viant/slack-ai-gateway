@@ -21,29 +21,37 @@ import (
 )
 
 type Config struct {
-	Storage    Storage `yaml:"storage"`
-	Transport  string  `yaml:"transport"`
-	AccessMode string  `yaml:"access_mode"`
-	Access     *Access `yaml:"access"`
-	Slack      struct {
-		AppID          string        `yaml:"app_id"`
-		WorkspaceID    string        `yaml:"workspace_id"`
-		ChannelID      string        `yaml:"channel_id"`
-		Channels       *Channels     `yaml:"channels"`
-		Status         Status        `yaml:"status"`
-		Response       Response      `yaml:"response"`
-		AppTokenSecret *scy.Resource `yaml:"app_token_secret"`
-		BotTokenSecret *scy.Resource `yaml:"bot_token_secret"`
-	} `yaml:"slack"`
-	Agently struct {
-		BaseURL     string `yaml:"base_url"`
-		AgentID     string `yaml:"agent_id"`
-		PrincipalID string `yaml:"principal_id"`
-		Auth        struct {
-			Mode   string        `yaml:"mode"`
-			Secret *scy.Resource `yaml:"secret"`
-		} `yaml:"auth"`
-	} `yaml:"agently"`
+	Storage    Storage         `yaml:"storage"`
+	Transport  string          `yaml:"transport"`
+	AccessMode string          `yaml:"access_mode"`
+	Access     *Access         `yaml:"access"`
+	Slack      SlackSettings   `yaml:"slack"`
+	Agently    AgentlySettings `yaml:"agently"`
+
+	Integrations []Integration `yaml:"integrations"`
+}
+
+type SlackSettings struct {
+	AppID          string        `yaml:"app_id"`
+	WorkspaceID    string        `yaml:"workspace_id"`
+	ChannelID      string        `yaml:"channel_id"`
+	Channels       *Channels     `yaml:"channels"`
+	Status         Status        `yaml:"status"`
+	Response       Response      `yaml:"response"`
+	AppTokenSecret *scy.Resource `yaml:"app_token_secret"`
+	BotTokenSecret *scy.Resource `yaml:"bot_token_secret"`
+}
+
+type BackendAuth struct {
+	Mode   string        `yaml:"mode"`
+	Secret *scy.Resource `yaml:"secret"`
+}
+
+type AgentlySettings struct {
+	BaseURL     string      `yaml:"base_url"`
+	AgentID     string      `yaml:"agent_id"`
+	PrincipalID string      `yaml:"principal_id"`
+	Auth        BackendAuth `yaml:"auth"`
 }
 
 // Response selects presentation of completed responses only.
@@ -182,38 +190,8 @@ func Load(path string) (Config, error) {
 	if err = validateNoAliases(root); err != nil {
 		return c, err
 	}
-	if root.Kind == yaml.MappingNode {
-		for i := 0; i+1 < len(root.Content); i += 2 {
-			key, value := root.Content[i].Value, root.Content[i+1]
-			if key == "access" {
-				if err = validateSecurityNode(value); err != nil {
-					return c, err
-				}
-			}
-			if key == "slack" && value.Kind == yaml.MappingNode {
-				for j := 0; j+1 < len(value.Content); j += 2 {
-					if value.Content[j].Value == "status" {
-						node := value.Content[j+1]
-						if node.Kind != yaml.MappingNode {
-							return c, fmt.Errorf("slack.status must be a mapping")
-						}
-						for k := 0; k+1 < len(node.Content); k += 2 {
-							if node.Content[k].Value == "mode" && node.Content[k+1].Tag != "!!str" {
-								return c, fmt.Errorf("slack.status.mode must be message, agent_session or hybrid")
-							}
-							if node.Content[k].Value == "refresh_interval_sec" && node.Content[k+1].Tag != "!!int" {
-								return c, fmt.Errorf("slack.status.refresh_interval_sec must be a positive integer number of seconds")
-							}
-						}
-					}
-					if value.Content[j].Value == "channels" {
-						if err = validateSecurityNode(value.Content[j+1]); err != nil {
-							return c, err
-						}
-					}
-				}
-			}
-		}
+	if err = validateConfigMappings(root); err != nil {
+		return c, err
 	}
 	if _, err = f.Seek(0, io.SeekStart); err != nil {
 		return c, fmt.Errorf("cannot read configuration")
@@ -293,6 +271,10 @@ func (c Config) ValidateStorage() error {
 }
 
 func (c Config) ValidateRun() error {
+	if c.hasTopology() {
+		_, err := c.Topology()
+		return err
+	}
 	if err := c.ValidateSlack(); err != nil {
 		return err
 	}

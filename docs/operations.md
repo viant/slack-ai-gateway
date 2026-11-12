@@ -91,20 +91,36 @@ opening the database and never create a schema.
 go run ./cmd/slack-ai-gateway status --config "$HOME/.slack-ai-gateway/config/gateway.local.yaml" --limit 100
 ```
 
-Output is a consistent JSON snapshot of jobs, conversation bindings and deliveries,
-containing IDs, states, fixed reason codes, poll metadata and Slack timestamps.
+Output is a consistent JSON metadata snapshot with five collections:
+`integrations`, `gateway_jobs`, `conversation_bindings`, `slack_outgoing_messages`
+and `slack_agent_session_publications`. Each job combines execution, backend
+observation and Slack progress metadata. Execution and progress states/reasons
+remain distinct; completing backend work is not proof of Slack delivery.
+
 Jobs include workspace/channel/thread IDs and the original Slack author ID;
-deliveries include workspace/channel/thread IDs for multi-channel diagnosis.
-Question text, result text, rendered replies and credentials are excluded. IDs and
-principal/owner names can still be sensitive operational metadata.
-`request_statuses` additionally reports publication phase/state, backend outcome,
-last confirmation, desired/sent revisions, retry/refresh/cooldown metadata,
-acknowledgment latency and fixed error reasons. Counts include `request_status`.
+outgoing messages include the Slack address for multi-channel diagnosis.
+Prompt text, result text, protocol history, rendered replies and credentials are
+excluded. IDs and principal/owner names can still be sensitive operational metadata.
+
+Counts cover five independent state dimensions:
+`gateway_job.gateway_execution_state`, `gateway_job.slack_progress_state`,
+`conversation_binding.gateway_binding_state`,
+`slack_outgoing_message.slack_delivery_state` and
+`slack_agent_session_publication.slack_publication_state`.
+
+Progress metadata includes desired/sent revisions, first/last confirmation,
+retry/refresh/cooldown dates and `slack_progress_ack_latency_ms`. Unknown latency
+is `null`; a confirmed publication may have a valid zero-millisecond latency.
+Session metadata distinguishes the desired agent status, Slack's observed status
+for this agent and the aggregate session status. `initial_integration_id` is the
+original assignment anchor, while `status_source_job_id` identifies the
+job whose author supplies the publication access context.
 
 `limit` is 1–1000, default 100, **per table**, newest rows first. `counts` covers
 all rows, not only those displayed. This is not a full audit export/search tool;
-older blocked rows may not be in the displayed window. Millisecond timestamps
-are Unix time. `status` neither changes work state nor runs recovery.
+older blocked rows may not be in the displayed window. Diagnostic timestamp
+fields retain Unix-millisecond numbers with `_ms` suffixes; absent dates are `0`.
+`status` neither changes work state nor runs recovery.
 
 | State | Meaning / action |
 |---|---|
@@ -113,7 +129,7 @@ are Unix time. `status` neither changes work state nor runs recovery.
 | Job `querying` | Query in flight or durable read reconciliation scheduled |
 | Job `completed` | Result or local not-submitted notice persisted; not proof of Slack delivery or backend execution |
 | Job `needs_review` | Automation stopped for this query; later queries in its thread are blocked |
-| Job `rejected` | Current policy denied execution before a turn was submitted |
+| Job `rejected` | Policy denied execution, or an assignment change closed local work; inspect `gateway_execution_reason` |
 | Delivery `pending` | Stored reply awaiting sending or a known-safe retry |
 | Delivery `sending` | Attempt started; crash recovery makes this `delivery_unknown` |
 | Delivery `delivery_unknown` | Slack may have received it; manual resolution required |
@@ -134,7 +150,7 @@ Investigate the recorded IDs and backend state before designing a recovery actio
 do not delete rows, alter IDs or issue ad-hoc SQL to unblock the thread.
 
 When a query worker successfully persists `needs_review`, the runtime emits a
-`WARN` record named `query_needs_review` with `job_id`, `request_id` and the fixed
+`WARN` record named `query_needs_review` with `job_id`, `gateway_request_id` and the fixed
 `reason` code. It does not log question/answer text, credentials or raw backend
 errors. A failure to persist the transition is surfaced as a worker error, not
 logged as a successful transition. The log callback itself does not send a reply
@@ -142,6 +158,15 @@ or automatically resolve the job. Status publications independently project dura
 state into the question's status message, subject to current policy and Slack
 availability. Startup recovery can also quarantine jobs;
 inspect `status` for the complete persisted state.
+
+An assignment replaced or removed at startup closes its bindings and unfinished
+work with `integration_changed` or `integration_removed`. This does not cancel a
+backend run. The gateway retains delivered parts and uncertain-delivery audit,
+stops pending ordinary responses, and records one closure notice per unfinished
+physical Slack thread. A remaining authorized transport for that bot handles the
+notice and terminal progress updates; otherwise publication fails locally.
+`status --integration NAME` includes inactive assignment history. See
+[assignment lifecycle](integrations.md#recorded-assignments-and-restarts).
 
 ## Viant Steward connection recovery
 
@@ -221,7 +246,7 @@ go run ./cmd/slack-ai-gateway resolve-delivery \
 
 Slack might already contain the original message: **this can produce a duplicate**.
 The command queues exactly the existing stored part and records the decision in
-`delivery_resolutions`. It does not resend immediately, re-render the content,
+`slack_delivery_resolution`. It does not resend immediately, re-render the content,
 re-run Agently or affect another part. Actual retry happens in a subsequent runtime
 session. Repeated resolution of a part no longer in `delivery_unknown` is rejected.
 The state update and audit row commit together. Audit records contain the delivery,

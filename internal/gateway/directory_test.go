@@ -138,11 +138,11 @@ type deliveryMemoryStore struct {
 	part int
 }
 
-func (s *deliveryMemoryStore) ClaimDelivery(context.Context) (*Delivery, error) {
+func (s *deliveryMemoryStore) ClaimDelivery(context.Context) (*SlackOutgoingMessage, error) {
 	s.part++
-	return &Delivery{ID: int64(s.part), JobID: 1, Part: s.part}, nil
+	return &SlackOutgoingMessage{ID: int64(s.part), JobID: 1, Part: s.part}, nil
 }
-func (s *deliveryMemoryStore) GetDeliveryContext(context.Context, Delivery) (*DeliveryContext, error) {
+func (s *deliveryMemoryStore) GetDeliveryContext(context.Context, SlackOutgoingMessage) (*DeliveryContext, error) {
 	return &DeliveryContext{}, nil
 }
 func (s *deliveryMemoryStore) Delivered(context.Context, int64, string) error { return nil }
@@ -156,7 +156,7 @@ func (p *freshPolicy) AuthorizeDelivery(_ context.Context, _ DeliveryContext, fr
 
 type memorySender struct{}
 
-func (memorySender) Send(context.Context, Delivery) (string, error) { return "1.001", nil }
+func (memorySender) Send(context.Context, SlackOutgoingMessage) (string, error) { return "1.001", nil }
 
 func TestLongDeliveryRefreshesAfterOneMinute(t *testing.T) {
 	p := &freshPolicy{}

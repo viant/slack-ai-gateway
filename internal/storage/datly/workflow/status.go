@@ -12,15 +12,19 @@ import (
 // The projection preserves the SQLite backend's interpretation of persisted
 // execution and delivery facts. It does not infer backend progress from time.
 type statusProjection struct {
-	gateway.RequestStatus
+	gateway.GatewayJobProgress
 	jobState, outcome, previousPhase, reason string
 	uncertain                                bool
-	refreshAt, sentRevision                  int64
+	refreshAt                                time.Time
+	sentRevision                             int64
 	pending, delivered, bad                  int
 	earlier, blocked                         bool
 }
 
 func (p statusProjection) phase(now time.Time) (string, bool) {
+	if gateway.IntegrationTermination(p.reason) || p.reason == "conversation_closed" {
+		return p.reason, true
+	}
 	switch p.jobState {
 	case "rejected":
 		return "", true
@@ -66,20 +70,10 @@ func (p statusProjection) phase(now time.Time) (string, bool) {
 	return "contacting", false
 }
 
-func statusMillis(at time.Time) int {
-	if at.IsZero() {
-		return 0
-	}
-	return int(at.UnixMilli())
-}
-
-func statusPatch(id int) (*graphwrite.Job, *graphwrite.RequestStatus) {
-	job := &graphwrite.Job{}
+func statusPatch(id int) *graphwrite.GatewayJob {
+	job := &graphwrite.GatewayJob{}
 	job.SetId(id)
-	status := &graphwrite.RequestStatus{}
-	status.SetJobId(id)
-	job.SetStatus(status)
-	return job, status
+	return job
 }
 
 func (e *execution) recordObservation(ctx context.Context, in *Input, _ *Output) error {
@@ -95,28 +89,27 @@ func (e *execution) recordObservation(ctx context.Context, in *Input, _ *Output)
 	if err != nil {
 		return err
 	}
-	// Missing status rows represent legacy work and are never backfilled.
-	if len(rows) == 0 || rows[0].Status == nil {
+	if len(rows) == 0 {
 		return nil
 	}
-	if rows[0].State == "completed" && localBackendFailure(rows[0].Reason) {
+	if rows[0].GatewayExecutionState == "completed" && localBackendFailure(rows[0].GatewayExecutionReason) {
 		// A stale worker observation cannot convert a local rejection into a
 		// successful remote execution.
 		return gateway.ErrBackendUnavailable
 	}
-	job, status := statusPatch(rows[0].Id)
-	status.SetUpdatedAt(int(in.At.UnixMilli()))
+	status := statusPatch(rows[0].Id)
+	status.SetGatewayStatusUpdatedAt(timestamp(in.At))
 	if in.Text == "unknown" {
-		status.SetObservationUncertain(1)
+		status.SetBackendObservationUncertain(1)
 	} else {
-		status.SetObservedState(in.Text)
-		status.SetObservedAt(int(in.At.UnixMilli()))
-		status.SetObservationUncertain(0)
+		status.SetBackendObservedState(in.Text)
+		status.SetBackendObservedAt(timePointer(in.At))
+		status.SetBackendObservationUncertain(0)
 		if in.Text == "completed" || in.Text == "failed" || in.Text == "canceled" {
-			status.SetOutcome(in.Text)
+			status.SetGatewayExecutionOutcome(in.Text)
 		}
 	}
-	return e.writeJobs(ctx, []*graphwrite.Job{job})
+	return e.writeJobs(ctx, []*graphwrite.GatewayJob{status})
 }
 
 func (e *execution) claimStatus(ctx context.Context, in *Input, out *Output) error {
@@ -125,10 +118,10 @@ func (e *execution) claimStatus(ctx context.Context, in *Input, out *Output) err
 		out.Status, err = e.claimMessageStatus(ctx, in.At, in.Kind)
 		return err
 	}
-	if in.Kind != "urgent" && in.Kind != "heartbeat" && in.Kind != "terminal" {
+	if in.Kind != "urgent" && in.Kind != "heartbeat" && in.Kind != "terminal" && in.Kind != "integration_terminal" {
 		return gateway.ErrConflict
 	}
-	claims := []func(context.Context, time.Time, string) (*gateway.RequestStatus, error){e.claimAgentSession, e.claimMessageStatus}
+	claims := []func(context.Context, time.Time, string) (*gateway.GatewayJobProgress, error){e.claimAgentSession, e.claimMessageStatus}
 	if in.PreferMessage {
 		claims[0], claims[1] = claims[1], claims[0]
 	}
@@ -145,25 +138,28 @@ func (e *execution) claimStatus(ctx context.Context, in *Input, out *Output) err
 	return nil
 }
 
-func projectMessageStatus(j *graphread.Job, now time.Time) statusProjection {
-	s := j.Status
+func projectMessageStatus(j *graphread.GatewayJob, now time.Time) statusProjection {
+	s := j
 	p := statusProjection{
-		RequestStatus: gateway.RequestStatus{
-			JobID:     int64(j.Id),
-			ThreadKey: gateway.ThreadKey{WorkspaceID: j.WorkspaceId, ChannelID: j.ChannelId, RootTS: j.RootThreadTs},
-			MessageTS: j.MessageTs, Mode: gateway.StatusMode(s.Mode), Target: gateway.StatusTargetMessage, Submitted: j.TurnId != "",
-			Surface: gateway.MessageSurface(j.MessageSurface), SlackTS: s.SlackTs,
-			Revision: int64(s.Revision), CreatedAt: time.UnixMilli(int64(j.CreatedAt)), ObservedState: s.ObservedState,
+		GatewayJobProgress: gateway.GatewayJobProgress{
+			JobID: int64(j.Id), IntegrationID: int64(j.IntegrationId),
+			ThreadKey: gateway.ThreadKey{WorkspaceID: j.SlackWorkspaceId, ChannelID: j.SlackChannelId, RootTS: j.SlackThreadRootMessageId},
+			MessageTS: j.SlackPromptMessageId, Mode: gateway.StatusMode(s.SlackProgressMode), Target: gateway.StatusTargetMessage, Submitted: j.BackendSubmissionStartedAt != nil,
+			Surface: gateway.MessageSurface(j.SlackConversationType), SlackTS: s.SlackProgressMessageId,
+			Revision: int64(s.SlackProgressRevision), CreatedAt: j.CreatedAt, ObservedState: s.BackendObservedState,
 		},
-		jobState: j.State, outcome: s.Outcome, previousPhase: s.Phase, reason: j.Reason,
-		uncertain: s.ObservationUncertain != 0, refreshAt: int64(s.RefreshAt), sentRevision: int64(s.SentRevision),
+		jobState: j.GatewayExecutionState, outcome: s.GatewayExecutionOutcome, previousPhase: s.SlackProgressPhase, reason: j.GatewayExecutionReason,
+		uncertain: s.BackendObservationUncertain != 0, refreshAt: deref(s.SlackProgressRefreshAt), sentRevision: int64(s.SlackProgressSentRevision),
 		earlier: j.Earlier != 0, blocked: j.Blocked != 0,
 	}
-	if s.ObservedAt != 0 {
-		p.ObservedAt = time.UnixMilli(int64(s.ObservedAt))
+	if j.IntegrationActive == 0 && gateway.IntegrationTermination(s.SlackProgressPhase) {
+		p.reason = s.SlackProgressPhase
 	}
-	for _, d := range j.Outbox {
-		switch d.State {
+	if s.BackendObservedAt != nil {
+		p.ObservedAt = *s.BackendObservedAt
+	}
+	for _, d := range j.SlackOutgoingMessages {
+		switch d.SlackDeliveryState {
 		case "pending", "sending":
 			p.pending++
 		case "delivered":
@@ -176,63 +172,68 @@ func projectMessageStatus(j *graphread.Job, now time.Time) statusProjection {
 	return p
 }
 
-func (e *execution) claimMessageStatus(ctx context.Context, now time.Time, kind string) (*gateway.RequestStatus, error) {
+func (e *execution) claimMessageStatus(ctx context.Context, now time.Time, kind string) (*gateway.GatewayJobProgress, error) {
+	now = timestamp(now)
 	input := &graphread.Input{}
 	input.SetMode("status")
 	if backendStatusKind(kind) {
 		input.SetMode("backend_status")
 	}
-	input.SetNow(now.UnixMilli())
+	input.SetNow(now)
 	rows, err := e.readJobs(ctx, input, true)
 	if err != nil {
 		return nil, err
 	}
-	var patches []*graphwrite.Job
-	var chosen *gateway.RequestStatus
+	var patches []*graphwrite.GatewayJob
+	var chosen *gateway.GatewayJobProgress
 	for _, j := range rows {
-		if j.Status == nil || (j.Status.State != "ready" && j.Status.State != "settled") {
+		if j.SlackProgressState != "ready" && j.SlackProgressState != "settled" {
 			continue
 		}
-		if kind == "terminal" && j.Reason != "backend_auth_or_identity_rejected" {
+		if kind == "terminal" && j.GatewayExecutionReason != "backend_auth_or_identity_rejected" {
 			continue
 		}
 		p := projectMessageStatus(j, now)
+		closing := gateway.IntegrationTermination(p.Phase)
+		if kind == "integration_terminal" && !closing {
+			continue
+		}
 		if backendStatusKind(kind) && !p.Terminal && p.jobState != "completed" {
 			if !p.Submitted {
 				continue
 			}
 			p.Phase = kind
 		}
-		if p.jobState == "rejected" || (p.SlackTS == "" && p.jobState == "completed") {
-			job, status := statusPatch(j.Id)
-			status.SetState("skipped")
-			status.SetReason("no_status_needed")
-			status.SetUpdatedAt(int(now.UnixMilli()))
-			patches = append(patches, job)
+		if (p.jobState == "rejected" && !closing) || (p.SlackTS == "" && (p.jobState == "completed" || closing)) {
+			status := statusPatch(j.Id)
+			status.SetSlackProgressState("skipped")
+			status.SetSlackProgressReason("no_status_needed")
+			status.SetGatewayStatusUpdatedAt(timestamp(now))
+			patches = append(patches, status)
 			continue
 		}
 		urgent := p.SlackTS == "" || p.Phase != p.previousPhase || p.Revision > p.sentRevision
-		if backendStatusKind(kind) && !urgent && (p.Terminal || p.refreshAt > now.UnixMilli()) {
+		if backendStatusKind(kind) && !urgent && (p.Terminal || p.refreshAt.After(now)) {
 			continue
 		}
-		if kind == "terminal" && (!p.Terminal || !urgent) {
+		if (kind == "terminal" || kind == "integration_terminal") && (!p.Terminal || !urgent) {
 			continue
 		}
 		if kind == "urgent" && !urgent {
 			continue
 		}
-		if kind == "heartbeat" && (urgent || p.Terminal || p.refreshAt > now.UnixMilli()) {
+		if kind == "heartbeat" && (urgent || p.Terminal || p.refreshAt.After(now)) {
 			continue
 		}
 		p.Revision++
-		job, status := statusPatch(j.Id)
-		status.SetState("sending")
-		status.SetPhase(p.Phase)
-		status.SetRevision(int(p.Revision))
-		status.SetAttempts(j.Status.Attempts + 1)
-		status.SetUpdatedAt(int(now.UnixMilli()))
-		patches = append(patches, job)
-		chosen = &p.RequestStatus
+		status := statusPatch(j.Id)
+		status.SetSlackProgressState("sending")
+		status.SetSlackProgressPhase(p.Phase)
+		status.SetSlackProgressRevision(int(p.Revision))
+		status.SetSlackProgressAttempts(j.SlackProgressAttempts + 1)
+		status.SetGatewayStatusUpdatedAt(timestamp(now))
+		patches = append(patches, status)
+		chosen = &p.GatewayJobProgress
 		break
 	}
 	if len(patches) > 0 {
@@ -245,20 +246,20 @@ func (e *execution) claimMessageStatus(ctx context.Context, now time.Time, kind 
 
 func (e *execution) getStatusContext(ctx context.Context, in *Input, out *Output) error {
 	s := in.Status
-	j, err := e.job(ctx, s.JobID, false)
+	j, err := e.publicationJob(ctx, s.JobID, false)
 	if err != nil {
 		return err
 	}
-	if j.WorkspaceId != s.WorkspaceID || j.ChannelId != s.ChannelID || j.RootThreadTs != s.RootTS || j.MessageTs != s.MessageTS || j.Status == nil || j.Status.Mode != string(s.Mode) {
+	if j.SlackWorkspaceId != s.WorkspaceID || j.SlackChannelId != s.ChannelID || j.SlackThreadRootMessageId != s.RootTS || j.SlackPromptMessageId != s.MessageTS || j.SlackProgressMode != string(s.Mode) {
 		return gateway.ErrConflict
 	}
 	switch s.Target {
 	case gateway.StatusTargetMessage:
 		// The claimed outage phase owns the first fallback publication even
 		// when execution completes before its Slack message is sent.
-		fallback := s.Mode == gateway.StatusAgentSession && (j.Status.SlackTs != "" ||
-			(j.TurnId != "" && backendStatusKind(s.Phase) && j.Status.Phase == s.Phase))
-		if (s.Mode != gateway.StatusMessage && s.Mode != gateway.StatusHybrid && !fallback) || j.Status.State != "sending" || int64(j.Status.Revision) != s.Revision || j.Status.SlackTs != s.SlackTS {
+		fallback := s.Mode == gateway.StatusAgentSession && (j.SlackProgressMessageId != "" ||
+			(j.BackendSubmissionStartedAt != nil && backendStatusKind(s.Phase) && j.SlackProgressPhase == s.Phase))
+		if (s.Mode != gateway.StatusMessage && s.Mode != gateway.StatusHybrid && !fallback) || j.SlackProgressState != "sending" || int64(j.SlackProgressRevision) != s.Revision || j.SlackProgressMessageId != s.SlackTS {
 			return gateway.ErrConflict
 		}
 	case gateway.StatusTargetAgentSession:
@@ -269,18 +270,22 @@ func (e *execution) getStatusContext(ctx context.Context, in *Input, out *Output
 		if err != nil {
 			return err
 		}
-		if publication.State != "sending" || int64(publication.ClaimedRevision) != s.Revision || int64(publication.SourceJobId) != s.JobID {
+		if publication.SlackPublicationState != "sending" || int64(publication.SlackPublicationClaimedRevision) != s.Revision || int64(publication.StatusSourceJobId) != s.JobID {
 			return gateway.ErrConflict
 		}
 	default:
 		return gateway.ErrConflict
 	}
 	out.Context, err = contextFromJob(j)
+	if err == nil && gateway.IntegrationTermination(s.Phase) && j.IntegrationActive == 0 {
+		out.Context.Kind = gateway.DeliveryIntegrationNotice
+		out.Context.TerminationReason = s.Phase
+	}
 	return err
 }
 
 func (e *execution) finishStatus(ctx context.Context, in *Input, out *Output) error {
-	s, r, now := in.Status, in.StatusResult, in.At
+	s, r, now := in.Status, in.StatusResult, timestamp(in.At)
 	if s.Target == gateway.StatusTargetAgentSession {
 		return e.finishAgentSession(ctx, s, r, now)
 	}
@@ -292,30 +297,30 @@ func (e *execution) finishStatus(ctx context.Context, in *Input, out *Output) er
 	if r.SlackTS != "" && s.SlackTS != "" && r.SlackTS != s.SlackTS {
 		return gateway.ErrConflict
 	}
-	j, err := e.job(ctx, s.JobID, true)
+	j, err := e.publicationJob(ctx, s.JobID, true)
 	if err != nil {
 		return err
 	}
-	previous := j.Status
-	if previous == nil || previous.State != "sending" || int64(previous.Revision) != s.Revision {
+	previous := j
+	if previous.SlackProgressState != "sending" || int64(previous.SlackProgressRevision) != s.Revision {
 		return gateway.ErrConflict
 	}
-	job, status := statusPatch(j.Id)
-	status.SetState(r.State)
+	status := statusPatch(j.Id)
+	status.SetSlackProgressState(r.State)
 	if r.SlackTS != "" {
-		status.SetSlackTs(r.SlackTS)
-		status.SetSentRevision(int(s.Revision))
-		if previous.FirstSentAt == 0 {
-			status.SetFirstSentAt(int(now.UnixMilli()))
+		status.SetSlackProgressMessageId(r.SlackTS)
+		status.SetSlackProgressSentRevision(int(s.Revision))
+		if previous.SlackProgressFirstSentAt == nil {
+			status.SetSlackProgressFirstSentAt(timePointer(now))
 		}
-		status.SetLastSentAt(int(now.UnixMilli()))
+		status.SetSlackProgressLastSentAt(timePointer(now))
 	}
-	if !r.NextRefreshAt.IsZero() && r.NextRefreshAt.UnixMilli() > 0 {
-		status.SetRefreshAt(statusMillis(r.NextRefreshAt))
+	if !r.NextRefreshAt.IsZero() {
+		status.SetSlackProgressRefreshAt(timePointer(r.NextRefreshAt))
 	}
-	status.SetNextAttemptAt(statusMillis(r.RetryAt))
-	status.SetRateLimitedUntil(statusMillis(r.RateLimitedUntil))
-	status.SetReason(r.Reason)
-	status.SetUpdatedAt(int(now.UnixMilli()))
-	return e.writeJobs(ctx, []*graphwrite.Job{job})
+	status.SetSlackProgressNextAttemptAt(timePointer(r.RetryAt))
+	status.SetSlackProgressRateLimitedUntil(timePointer(r.RateLimitedUntil))
+	status.SetSlackProgressReason(r.Reason)
+	status.SetGatewayStatusUpdatedAt(timestamp(now))
+	return e.writeJobs(ctx, []*graphwrite.GatewayJob{status})
 }

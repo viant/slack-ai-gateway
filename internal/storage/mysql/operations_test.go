@@ -15,32 +15,14 @@ func TestRunDatabaseIdentityGuard(t *testing.T) {
 	route := gateway.Route{AppID: "A", WorkspaceID: "T", ChannelID: "C"}
 	for _, mode := range []string{"real", "smoke", "principal", "owner", "app", "channel", "workspace", "access_mode"} {
 		t.Run(mode, func(t *testing.T) {
-			s := fixture(t).Store.(*Store)
+			s, db := fixtureDB(t)
 			storetest.Must(t, s.CheckRunBindings(ctx, route, "shared"))
 			m := storetest.Message("event", "root", "alice")
-			if mode == "app" {
-				m.AppID = "OTHER"
-			}
-			if mode == "channel" {
-				m.ChannelID = "OTHER"
-			}
-			if mode == "workspace" {
-				m.WorkspaceID = "OTHER"
-			}
 			_, err := s.Enqueue(ctx, m)
 			storetest.Must(t, err)
 			j, err := s.ClaimJob(ctx)
 			storetest.Must(t, err)
 			decision := gateway.Decision{Mode: "shared_channel", PrincipalID: "shared", OwnerID: "shared"}
-			if mode == "owner" {
-				decision.OwnerID = "OTHER"
-			}
-			if mode == "principal" {
-				decision.PrincipalID = "OTHER"
-			}
-			if mode == "access_mode" {
-				decision.Mode = "OTHER"
-			}
 			b, err := s.BindJob(ctx, j.ID, decision)
 			storetest.Must(t, err)
 			storetest.Must(t, s.BeginCreate(ctx, b.ID))
@@ -49,6 +31,22 @@ func TestRunDatabaseIdentityGuard(t *testing.T) {
 				id = "slack-smoke-fake"
 			}
 			storetest.Must(t, s.SetConversation(ctx, b.ID, id))
+			// Admission now rejects foreign installation identities. Inject
+			// historical corruption directly to exercise the startup guard.
+			column := map[string]string{"app": "slack_app_id", "channel": "slack_channel_id", "workspace": "slack_workspace_id", "principal": "backend_principal_id", "owner": "gateway_binding_owner_id", "access_mode": "gateway_access_mode"}[mode]
+			switch column {
+			case "slack_app_id", "slack_workspace_id":
+				_, err = db.Exec("UPDATE integration SET " + column + "='OTHER' WHERE name='default' AND active=1")
+				storetest.Must(t, err)
+			case "slack_channel_id":
+				_, err = db.Exec("UPDATE gateway_job SET slack_channel_id='OTHER' WHERE id=?", j.ID)
+				storetest.Must(t, err)
+				_, err = db.Exec("UPDATE conversation_binding SET slack_channel_id='OTHER' WHERE id=?", b.ID)
+				storetest.Must(t, err)
+			case "backend_principal_id", "gateway_binding_owner_id", "gateway_access_mode":
+				_, err = db.Exec("UPDATE conversation_binding SET "+column+"='OTHER' WHERE id=?", b.ID)
+				storetest.Must(t, err)
+			}
 			before, err := s.Status(ctx, 10)
 			storetest.Must(t, err)
 			err = s.CheckRunBindings(ctx, route, "shared")
@@ -69,12 +67,12 @@ func TestRunDatabaseIdentityGuard(t *testing.T) {
 func TestUncorrelatedQueryRecoveryDoesNotReplay(t *testing.T) {
 	ctx := context.Background()
 	s, db := fixtureDB(t)
-	_, err := db.Exec(`INSERT INTO inbox_jobs(app_id,workspace_id,channel_id,root_thread_ts,event_id,author_id,message_ts,query_text,has_attachments,request_id,turn_id,state,created_at,updated_at)
-	VALUES('A','T','C','1.001','event','alice','1.001','preserve question',0,'request','request','querying',1,1)`)
+	_, err := db.Exec(`INSERT INTO gateway_job(integration_id,slack_channel_id,slack_thread_root_message_id,slack_event_id,slack_prompt_author_id,slack_prompt_message_id,prompt_text,prompt_has_attachments,gateway_request_id,gateway_execution_state,created_at,gateway_execution_updated_at,gateway_status_updated_at)
+	VALUES ((SELECT id FROM integration WHERE name='default' AND active=1),'C','1.001','event','alice','1.001','preserve question',0,'request','querying','1970-01-01 00:00:00.001','1970-01-01 00:00:00.001','1970-01-01 00:00:00.000')`)
 	storetest.Must(t, err)
 	storetest.Must(t, s.Recover(ctx))
 	var text, state string
-	storetest.Must(t, db.QueryRow("SELECT query_text,state FROM inbox_jobs").Scan(&text, &state))
+	storetest.Must(t, db.QueryRow("SELECT prompt_text,gateway_execution_state FROM gateway_job").Scan(&text, &state))
 	if text != "preserve question" || state != "needs_review" {
 		t.Fatal("question lost or uncertain query replayed")
 	}
@@ -107,8 +105,8 @@ func TestStatusExcludesTextAndDoesNotMutate(t *testing.T) {
 	if strings.Contains(string(data), "secret-") || strings.Contains(string(data), "second-part") {
 		t.Fatal("diagnostic exposed text")
 	}
-	if len(status.Deliveries) != 1 || status.Counts["outbox_messages"]["delivery_unknown"] != 1 || status.Counts["outbox_messages"]["pending"] != 1 {
-		t.Fatalf("limits or counts incorrect: deliveries=%d counts=%v", len(status.Deliveries), status.Counts["outbox_messages"])
+	if len(status.SlackOutgoingMessages) != 1 || status.Counts["slack_outgoing_message.slack_delivery_state"]["delivery_unknown"] != 1 || status.Counts["slack_outgoing_message.slack_delivery_state"]["pending"] != 1 {
+		t.Fatalf("limits or counts incorrect: deliveries=%d counts=%v", len(status.SlackOutgoingMessages), status.Counts["slack_outgoing_message.slack_delivery_state"])
 	}
 	for _, limit := range []int{0, 1001} {
 		if _, err := s.Status(ctx, limit); err == nil {
@@ -116,7 +114,7 @@ func TestStatusExcludesTextAndDoesNotMutate(t *testing.T) {
 		}
 	}
 	var state string
-	storetest.Must(t, db.QueryRow("SELECT state FROM outbox_messages WHERE part=0").Scan(&state))
+	storetest.Must(t, db.QueryRow("SELECT slack_delivery_state FROM slack_outgoing_message WHERE slack_message_index=0").Scan(&state))
 	if state != "delivery_unknown" {
 		t.Fatal("status mutated state")
 	}
@@ -139,13 +137,13 @@ func TestResolveDeliveryRequiresExplicitDecisionAndAuditsAtomically(t *testing.T
 	if err := s.ResolveDelivery(ctx, id+1, "delivered", "1.002", false); err == nil {
 		t.Fatal("resolved a non-unknown part")
 	}
-	_, err := db.Exec("CREATE TRIGGER fail_audit BEFORE INSERT ON delivery_resolutions FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='audit failure'")
+	_, err := db.Exec("CREATE TRIGGER fail_audit BEFORE INSERT ON slack_delivery_resolution FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='audit failure'")
 	storetest.Must(t, err)
 	if err := s.ResolveDelivery(ctx, id, "retry", "", true); err == nil {
 		t.Fatal("audit failure ignored")
 	}
 	var state string
-	storetest.Must(t, db.QueryRow("SELECT state FROM outbox_messages WHERE id=?", id).Scan(&state))
+	storetest.Must(t, db.QueryRow("SELECT slack_delivery_state FROM slack_outgoing_message WHERE id=?", id).Scan(&state))
 	if state != "delivery_unknown" {
 		t.Fatal("partial resolution commit")
 	}
@@ -154,7 +152,7 @@ func TestResolveDeliveryRequiresExplicitDecisionAndAuditsAtomically(t *testing.T
 	storetest.Must(t, s.ResolveDelivery(ctx, id, "delivered", "1.001", false))
 	var action, ts string
 	var risk int
-	storetest.Must(t, db.QueryRow("SELECT action,slack_ts,duplicate_risk_accepted FROM delivery_resolutions WHERE delivery_id=?", id).Scan(&action, &ts, &risk))
+	storetest.Must(t, db.QueryRow("SELECT resolution_action,slack_message_id,duplicate_delivery_risk_accepted FROM slack_delivery_resolution WHERE outgoing_message_id=?", id).Scan(&action, &ts, &risk))
 	if action != "delivered" || ts != "1.001" || risk != 0 {
 		t.Fatal("audit incomplete")
 	}

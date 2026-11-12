@@ -7,9 +7,9 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 
-#define($_ = $Rows<[]*Delivery>(body/data))
-#define($_ = $Data<[]*Delivery>(output/body))
+#define($_ = $Rows<[]*SlackOutgoingMessage>(body/data))
+#define($_ = $Data<[]*SlackOutgoingMessage>(output/body))
 
-SELECT deliveries.*, resolutions.*, type(deliveries,'Delivery'), type(resolutions,'Resolution')
-FROM outbox_messages deliveries
-LEFT JOIN delivery_resolutions resolutions ON resolutions.delivery_id=deliveries.id
+SELECT slack_outgoing_messages.*, slack_delivery_resolutions.*, type(slack_outgoing_messages,'SlackOutgoingMessage'), type(slack_delivery_resolutions,'SlackDeliveryResolution')
+FROM slack_outgoing_message slack_outgoing_messages
+LEFT JOIN slack_delivery_resolution slack_delivery_resolutions ON slack_delivery_resolutions.outgoing_message_id=slack_outgoing_messages.id

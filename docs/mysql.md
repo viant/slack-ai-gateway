@@ -5,9 +5,10 @@ graphs: generated readers/writers and one private typed storage workflow run
 inside the gateway. The configured driver and DSN select the database connection;
 the generated Go and SQL are shared. No separate Datly HTTP service is required.
 
-Use a dedicated database for one integration and one gateway process. Separate
-integrations can use separate databases on the same MySQL server. Multi-process
-recovery and HA are not supported; stop the runtime before operator commands.
+Use one dedicated database per gateway process. Multiple configured integrations
+share one assignment table with numeric identities and scoped conversation and
+queue records. Multi-process recovery and HA are not supported; stop the runtime
+before operator commands. See [multiple integrations](integrations.md).
 The local E2E database is named `slack_ai_gateway`, while its tables and
 gateway behavior remain independent of the configured Agently agent.
 
@@ -66,7 +67,7 @@ Replace the entire `storage` section in the existing runtime configuration:
 ```yaml
 storage:
   driver: mysql
-  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true'
+  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true&loc=UTC'
   secret:
     URL: file:///absolute/path/mysql.json
     Key: blowfish://default
@@ -96,6 +97,61 @@ go run ./cmd/slack-ai-gateway run --config /absolute/path/gateway.local.yaml
 Validation checks configuration without loading credentials or connecting.
 Commands that open MySQL load its credential resource at that point. Missing or
 unavailable storage causes an error; the gateway never switches to SQLite.
+
+The assignment schema requires a fresh database. This development change does
+not migrate the earlier four-table registry or other prerelease initial schemas.
+Reapplying a compatible initial definition preserves data; an incompatible
+initial shape is rejected instead of being silently upgraded or reset.
+
+The [six business tables](schema.md) use eight single-column foreign keys to
+stable parent IDs. `integration` records Slack app/workspace and backend/agent
+assignments, with a logical name and configuration-derived `active` flag. The
+gateway reconciles assignments at startup; replacing/removing one closes its old
+local work. Numeric IDs are internal and inactive historical IDs are never revived.
+See [assignment lifecycle](integrations.md#recorded-assignments-and-restarts).
+
+`gateway_job` combines each prompt's execution, backend observation and Slack
+progress metadata. It and `conversation_binding` reference their numeric
+assignment. `slack_outgoing_message` obtains its Slack destination through
+`job_id`. Deduplication is global `UNIQUE(slack_event_id)` while request primary
+keys remain numeric. Native session publications retain an immutable
+`initial_integration_id`; their source/latest requests must agree on the physical
+Slack app/workspace/channel/thread. The transactional workflow owns these
+cross-record agreements; individual foreign keys enforce parent existence.
+
+Slack message IDs remain text: `slack_prompt_message_id`,
+`slack_thread_root_message_id`, `slack_progress_message_id` and `slack_message_id`.
+`backend_conversation_id` identifies the backend conversation.
+`gateway_request_id` remains stable across observation/recovery;
+`backend_submission_started_at` records the start of a submission attempt, not
+proof of remote acceptance. There is no duplicated `turn_id` column.
+
+Bounded external IDs and Slack message/thread IDs use `VARCHAR(255)`; fixed
+state, mode, outcome, kind, format, backend-type and resolution-action values
+use `VARCHAR(128)`. Reason codes remain `VARCHAR(255)` and open-ended backend
+IDs/endpoints remain `TEXT`. The largest declared key,
+`gateway_job_thread`, fits at 2,568 bytes on the verified 16 KiB InnoDB setup.
+DDL and Skeema definitions use the server default row format, without an explicit
+`ROW_FORMAT` clause. See [capacity contracts](schema.md#naming-and-capacity-contracts).
+
+Persisted moments use `DATETIME(3)` in UTC, with absent/not-yet moments as SQL
+`NULL`. IDs, attempts, revisions and duration measurements remain numeric.
+Application-supplied moments are normalized to UTC and truncated to milliseconds;
+the native MySQL driver reads dates with `parseTime=true&loc=UTC`. Timestamp fields
+in operator JSON remain Unix-millisecond numbers, independent of the database
+representation. Required row creation/update dates and the separate execution
+and status update dates retain their operation-specific meanings.
+
+The schema supports future removal of redundant prompt/result/outgoing text while
+preserving IDs, metadata and protocol context needed to continue old threads.
+It also supports full graph removal, which forgets the old backend conversation
+mapping and deduplication history. No retention configuration, scheduled cleanup
+or deletion command is implemented. See [retention preparation](schema.md#future-retention-contract).
+
+Query and delivery authorization continues through the existing policy and
+original author/binding context. Terminal notices can use a still-authorized
+transport for the same Slack app/workspace without starting the old backend;
+missing historical credentials are never reconstructed from the database.
 
 Selecting MySQL does not copy SQLite rows, conversation bindings, pending replies
 or thread history. Keep the previous database if it is needed for inspection.

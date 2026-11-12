@@ -15,9 +15,9 @@ func TestSmokeConversationDialectContract(t *testing.T) {
 		name, expression string
 		fail             bool
 	}{
-		{"mysql", "conversation_id COLLATE utf8mb4_0900_ai_ci LIKE ?", false},
-		{"SQLite", "conversation_id LIKE ?", false},
-		{"sqlite3", "conversation_id LIKE ?", false},
+		{"mysql", "backend_conversation_id COLLATE utf8mb4_0900_ai_ci LIKE ?", false},
+		{"SQLite", "backend_conversation_id LIKE ?", false},
+		{"sqlite3", "backend_conversation_id LIKE ?", false},
 		{"other", "", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

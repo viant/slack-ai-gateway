@@ -41,29 +41,43 @@ func (r *Runtime) Delivered() int64 { return r.delivered.Load() }
 // Run requires exclusive ownership of a migrated Store for its entire lifetime.
 // Workers start only after the transport's identity-verified ready signal.
 func (r *Runtime) Run(ctx context.Context) error {
+	if err := r.validate(); err != nil {
+		return err
+	}
+	if err := r.Store.Recover(ctx); err != nil {
+		return fmt.Errorf("runtime recovery failed")
+	}
+	return r.runPrepared(ctx)
+}
+
+func (r *Runtime) validate() error {
 	if r.Backend != nil {
 		r.Clients = r.Backend
 	}
 	if err := r.ResponseMode.Validate(); err != nil {
 		return err
 	}
-	if r.Store == nil || r.Source == nil || r.Policy == nil || r.Clients == nil || r.Sender == nil || r.AgentID == "" {
+	if r.Store == nil || r.Source == nil || r.Policy == nil || r.Clients == nil || r.Sender == nil {
 		return fmt.Errorf("runtime components are incomplete")
 	}
-	deliveryPolicy, ok := r.Policy.(gateway.DeliveryPolicy)
-	if !ok {
+	if _, ok := r.Policy.(gateway.DeliveryPolicy); !ok {
 		return fmt.Errorf("runtime policy must authorize both queries and deliveries")
 	}
-	statusSender, ok := r.Sender.(gateway.StatusSender)
-	if !ok {
+	if _, ok := r.Sender.(gateway.StatusSender); !ok {
 		return fmt.Errorf("runtime sender must support request statuses")
 	}
+	return nil
+}
+
+// runPrepared reuses the worker lifecycle after the process owner has recovered
+// storage once. Query work stays scoped to this assignment; its Slack bot may
+// also publish terminal cleanup for historical assignments.
+func (r *Runtime) runPrepared(ctx context.Context) error {
+	deliveryPolicy := r.Policy.(gateway.DeliveryPolicy)
+	statusSender := r.Sender.(gateway.StatusSender)
 	log := r.Log
 	if log == nil {
 		log = slog.Default()
-	}
-	if err := r.Store.Recover(ctx); err != nil {
-		return fmt.Errorf("runtime recovery failed")
 	}
 	if r.Backend != nil {
 		// Restart must not replay unsubmitted questions from a previous process.
@@ -72,19 +86,40 @@ func (r *Runtime) Run(ctx context.Context) error {
 		}
 	}
 	fatal := make(chan error, 1)
+	var sharedFailure atomic.Pointer[error]
+	recordFatal := func(err error) {
+		var local *integrationFailure
+		if !errors.As(err, &local) {
+			sharedFailure.CompareAndSwap(nil, &err)
+		}
+		select {
+		case fatal <- err:
+		default:
+		}
+	}
+	sourceFailure := func(err error, message string) error {
+		if errors.Is(err, gateway.ErrIntakePersistence) {
+			failure := errors.New("runtime intake persistence failed")
+			recordFatal(failure)
+			return failure
+		}
+		if ctx.Err() != nil && err == nil {
+			return nil
+		}
+		return runtimeFailure(message, true)
+	}
+	stopBackend := func() {}
 	if r.Backend != nil {
 		backendCtx, cancelBackend := context.WithCancel(ctx)
 		backendDone := make(chan struct{})
 		go func() {
 			defer close(backendDone)
-			if err := r.Backend.Run(backendCtx); err != nil && backendCtx.Err() == nil {
-				select {
-				case fatal <- errors.New("Viant Steward connection recovery or storage failed"):
-				default:
-				}
+			if err := r.Backend.Run(backendCtx); err != nil && (backendCtx.Err() == nil || !errors.Is(err, backendCtx.Err())) {
+				recordFatal(errors.New("backend connection recovery or storage failed"))
 			}
 		}()
-		defer func() { cancelBackend(); <-backendDone }()
+		stopBackend = func() { cancelBackend(); <-backendDone }
+		defer stopBackend()
 	}
 	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelWork()
@@ -100,8 +135,13 @@ func (r *Runtime) Run(ctx context.Context) error {
 	var slackUnavailable atomic.Bool
 	stopClaims := make(chan struct{})
 	var workers sync.WaitGroup
-	report := func(err error) bool {
+	report := func(taskCtx context.Context, err error) bool {
 		if err == nil {
+			return false
+		}
+		if taskCtx.Err() != nil && errors.Is(err, taskCtx.Err()) {
+			// A local transport stop cancels in-flight claims. Their native
+			// cancellation is not evidence that the shared database failed.
 			return false
 		}
 		if r.Backend != nil && (errors.Is(err, gateway.ErrBackendAuth) || errors.Is(err, gateway.ErrBackendUnavailable)) {
@@ -132,10 +172,8 @@ func (r *Runtime) Run(ctx context.Context) error {
 				slackUnavailable.Store(true)
 				message = "Slack credentials rejected; runtime stopped"
 			}
-			select {
-			case fatal <- errors.New(message):
-			default:
-			}
+			local := errors.Is(err, gateway.ErrBackendAuth) || errors.Is(err, gateway.ErrSlackAuth) || errors.Is(err, gateway.ErrMetadataUnavailable) || send != nil && send.Kind == gateway.SendCredentials
+			recordFatal(runtimeFailure(message, local))
 			return true
 		}
 		return false
@@ -144,7 +182,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 	// task before returning, so shutdown joins every stream before closing Store.
 	execute := func(task func() error) {
 		workers.Add(1)
-		go func() { defer workers.Done(); report(task()) }()
+		go func() { defer workers.Done(); report(workCtx, task()) }()
 	}
 	start := func(step func(context.Context) (bool, error)) {
 		workers.Add(1)
@@ -161,7 +199,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 				default:
 				}
 				worked, err := step(workCtx)
-				if report(err) {
+				if report(workCtx, err) {
 					return
 				}
 				if !worked {
@@ -192,17 +230,17 @@ func (r *Runtime) Run(ctx context.Context) error {
 			w := gateway.Worker{Store: r.Store, Policy: r.Policy, Clients: r.Clients, Backend: r.Backend, AgentID: r.AgentID, Execute: execute,
 				ResponseMode: r.ResponseMode, AgentlyBaseURL: r.AgentlyBaseURL, Log: log,
 				OnReview: func(jobID int64, requestID, reason string) {
-					log.Warn("query_needs_review", "job_id", jobID, "request_id", requestID, "reason", reason)
+					log.Warn("query_needs_review", "job_id", jobID, "gateway_request_id", requestID, "reason", reason)
 				}}
 			start(w.Step)
 		}
-		delivery := gateway.DeliveryWorker{Store: r.Store, Sender: r.Sender, Policy: deliveryPolicy, OnDelivered: func(d gateway.Delivery) {
+		delivery := gateway.DeliveryWorker{Store: r.Store, Sender: r.Sender, Policy: deliveryPolicy, OnDelivered: func(d gateway.SlackOutgoingMessage) {
 			r.delivered.Add(1)
-			log.Info("reply_delivered", "delivery_id", d.ID, "workspace_id", d.WorkspaceID, "channel_id", d.ChannelID, "thread_ts", d.RootTS, "slack_ts", d.SlackTS)
+			log.Info("reply_delivered", "delivery_id", d.ID, "job_id", d.JobID, "kind", d.Kind, "workspace_id", d.WorkspaceID, "channel_id", d.ChannelID, "slack_thread_root_message_id", d.RootTS, "slack_message_id", d.SlackTS)
 		}}
 		statuses := &gateway.StatusWorker{Store: r.Store, Sender: statusSender, Policy: deliveryPolicy, Backend: r.Backend, RefreshInterval: r.StatusRefreshInterval,
-			OnStatus: func(s gateway.RequestStatus, result gateway.StatusResult, now time.Time) {
-				attrs := []any{"job_id", s.JobID, "workspace_id", s.WorkspaceID, "channel_id", s.ChannelID, "mode", s.Mode, "target", s.Target, "thread_ts", s.RootTS, "phase", s.Phase, "acknowledged", result.Acknowledged || result.SlackTS != "", "agent_status", result.AgentStatus, "session_status", result.SessionStatus, "warning", result.Warning, "revision", s.Revision, "state", result.State, "reason", result.Reason}
+			OnStatus: func(s gateway.GatewayJobProgress, result gateway.StatusResult, now time.Time) {
+				attrs := []any{"job_id", s.JobID, "job_integration_id", s.IntegrationID, "workspace_id", s.WorkspaceID, "channel_id", s.ChannelID, "mode", s.Mode, "target", s.Target, "slack_thread_root_message_id", s.RootTS, "phase", s.Phase, "acknowledged", result.Acknowledged || result.SlackTS != "", "agent_status", result.AgentStatus, "session_status", result.SessionStatus, "warning", result.Warning, "revision", s.Revision, "state", result.State, "reason", result.Reason}
 				if !result.RetryAt.IsZero() {
 					attrs = append(attrs, "retry_at", result.RetryAt)
 				}
@@ -210,27 +248,27 @@ func (r *Runtime) Run(ctx context.Context) error {
 					attrs = append(attrs, "ack_latency_ms", max(int64(0), now.Sub(s.CreatedAt).Milliseconds()))
 				}
 				if result.Reason != "" {
-					log.Warn("request_status", attrs...)
+					log.Warn("job_progress", attrs...)
 				} else {
-					log.Info("request_status", attrs...)
+					log.Info("job_progress", attrs...)
 				}
 			}}
-		outbound = &gateway.OutboundWorker{Delivery: &delivery, Status: statuses, Interval: time.Second}
+		outbound = &gateway.OutboundWorker{SlackOutgoingMessage: &delivery, Status: statuses, Interval: time.Second}
 		start(outbound.Step)
 		select {
 		case <-ctx.Done():
 		case runErr = <-fatal:
-		case <-sourceDone:
+		case err := <-sourceDone:
 			sourceJoined = true
-			runErr = fmt.Errorf("Slack source stopped")
+			runErr = sourceFailure(err, "Slack source stopped")
 		}
 	case <-ctx.Done():
 	case runErr = <-fatal:
 	case <-startup.C:
-		runErr = fmt.Errorf("Slack did not become ready within 30 seconds")
-	case <-sourceDone:
+		runErr = runtimeFailure("Slack did not become ready within 30 seconds", true)
+	case err := <-sourceDone:
 		sourceJoined = true
-		runErr = fmt.Errorf("Slack source failed before readiness")
+		runErr = sourceFailure(err, "Slack source failed before readiness")
 	}
 	startup.Stop()
 	// Stop ingestion and new claims first. Already started operations can finish
@@ -257,21 +295,35 @@ func (r *Runtime) Run(ctx context.Context) error {
 		drainCtx, cancel := context.WithDeadline(context.WithoutCancel(ctx), shutdownDeadline)
 		for drainCtx.Err() == nil {
 			worked, err := outbound.TerminalStep(drainCtx)
-			if err != nil || !worked {
+			if err != nil {
+				report(drainCtx, err)
+				break
+			}
+			if !worked {
 				break
 			}
 		}
 		cancel()
 	}
 	if !sourceJoined {
-		<-sourceDone
+		if err := <-sourceDone; errors.Is(err, gateway.ErrIntakePersistence) {
+			runErr = sourceFailure(err, "Slack source stopped")
+		}
 	}
+	// Join the backend owner before inspecting shared failures: its outage
+	// callback can discover a database error while other workers are stopping.
+	stopBackend()
 	select {
 	case err := <-fatal:
 		if runErr == nil {
 			runErr = err
 		}
 	default:
+	}
+	// A storage failure discovered while joining an already-stopped integration
+	// must still stop the process, even when a Slack failure arrived first.
+	if err := sharedFailure.Load(); err != nil {
+		runErr = *err
 	}
 	return runErr
 }

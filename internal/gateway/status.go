@@ -39,9 +39,10 @@ type StatusReceipt struct {
 	AgentStatus, SessionStatus, Warning string
 }
 
-// RequestStatus is a claimed snapshot. Destination and author must be checked
+// GatewayJobProgress is a claimed snapshot. Destination and author must be checked
 // against the durable job before any Slack operation, including updates.
-type RequestStatus struct {
+type GatewayJobProgress struct {
+	IntegrationID   int64
 	JobID           int64
 	Mode            StatusMode
 	Target          StatusTarget
@@ -61,7 +62,7 @@ type RequestStatus struct {
 }
 
 type StatusSender interface {
-	SendStatus(context.Context, RequestStatus, string) (StatusReceipt, error)
+	SendStatus(context.Context, GatewayJobProgress, string) (StatusReceipt, error)
 }
 
 type StatusResult struct {
@@ -78,31 +79,34 @@ type StatusResult struct {
 type StatusStore interface {
 	RecordObservation(context.Context, int64, string, time.Time) error
 	// kind is urgent, heartbeat, backend_recovering, backend_blocked, or
-	// terminal (legacy authentication shutdown only).
-	ClaimStatus(context.Context, time.Time, string) (*RequestStatus, error)
-	GetStatusContext(context.Context, RequestStatus) (*DeliveryContext, error)
-	FinishStatus(context.Context, RequestStatus, StatusResult, time.Time) error
+	// integration_terminal, or terminal (legacy authentication shutdown only).
+	ClaimStatus(context.Context, time.Time, string) (*GatewayJobProgress, error)
+	GetStatusContext(context.Context, GatewayJobProgress) (*DeliveryContext, error)
+	FinishStatus(context.Context, GatewayJobProgress, StatusResult, time.Time) error
 }
 
-func StatusText(s RequestStatus, now time.Time) string {
+func StatusText(s GatewayJobProgress, now time.Time) string {
 	text := map[string]string{
-		"received":           "Received your request. Waiting to start.",
-		"queued":             "Your request is queued behind an earlier request in this thread.",
-		"blocked":            "This request is blocked by an earlier request that needs operator attention.",
-		"contacting":         "Contacting Viant Steward…",
-		"running":            "Viant Steward is working on your request.",
-		"backend_queued":     "Viant Steward has queued your request.",
-		"backend_recovering": "Connection to Viant Steward is temporarily unavailable. We are checking your existing request; it will not be submitted again.",
-		"backend_blocked":    "Connection to Viant Steward requires administrator attention. Your existing request will not be submitted again.",
-		"not_submitted":      "This question was not submitted to Viant Steward. Please try again after the connection is restored.",
-		"checking":           "Checking the request status.",
-		"delivering":         "The response is ready. Delivering it to this thread…",
-		"delivered":          "The response has been posted below.",
-		"completed":          "Completed. The response has been posted below.",
-		"failed":             "Viant Steward could not complete this request.",
-		"canceled":           "Viant Steward canceled this request.",
-		"needs_review":       "This request needs operator attention. It will not be retried automatically.",
-		"delivery_uncertain": "The response could not be fully confirmed as delivered. Operator attention is required.",
+		"received":            "Received your request. Waiting to start.",
+		"queued":              "Your request is queued behind an earlier request in this thread.",
+		"blocked":             "This request is blocked by an earlier request that needs operator attention.",
+		"contacting":          "Contacting Viant Steward…",
+		"running":             "Viant Steward is working on your request.",
+		"backend_queued":      "Viant Steward has queued your request.",
+		"backend_recovering":  "Connection to Viant Steward is temporarily unavailable. We are checking your existing request; it will not be submitted again.",
+		"backend_blocked":     "Connection to Viant Steward requires administrator attention. Your existing request will not be submitted again.",
+		"not_submitted":       "This question was not submitted to Viant Steward. Please try again after the connection is restored.",
+		"checking":            "Checking the request status.",
+		"delivering":          "The response is ready. Delivering it to this thread…",
+		"delivered":           "The response has been posted below.",
+		"completed":           "Completed. The response has been posted below.",
+		"failed":              "Viant Steward could not complete this request.",
+		"canceled":            "Viant Steward canceled this request.",
+		"needs_review":        "This request needs operator attention. It will not be retried automatically.",
+		"delivery_uncertain":  "The response could not be fully confirmed as delivered. Operator attention is required.",
+		"integration_changed": IntegrationNotice("integration_changed"),
+		"integration_removed": IntegrationNotice("integration_removed"),
+		"conversation_closed": "This conversation is closed. Start a new thread to continue.",
 	}[s.Phase]
 	if text == "" {
 		text = "Checking the request status."
@@ -121,7 +125,7 @@ type StatusWorker struct {
 	Backend         BackendAvailability
 	Now             func() time.Time
 	RefreshInterval time.Duration
-	OnStatus        func(RequestStatus, StatusResult, time.Time)
+	OnStatus        func(GatewayJobProgress, StatusResult, time.Time)
 }
 
 func (w *StatusWorker) now() time.Time {
@@ -132,7 +136,7 @@ func (w *StatusWorker) now() time.Time {
 }
 
 func (w *StatusWorker) Step(ctx context.Context, kind string) (bool, error) {
-	if w.Backend != nil && kind != "terminal" {
+	if w.Backend != nil && kind != "terminal" && kind != "integration_terminal" {
 		switch w.Backend.State() {
 		case BackendStarting, BackendRecovering:
 			kind = "backend_recovering"
@@ -232,7 +236,7 @@ func (w *StatusWorker) Step(ctx context.Context, kind string) (bool, error) {
 	return true, fatal
 }
 
-func (w *StatusWorker) finish(ctx context.Context, s RequestStatus, result StatusResult) error {
+func (w *StatusWorker) finish(ctx context.Context, s GatewayJobProgress, result StatusResult) error {
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	now := w.now()
@@ -259,12 +263,12 @@ func (w *StatusWorker) finish(ctx context.Context, s RequestStatus, result Statu
 // final parts; heartbeats run only when neither higher priority group is ready.
 // The Store gates both groups using durable workspace Retry-After deadlines.
 type OutboundWorker struct {
-	Delivery     *DeliveryWorker
-	Status       *StatusWorker
-	Interval     time.Duration
-	Now          func() time.Time
-	nextSend     time.Time
-	preferStatus bool
+	SlackOutgoingMessage *DeliveryWorker
+	Status               *StatusWorker
+	Interval             time.Duration
+	Now                  func() time.Time
+	nextSend             time.Time
+	preferStatus         bool
 }
 
 func (w *OutboundWorker) now() time.Time {
@@ -283,6 +287,10 @@ func (w *OutboundWorker) Step(ctx context.Context) (worked bool, err error) {
 			w.nextSend = w.now().Add(w.Interval)
 		}
 	}()
+	worked, err = w.Status.Step(ctx, "integration_terminal")
+	if worked || err != nil {
+		return
+	}
 	if w.preferStatus {
 		worked, err = w.Status.Step(ctx, "urgent")
 		if worked || err != nil {
@@ -290,7 +298,7 @@ func (w *OutboundWorker) Step(ctx context.Context) (worked bool, err error) {
 			return
 		}
 	}
-	worked, err = w.Delivery.Step(ctx)
+	worked, err = w.SlackOutgoingMessage.Step(ctx)
 	if worked || err != nil {
 		w.preferStatus = true
 		return

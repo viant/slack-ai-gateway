@@ -1,0 +1,1 @@
+SELECT identity.* FROM  (SELECT CASE WHEN EXISTS(SELECT 1 FROM gateway_job j WHERE j.slack_event_id=$EventID) THEN 1 ELSE 0 END AS found)  identity

@@ -4,21 +4,19 @@ package write
 
 // Input is the generated input scaffold for writer.
 type Input struct {
-	ExpectedState             string                    `parameter:"ExpectedState,kind=query,in=expectedState,dataType=string,required=false" predicate:"equal,group=7,inbox_jobs,state"`
-	Jobs                      []*Job                    `parameter:"Jobs,kind=body,in=data,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/write.Job" sql:"uri=internal_datly_write_writer:sql/writer.sql" view:"writer,type=Job,table=inbox_jobs,mutationPredicate=7"`
-	WriterKeys                []WriterKeysRow           `codec:"structql,'uri=internal_datly_write_writer:sql/writer_keys.sql'" parameter:"WriterKeys,kind=param,in=Jobs,cardinality=Many"`
-	CurrentWriter             []*CurrentWriterView      `parameter:"CurrentWriter,kind=view,in=CurrentWriter,cardinality=Many" sql:"uri=internal_datly_write_writer:sql/current_writer.sql" view:"CurrentWriter,table=inbox_jobs"`
-	CurrentStatus             []*CurrentStatusView      `parameter:"CurrentStatus,kind=view,in=CurrentStatus,cardinality=Many" sql:"uri=internal_datly_write_writer:sql/current_status.sql" view:"CurrentStatus,table=request_status"`
-	CurrentOutbox             []*CurrentOutboxView      `parameter:"CurrentOutbox,kind=view,in=CurrentOutbox,cardinality=Many" sql:"uri=internal_datly_write_writer:sql/current_outbox.sql" view:"CurrentOutbox,table=outbox_messages"`
-	_writerHandlerReadIndexes *WriterHandlerReadIndexes `json:"-" sqlx:"-"`
-	Has                       *InputHas                 `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
+	ExpectedState                string                              `parameter:"ExpectedState,kind=query,in=expectedState,dataType=string,required=false" predicate:"equal,group=7,gateway_job,gateway_execution_state"`
+	GatewayJobs                  []*GatewayJob                       `parameter:"GatewayJobs,kind=body,in=data,dataType=[]*github.com/viant/slack-ai-gateway/internal/datly/write.GatewayJob" sql:"uri=internal_datly_write_writer:sql/writer.sql" view:"writer,type=GatewayJob,table=gateway_job,mutationPredicate=7"`
+	WriterKeys                   []WriterKeysRow                     `codec:"structql,'uri=internal_datly_write_writer:sql/writer_keys.sql'" parameter:"WriterKeys,kind=param,in=GatewayJobs,cardinality=Many"`
+	CurrentWriter                []*CurrentWriterView                `parameter:"CurrentWriter,kind=view,in=CurrentWriter,cardinality=Many" sql:"uri=internal_datly_write_writer:sql/current_writer.sql" view:"CurrentWriter,table=gateway_job"`
+	CurrentSlackOutgoingMessages []*CurrentSlackOutgoingMessagesView `parameter:"CurrentSlackOutgoingMessages,kind=view,in=CurrentSlackOutgoingMessages,cardinality=Many" sql:"uri=internal_datly_write_writer:sql/current_slack_outgoing_messages.sql" view:"CurrentSlackOutgoingMessages,table=slack_outgoing_message"`
+	_writerHandlerReadIndexes    *WriterHandlerReadIndexes           `json:"-" sqlx:"-"`
+	Has                          *InputHas                           `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
 }
 
 type InputHas struct {
-	ExpectedState bool
-	Jobs          bool
-	WriterKeys    bool
-	CurrentWriter bool
-	CurrentStatus bool
-	CurrentOutbox bool
+	ExpectedState                bool
+	GatewayJobs                  bool
+	WriterKeys                   bool
+	CurrentWriter                bool
+	CurrentSlackOutgoingMessages bool
 }

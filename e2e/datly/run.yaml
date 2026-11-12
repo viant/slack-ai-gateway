@@ -104,7 +104,7 @@ pipeline:
     params:
       projectRoot: $projectRoot
       driver: mysql
-      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/slack_ai_gateway?parseTime=true
+      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/slack_ai_gateway?parseTime=true&loc=UTC
 
   validateMySQL:
     action: run
@@ -112,7 +112,7 @@ pipeline:
     params:
       projectRoot: $projectRoot
       driver: mysql
-      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/slack_ai_gateway?parseTime=true
+      dsn: root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/slack_ai_gateway?parseTime=true&loc=UTC
 
   sqliteSchema:
     action: exec:run
@@ -134,7 +134,7 @@ pipeline:
     logging: false
     init:
       testEnvironment: |
-        export SLACK_AI_GATEWAY_MYSQL_TEST_DSN='root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/slack_ai_gateway?parseTime=true'
+        export SLACK_AI_GATEWAY_MYSQL_TEST_DSN='root:${fixturePassword}@tcp(127.0.0.1:${fixturePort})/slack_ai_gateway?parseTime=true&loc=UTC'
     action: storage:upload
     sourceKey: testEnvironment
     mode: 384

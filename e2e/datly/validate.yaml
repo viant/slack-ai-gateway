@@ -31,7 +31,7 @@ pipeline:
     secrets:
       gatewayMySQLCredentials: $mysqlCred
     commands:
-      - export SLACK_AI_GATEWAY_DISCOVERY_DSN='${gatewayMySQLCredentials.username}:${gatewayMySQLCredentials.password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true'
+      - export SLACK_AI_GATEWAY_DISCOVERY_DSN='${gatewayMySQLCredentials.username}:${gatewayMySQLCredentials.password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true&loc=UTC'
 
   connection:
     when: $discoveryDSN != ''

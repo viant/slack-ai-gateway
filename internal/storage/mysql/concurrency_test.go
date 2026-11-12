@@ -188,15 +188,15 @@ func TestConcurrentHybridIntakeStatusAndQueryClaims(t *testing.T) {
 	}
 	snapshot, err := s.Status(ctx, 1000)
 	storetest.Must(t, err)
-	if len(snapshot.Jobs) != expected || snapshot.Counts["inbox_jobs"]["rejected"] != expected {
-		t.Fatalf("lost or unfinished events: %+v", snapshot.Counts["inbox_jobs"])
+	if len(snapshot.GatewayJobs) != expected || snapshot.Counts["gateway_job.gateway_execution_state"]["rejected"] != expected {
+		t.Fatalf("lost or unfinished events: %+v", snapshot.Counts["gateway_job.gateway_execution_state"])
 	}
-	for _, r := range snapshot.RequestStatuses {
-		if r.State == "sending" {
-			t.Fatalf("message publication %d was left in flight", r.JobID)
+	for _, r := range snapshot.GatewayJobs {
+		if r.ProgressState == "sending" {
+			t.Fatalf("message publication %d was left in flight", r.ID)
 		}
 	}
-	for _, r := range snapshot.AgentSessions {
+	for _, r := range snapshot.SlackAgentSessionPublications {
 		if r.State == "sending" {
 			t.Fatalf("native session %s was left in flight", r.ThreadTS)
 		}

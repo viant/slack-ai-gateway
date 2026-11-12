@@ -99,7 +99,7 @@ func TestDirectMessageStatusAndDeliveryRecheckPeerAfterRestart(t *testing.T) {
 	backend := &fakeAgently{}
 	work(t, gateway.Worker{Store: s, Policy: p, Clients: backend, AgentID: "steward"})
 	s = reopen()
-	// Delivery/status must reconstruct surface and original author from durable data.
+	// SlackOutgoingMessage/status must reconstruct surface and original author from durable data.
 	directory.peer = "bob"
 	status.Store = s
 	now = now.Add(time.Minute)

@@ -17,7 +17,7 @@ type presentationStore struct {
 	parts  []ReplyPart
 }
 
-func (s *presentationStore) Complete(_ context.Context, _ int64, _, result string, parts []ReplyPart) error {
+func (s *presentationStore) Complete(_ context.Context, _ int64, _, result string, parts []ReplyPart, _ ...ProtocolSnapshot) error {
 	s.result, s.parts = result, parts
 	return nil
 }
@@ -38,7 +38,7 @@ func TestCompletedPresentationURLAttachmentsAndEmptyResult(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &presentationStore{}
 			w := Worker{Store: s, ResponseMode: tc.mode, AgentlyBaseURL: "https://example.org/prefix///"}
-			j := &Job{ID: 1, RequestID: "request"}
+			j := &GatewayJob{ID: 1, GatewayRequestID: "request"}
 			j.HasAttachments = true
 			if err := w.settle(context.Background(), j, "example /?#", Turn{ID: "request", State: tc.state, Content: tc.content}, nil); err != nil {
 				t.Fatal(err)
@@ -66,7 +66,7 @@ func TestPresentationLogsContainMetadataOnly(t *testing.T) {
 	w := Worker{Store: s, ResponseMode: presentation.ResponseSummary, AgentlyBaseURL: "https://example.org",
 		Log: slog.New(slog.NewJSONHandler(&log, nil))}
 	content := "Authored prose example.\n```forge-ui\nRAW_PAYLOAD\n```"
-	if err := w.settle(context.Background(), &Job{ID: 1, RequestID: "r"}, "example", Turn{ID: "r", State: "completed", Content: content, StandaloneMessages: []*sdk.TurnMessageState{{Content: "PRIVATE_NOTE"}}}, nil); err != nil {
+	if err := w.settle(context.Background(), &GatewayJob{ID: 1, GatewayRequestID: "r"}, "example", Turn{ID: "r", State: "completed", Content: content, StandaloneMessages: []*sdk.TurnMessageState{{Content: "PRIVATE_NOTE"}}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, forbidden := range []string{"RAW_PAYLOAD", "Authored prose", "https://", "forge-ui", "PRIVATE_NOTE"} {
@@ -83,7 +83,7 @@ func TestPublicMessagesDoNotProduceEmptyFinalNotice(t *testing.T) {
 	for _, mode := range []presentation.ResponseMode{presentation.ResponseRaw, presentation.ResponseCLICompatible, presentation.ResponseSummary, presentation.ResponseNormalizedSummary, presentation.ResponseReportText} {
 		s := &presentationStore{}
 		w := Worker{Store: s, ResponseMode: mode, AgentlyBaseURL: "https://example.org"}
-		err := w.settle(context.Background(), &Job{ID: 1, RequestID: "request"}, "example", Turn{ID: "request", State: "completed", StandaloneMessages: []*sdk.TurnMessageState{{MessageID: "note", Content: "Public findings."}}}, nil)
+		err := w.settle(context.Background(), &GatewayJob{ID: 1, GatewayRequestID: "request"}, "example", Turn{ID: "request", State: "completed", StandaloneMessages: []*sdk.TurnMessageState{{MessageID: "note", Content: "Public findings."}}}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

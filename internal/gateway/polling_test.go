@@ -30,7 +30,7 @@ func TestPollingDefaultsBackoffAndDeadline(t *testing.T) {
 		s := &pollStore{}
 		w := Worker{Store: s}
 		now := time.Now()
-		if err := w.poll(context.Background(), &Job{QueryStartedAt: now, PollAttempts: n}); err != nil {
+		if err := w.poll(context.Background(), &GatewayJob{BackendSubmissionStartedAt: now, PollAttempts: n}); err != nil {
 			t.Fatal(err)
 		}
 		if got := s.at.Sub(now); got < want || got > want+100*time.Millisecond {
@@ -40,14 +40,14 @@ func TestPollingDefaultsBackoffAndDeadline(t *testing.T) {
 	s := &pollStore{}
 	w := Worker{Store: s}
 	started := time.Now().Add(-15*time.Minute + time.Second)
-	if err := w.poll(context.Background(), &Job{QueryStartedAt: started, PollAttempts: 100}); err != nil {
+	if err := w.poll(context.Background(), &GatewayJob{BackendSubmissionStartedAt: started, PollAttempts: 100}); err != nil {
 		t.Fatal(err)
 	}
 	if !s.at.Equal(started.Add(15 * time.Minute)) {
 		t.Fatal("poll exceeds deadline")
 	}
 	s.at = time.Time{}
-	if err := w.poll(context.Background(), &Job{QueryStartedAt: time.Now().Add(-16 * time.Minute)}); err != nil {
+	if err := w.poll(context.Background(), &GatewayJob{BackendSubmissionStartedAt: time.Now().Add(-16 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 	if s.reason != "reconciliation_deadline" || !s.at.IsZero() {

@@ -15,19 +15,19 @@ func nativeMessage(event, root, author string) gateway.Message {
 	m.StatusMode = gateway.StatusAgentSession
 	return m
 }
-func acknowledgeSession(t *testing.T, s *Store, a *gateway.RequestStatus, now time.Time) {
+func acknowledgeSession(t *testing.T, s *scopedFixture, a *gateway.GatewayJobProgress, now time.Time) {
 	t.Helper()
 	storetest.Must(t, s.FinishStatus(context.Background(), *a, gateway.StatusResult{State: "settled", Acknowledged: true, AgentStatus: a.SessionState, SessionStatus: "processing", NextRefreshAt: now.Add(gateway.AgentSessionRefresh)}, now))
 }
-func finishNativeJob(t *testing.T, s *Store, j *gateway.Job, count int) {
+func finishNativeJob(t *testing.T, s *scopedFixture, j *gateway.GatewayJob, count int) {
 	t.Helper()
 	parts := make([]gateway.ReplyPart, count)
 	for i := range parts {
 		parts[i] = gateway.ReplyPart{Text: "answer", Format: gateway.ReplyPlain}
 	}
-	storetest.Must(t, s.Complete(context.Background(), j.ID, j.RequestID, "answer", parts))
+	storetest.Must(t, s.Complete(context.Background(), j.ID, j.GatewayRequestID, "answer", parts))
 }
-func deliverNativePart(t *testing.T, s *Store) {
+func deliverNativePart(t *testing.T, s *scopedFixture) {
 	t.Helper()
 	d, err := s.ClaimDelivery(context.Background())
 	storetest.Must(t, err)
@@ -38,7 +38,7 @@ func deliverNativePart(t *testing.T, s *Store) {
 }
 func TestAgentSessionThreadAggregationAndInFlightIntake(t *testing.T) {
 	ctx := context.Background()
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	now := time.Now()
 	_, err := s.Enqueue(ctx, nativeMessage("a", "root", "alice"))
 	storetest.Must(t, err)
@@ -83,10 +83,10 @@ func TestAgentSessionThreadAggregationAndInFlightIntake(t *testing.T) {
 	claimStatus(t, s, now.Add(time.Hour), "heartbeat", "")
 	report, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
-	if len(report.AgentSessions) != 1 || report.AgentSessions[0].AgentStatus != "active" || report.AgentSessions[0].SessionStatus != "processing" {
+	if len(report.SlackAgentSessionPublications) != 1 || report.SlackAgentSessionPublications[0].AgentStatus != "active" || report.SlackAgentSessionPublications[0].SessionStatus != "processing" {
 		t.Fatal("own and aggregate status lost")
 	}
-	for _, row := range report.RequestStatuses {
+	for _, row := range report.GatewayJobs {
 		if row.SlackTS != "" {
 			t.Fatal("native publication invented message timestamp")
 		}
@@ -94,7 +94,7 @@ func TestAgentSessionThreadAggregationAndInFlightIntake(t *testing.T) {
 }
 func TestAgentSessionBlockerResolutionAndObservation(t *testing.T) {
 	ctx := context.Background()
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	now := time.Now()
 	_, err := s.Enqueue(ctx, nativeMessage("a", "root", "alice"))
 	storetest.Must(t, err)
@@ -132,12 +132,12 @@ func TestAgentSessionBlockerResolutionAndObservation(t *testing.T) {
 func TestAgentSessionRecoveryRetryCooldownAndLatestProjection(t *testing.T) {
 	ctx := context.Background()
 	f := fixture(t)
-	s := f.Store.(*Store)
+	s := f.Store.(*scopedFixture)
 	now := time.Now()
 	_, err := s.Enqueue(ctx, nativeMessage("a", "root", "alice"))
 	storetest.Must(t, err)
 	claimStatus(t, s, now, "urgent", "processing")
-	s = f.Reopen().(*Store)
+	s = f.Reopen().(*scopedFixture)
 	claimStatus(t, s, now, "urgent", "")
 	now = now.Add(time.Minute)
 	a := claimStatus(t, s, now, "urgent", "processing")
@@ -145,7 +145,7 @@ func TestAgentSessionRecoveryRetryCooldownAndLatestProjection(t *testing.T) {
 	storetest.Must(t, s.FinishStatus(ctx, *a, gateway.StatusResult{State: "ready", Reason: "rate_limited", RetryAt: until, RateLimitedUntil: until}, now))
 	j := startStatusJob(t, s)
 	finishNativeJob(t, s, j, 1)
-	s = f.Reopen().(*Store)
+	s = f.Reopen().(*scopedFixture)
 	if d, err := s.ClaimDelivery(ctx); err != nil || d != nil {
 		t.Fatal("native cooldown did not gate final parts")
 	}
@@ -156,7 +156,7 @@ func TestAgentSessionRecoveryRetryCooldownAndLatestProjection(t *testing.T) {
 	}
 	claimStatus(t, s, now, "urgent", "")
 	// Expire persisted cooldown; retry must project the latest final delivery state.
-	_, err = fixtureDB(t, s).Exec("UPDATE agent_session_publications SET rate_limited_until=0,next_attempt_at=0")
+	_, err = fixtureDB(t, s).Exec("UPDATE slack_agent_session_publication SET slack_publication_rate_limited_until=NULL,slack_publication_next_attempt_at=NULL")
 	storetest.Must(t, err)
 	deliverNativePart(t, s)
 	a = claimStatus(t, s, now, "urgent", "active")
@@ -169,7 +169,7 @@ func TestAgentSessionFastAnswersFailuresAndModeSwitch(t *testing.T) {
 	for _, outcome := range []string{"completed", "failed", "canceled"} {
 		t.Run(outcome, func(t *testing.T) {
 			ctx := context.Background()
-			s := fixture(t).Store.(*Store)
+			s := fixture(t).Store.(*scopedFixture)
 			now := time.Now()
 			_, err := s.Enqueue(ctx, nativeMessage("a", "root", "alice"))
 			storetest.Must(t, err)
@@ -207,7 +207,7 @@ func TestAgentSessionFastAnswersFailuresAndModeSwitch(t *testing.T) {
 }
 func TestAgentSessionPermanentFailureIndependentThreadsAndNewIntention(t *testing.T) {
 	ctx := context.Background()
-	s := fixture(t).Store.(*Store)
+	s := fixture(t).Store.(*scopedFixture)
 	now := time.Now()
 	_, err := s.Enqueue(ctx, nativeMessage("a", "root", "alice"))
 	storetest.Must(t, err)

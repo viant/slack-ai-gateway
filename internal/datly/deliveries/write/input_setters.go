@@ -2,7 +2,7 @@
 
 package write
 
-func (input *Input) SetRows(value []*Delivery) {
+func (input *Input) SetRows(value []*SlackOutgoingMessage) {
 	if input == nil {
 		return
 	}
@@ -35,13 +35,13 @@ func (input *Input) SetCurrentWriter(value []*CurrentWriterView) {
 	input.Has.CurrentWriter = true
 }
 
-func (input *Input) SetCurrentResolutions(value []*CurrentResolutionsView) {
+func (input *Input) SetCurrentSlackDeliveryResolutions(value []*CurrentSlackDeliveryResolutionsView) {
 	if input == nil {
 		return
 	}
-	input.CurrentResolutions = value
+	input.CurrentSlackDeliveryResolutions = value
 	if input.Has == nil {
 		input.Has = &InputHas{}
 	}
-	input.Has.CurrentResolutions = true
+	input.Has.CurrentSlackDeliveryResolutions = true
 }

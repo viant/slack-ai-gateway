@@ -7,30 +7,30 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 
-#define($_ = $Limit<int>(query/jobs_limit).Optional().QuerySelector('jobs').Value(100))
-#define($_ = $Limit<int>(query/bindings_limit).Optional().QuerySelector('bindings').Value(100))
-#define($_ = $Limit<int>(query/deliveries_limit).Optional().QuerySelector('deliveries').Value(100))
-#define($_ = $Limit<int>(query/statuses_limit).Optional().QuerySelector('statuses').Value(100))
-#define($_ = $Limit<int>(query/sessions_limit).Optional().QuerySelector('sessions').Value(100))
+#define($_ = $IntegrationID<int>(query/IntegrationID).Optional().Value(0))
+#define($_ = $IntegrationName<string>(query/IntegrationName).Optional().Value(''))
+#define($_ = $Limit<int>(query/requests_limit).Optional().QuerySelector('gateway_jobs').Value(100))
+#define($_ = $Limit<int>(query/bindings_limit).Optional().QuerySelector('conversation_bindings').Value(100))
+#define($_ = $Limit<int>(query/deliveries_limit).Optional().QuerySelector('slack_outgoing_messages').Value(100))
+#define($_ = $Limit<int>(query/sessions_limit).Optional().QuerySelector('slack_agent_session_publications').Value(100))
 #define($_ = $Data<[]*Snapshot>(output/view))
 
-SELECT snapshot.*, jobs.*, bindings.*, deliveries.*, statuses.*, sessions.*, counts.*,
-       type(snapshot,'Snapshot'),
-       type(jobs,'Job'), set_limit(jobs,1000),
-       type(bindings,'Binding'), set_limit(bindings,1000),
-       type(deliveries,'Delivery'), set_limit(deliveries,1000),
-       type(statuses,'RequestStatus'), set_limit(statuses,1000),
-       type(sessions,'AgentSession'), set_limit(sessions,1000),
+SELECT snapshot.*, integrations.*, gateway_jobs.*, conversation_bindings.*, slack_outgoing_messages.*, slack_agent_session_publications.*, counts.*,
+       type(snapshot,'Snapshot'), type(integrations,'Integration'), set_limit(integrations,0),
+       type(gateway_jobs,'GatewayJobMetadata'), set_limit(gateway_jobs,1000),
+       type(conversation_bindings,'ConversationBindingMetadata'), set_limit(conversation_bindings,1000),
+       type(slack_outgoing_messages,'SlackOutgoingMessageMetadata'), set_limit(slack_outgoing_messages,1000),
+       type(slack_agent_session_publications,'SlackAgentSessionPublicationMetadata'), set_limit(slack_agent_session_publications,1000),
        type(counts,'StateCount'), set_limit(counts,1000),
-       CAST(jobs.binding_id AS int),
-       CAST(bindings.conversation_id AS string),
+       CAST(gateway_jobs.conversation_binding_id AS int),
+       CAST(conversation_bindings.backend_conversation_id AS string),
        CAST(counts.snapshot_id AS int),
        CAST(counts.table_name AS string),
        CAST(counts.row_count AS int)
 FROM (SELECT 1 AS snapshot_id) snapshot
-LEFT JOIN (${embed:sql/jobs.sql}) jobs ON jobs.snapshot_id=snapshot.snapshot_id
-LEFT JOIN (${embed:sql/bindings.sql}) bindings ON bindings.snapshot_id=snapshot.snapshot_id
-LEFT JOIN (${embed:sql/deliveries.sql}) deliveries ON deliveries.snapshot_id=snapshot.snapshot_id
-LEFT JOIN (${embed:sql/statuses.sql}) statuses ON statuses.snapshot_id=snapshot.snapshot_id
-LEFT JOIN (${embed:sql/sessions.sql}) sessions ON sessions.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/integrations.sql}) integrations ON integrations.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/jobs.sql}) gateway_jobs ON gateway_jobs.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/bindings.sql}) conversation_bindings ON conversation_bindings.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/deliveries.sql}) slack_outgoing_messages ON slack_outgoing_messages.snapshot_id=snapshot.snapshot_id
+LEFT JOIN (${embed:sql/sessions.sql}) slack_agent_session_publications ON slack_agent_session_publications.snapshot_id=snapshot.snapshot_id
 LEFT JOIN (${embed:sql/counts.sql}) counts ON counts.snapshot_id=snapshot.snapshot_id

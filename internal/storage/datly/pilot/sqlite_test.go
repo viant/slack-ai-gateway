@@ -19,6 +19,7 @@ import (
 	"github.com/viant/datly/standalone/config"
 	read "github.com/viant/slack-ai-gateway/internal/datly/read"
 	write "github.com/viant/slack-ai-gateway/internal/datly/write"
+	"github.com/viant/slack-ai-gateway/internal/storetest"
 	"github.com/viant/slack-ai-gateway/migrations"
 	_ "github.com/viant/sqlx/metadata/product/sqlite"
 	_ "modernc.org/sqlite"
@@ -42,6 +43,7 @@ func TestNativeSQLiteGraphPilot(t *testing.T) {
 	must(t, err)
 	_, err = db.ExecContext(ctx, string(schema))
 	must(t, err)
+	seedPilotTopology(t, db)
 
 	server, err := standalone.New(ctx, standalone.Options{
 		Config: &config.Config{
@@ -69,67 +71,67 @@ func TestNativeSQLiteGraphPilot(t *testing.T) {
 		}
 		return value.(*PilotOutput), nil
 	}
-	newJob := func(event string) *write.Job {
-		now := int(time.Now().UnixMilli())
-		return &write.Job{
-			AppId: "pilot", WorkspaceId: "T", ChannelId: "C", RootThreadTs: "1.000001", EventId: event,
-			AuthorId: "alice", MessageTs: "1.000001", QueryText: "native SQLite graph probe", RequestId: event,
-			State: "pending", CreatedAt: now, UpdatedAt: now, MessageSurface: "channel",
-			Status: &write.RequestStatus{State: "ready", Mode: "message", UpdatedAt: now},
-			Outbox: []*write.Outbox{
-				{WorkspaceId: "T", ChannelId: "C", RootThreadTs: "1.000001", Part: 0, Content: "first", State: "pending", CreatedAt: now, UpdatedAt: now, Format: "plain"},
-				{WorkspaceId: "T", ChannelId: "C", RootThreadTs: "1.000001", Part: 1, Content: "second", State: "pending", CreatedAt: now, UpdatedAt: now, Format: "plain"},
+	newJob := func(event string) *write.GatewayJob {
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		return &write.GatewayJob{
+			IntegrationId: 1, SlackChannelId: "C", SlackThreadRootMessageId: "1.000001", SlackEventId: event,
+			SlackPromptAuthorId: "alice", SlackPromptMessageId: "1.000001", PromptText: storetest.Pointer("native SQLite graph probe"), GatewayRequestId: event,
+			GatewayExecutionState: "pending", CreatedAt: now, GatewayExecutionUpdatedAt: now, SlackConversationType: "channel",
+			SlackProgressState: "ready", SlackProgressMode: "message", GatewayStatusUpdatedAt: now,
+			SlackOutgoingMessages: []*write.SlackOutgoingMessage{
+				{SlackMessageIndex: 0, SlackMessageText: storetest.Pointer("first"), SlackMessageKind: "response", SlackDeliveryState: "pending", CreatedAt: now, UpdatedAt: now, SlackMessageFormat: "plain"},
+				{SlackMessageIndex: 1, SlackMessageText: storetest.Pointer("second"), SlackMessageKind: "response", SlackDeliveryState: "pending", CreatedAt: now, UpdatedAt: now, SlackMessageFormat: "plain"},
 			},
 		}
 	}
 	assertAbsent := func(request string) {
 		t.Helper()
 		var count int
-		must(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM inbox_jobs WHERE request_id=?", request).Scan(&count))
+		must(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM gateway_job WHERE gateway_request_id=?", request).Scan(&count))
 		if count != 0 {
 			t.Fatalf("unexpected persisted request %s", request)
 		}
 	}
 
 	row := newJob("committed")
-	created, err := invoke(ctx, &PilotInput{Action: "write", Job: row})
+	created, err := invoke(ctx, &PilotInput{Action: "write", GatewayJob: row})
 	must(t, err)
-	if created.ID <= 0 || row.Id != created.ID || row.Status.JobId != row.Id || row.Outbox[0].JobId != row.Id || row.Outbox[1].JobId != row.Id || row.Outbox[0].Id <= 0 || row.Outbox[1].Id <= 0 {
+	if created.ID <= 0 || row.Id != created.ID || row.SlackOutgoingMessages[0].JobId != row.Id || row.SlackOutgoingMessages[1].JobId != row.Id || row.SlackOutgoingMessages[0].Id <= 0 || row.SlackOutgoingMessages[1].Id <= 0 {
 		t.Fatalf("native SQLite identity/FK propagation failed: %+v", row)
 	}
 	var count int
-	must(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM outbox_messages WHERE job_id=?", row.Id).Scan(&count))
+	must(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM slack_outgoing_message WHERE job_id=?", row.Id).Scan(&count))
 	if count != 2 {
 		t.Fatalf("outbox count=%d", count)
 	}
-	must(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM request_status WHERE job_id=?", row.Id).Scan(&count))
+	must(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM gateway_job WHERE id=?", row.Id).Scan(&count))
 	if count != 1 {
 		t.Fatalf("request status count=%d", count)
 	}
 
-	patch := &write.Job{}
+	patch := &write.GatewayJob{}
 	patch.SetId(row.Id)
-	patch.SetReason("updated through common graph")
-	_, err = invoke(ctx, &PilotInput{Action: "write", Job: patch, ExpectedState: "pending"})
+	patch.SetGatewayExecutionReason("updated through common graph")
+	_, err = invoke(ctx, &PilotInput{Action: "write", GatewayJob: patch, ExpectedState: "pending"})
 	must(t, err)
 	var reason string
-	must(t, db.QueryRowContext(ctx, "SELECT reason FROM inbox_jobs WHERE id=?", row.Id).Scan(&reason))
+	must(t, db.QueryRowContext(ctx, "SELECT gateway_execution_reason FROM gateway_job WHERE id=?", row.Id).Scan(&reason))
 	if reason != "updated through common graph" {
 		t.Fatalf("updated reason=%q", reason)
 	}
-	patch.SetState("rejected")
-	_, err = invoke(ctx, &PilotInput{Action: "write", Job: patch, ExpectedState: "needs_review"})
+	patch.SetGatewayExecutionState("rejected")
+	_, err = invoke(ctx, &PilotInput{Action: "write", GatewayJob: patch, ExpectedState: "needs_review"})
 	if err == nil {
 		t.Fatal("wrong expected state accepted")
 	}
 
 	rolled := newJob("rolled-back")
-	_, err = invoke(ctx, &PilotInput{Action: "write", Job: rolled, Fail: true})
+	_, err = invoke(ctx, &PilotInput{Action: "write", GatewayJob: rolled, Fail: true})
 	if err == nil {
 		t.Fatal("late root failure unexpectedly succeeded")
 	}
-	assertAbsent(rolled.RequestId)
-	for _, table := range []string{"request_status", "outbox_messages"} {
+	assertAbsent(rolled.GatewayRequestId)
+	for _, table := range []string{"slack_outgoing_message"} {
 		must(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE job_id=?", rolled.Id).Scan(&count))
 		if count != 0 {
 			t.Fatalf("%s persisted after rollback", table)
@@ -137,17 +139,17 @@ func TestNativeSQLiteGraphPilot(t *testing.T) {
 	}
 
 	// Fail during the second actual child INSERT, after earlier writes have run.
-	_, err = db.ExecContext(ctx, `CREATE TRIGGER reject_second_probe_part BEFORE INSERT ON outbox_messages
-WHEN NEW.content='fail second child' BEGIN SELECT RAISE(ABORT,'injected late child failure'); END`)
+	_, err = db.ExecContext(ctx, `CREATE TRIGGER reject_second_probe_part BEFORE INSERT ON slack_outgoing_message
+WHEN NEW.slack_message_text='fail second child' BEGIN SELECT RAISE(ABORT,'injected late child failure'); END`)
 	must(t, err)
 	late := newJob("late-sql-failure")
-	late.Outbox[1].Content = "fail second child"
-	_, err = invoke(ctx, &PilotInput{Action: "write", Job: late})
+	late.SlackOutgoingMessages[1].SlackMessageText = storetest.Pointer("fail second child")
+	_, err = invoke(ctx, &PilotInput{Action: "write", GatewayJob: late})
 	if err == nil || !strings.Contains(err.Error(), "injected late child failure") {
 		t.Fatalf("late child failure error=%v", err)
 	}
-	assertAbsent(late.RequestId)
-	for _, table := range []string{"request_status", "outbox_messages"} {
+	assertAbsent(late.GatewayRequestId)
+	for _, table := range []string{"slack_outgoing_message"} {
 		must(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table+" WHERE job_id=?", late.Id).Scan(&count))
 		if count != 0 {
 			t.Fatalf("%s persisted after late child failure", table)
@@ -158,7 +160,7 @@ WHEN NEW.content='fail second child' BEGIN SELECT RAISE(ABORT,'injected late chi
 
 	canceled, cancelRequest := context.WithCancel(ctx)
 	cancelRequest()
-	_, err = invoke(canceled, &PilotInput{Action: "write", Job: newJob("canceled")})
+	_, err = invoke(canceled, &PilotInput{Action: "write", GatewayJob: newJob("canceled")})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled invocation error=%v", err)
 	}
@@ -192,7 +194,7 @@ WHEN NEW.content='fail second child' BEGIN SELECT RAISE(ABORT,'injected late chi
 		t.Fatalf("exclusive SQLite claims=%d", claimed)
 	}
 	var attempts int
-	must(t, db.QueryRowContext(ctx, "SELECT attempts FROM inbox_jobs WHERE id=?", row.Id).Scan(&attempts))
+	must(t, db.QueryRowContext(ctx, "SELECT gateway_execution_claim_count FROM gateway_job WHERE id=?", row.Id).Scan(&attempts))
 	if attempts != 1 {
 		t.Fatalf("claim attempts=%d", attempts)
 	}

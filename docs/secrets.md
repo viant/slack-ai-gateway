@@ -71,7 +71,7 @@ agently:
       Key: blowfish://default
 storage:
   driver: mysql
-  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true'
+  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true&loc=UTC'
   secret:
     URL: file:///absolute/path/mysql.json
     Key: blowfish://default
@@ -91,7 +91,7 @@ The same fields can reference AWS Secrets Manager:
 ```yaml
 storage:
   driver: mysql
-  dsn: '${Username}:${Password}@tcp(mysql.internal:3306)/gateway_database?parseTime=true&tls=true'
+  dsn: '${Username}:${Password}@tcp(mysql.internal:3306)/gateway_database?parseTime=true&loc=UTC&tls=true'
   secret:
     URL: aws://secretmanager/us-east-1/secret/production/example-gateway/mysql
     Key: blowfish://default

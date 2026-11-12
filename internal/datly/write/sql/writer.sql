@@ -1,1 +1,1 @@
-SELECT * FROM  (SELECT * FROM inbox_jobs j)  jobs
+SELECT * FROM  (SELECT * FROM gateway_job j)  gateway_jobs

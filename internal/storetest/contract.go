@@ -12,10 +12,13 @@ import (
 	"time"
 
 	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 )
 
 type Fixture struct {
 	Store gateway.Store
+	// Root returns the current lifecycle owner for explicit integration setup.
+	Root func() storage.Store
 	// Reopen closes/reopens the same durable database and runs recovery.
 	Reopen func() gateway.Store
 }
@@ -40,7 +43,7 @@ func enqueue(t *testing.T, s gateway.Store, m gateway.Message) {
 	}
 }
 
-func claim(t *testing.T, s gateway.Store) *gateway.Job {
+func claim(t *testing.T, s gateway.Store) *gateway.GatewayJob {
 	t.Helper()
 	j, err := s.ClaimJob(context.Background())
 	Must(t, err)
@@ -63,7 +66,7 @@ func decision() gateway.Decision {
 	return gateway.Decision{Mode: "shared_channel", PrincipalID: "shared", OwnerID: "shared"}
 }
 
-func ready(t *testing.T, s gateway.Store, j *gateway.Job) *gateway.Binding {
+func ready(t *testing.T, s gateway.Store, j *gateway.GatewayJob) *gateway.ConversationBinding {
 	t.Helper()
 	ctx := context.Background()
 	b, err := s.BindJob(ctx, j.ID, decision())
@@ -78,15 +81,104 @@ func ready(t *testing.T, s gateway.Store, j *gateway.Job) *gateway.Binding {
 func Run(t *testing.T, open func(*testing.T) Fixture) {
 	runBackendOutage(t, open)
 	ctx := context.Background()
+	t.Run("integrations_isolate_independent_events_threads_and_deliveries", func(t *testing.T) {
+		f := open(t)
+		first := f.Store
+		identity := DefaultIntegration()
+		identity.Name, identity.AppID = "second", "A2"
+		_, err := f.Root().ReconcileIntegrations(ctx, []storage.Integration{DefaultIntegration(), identity})
+		Must(t, err)
+		second := Scope(t, f.Root(), "second")
+		m := Message("same-event", "same-thread", "alice")
+		enqueue(t, first, m)
+		other := m
+		other.AppID, other.EventID = "A2", "second-event"
+		enqueue(t, second, other)
+		a, b := claim(t, first), claim(t, second)
+		if a.ID == b.ID || a.AppID != "A" || b.AppID != "A2" {
+			t.Fatalf("installation intake identities mixed: first=%+v second=%+v", a, b)
+		}
+		ready(t, first, a)
+		ready(t, second, b)
+		// BindJob returns its pre-create snapshot. Read the persisted backend
+		// links instead of comparing two intentionally empty local snapshots.
+		left, err := first.GetBinding(ctx, a.ThreadKey)
+		Must(t, err)
+		right, err := second.GetBinding(ctx, b.ThreadKey)
+		Must(t, err)
+		if left == nil || right == nil || left.ID == right.ID || left.ConversationID == "" || right.ConversationID == "" || left.ConversationID == right.ConversationID {
+			t.Fatal("equal Slack thread keys shared a backend conversation across installations")
+		}
+		if err := first.BeginQuery(ctx, b.ID); !errors.Is(err, gateway.ErrConflict) {
+			t.Fatalf("foreign integration job mutation was not rejected: %v", err)
+		}
+		for _, item := range []struct {
+			store gateway.Store
+			job   *gateway.GatewayJob
+			text  string
+		}{{first, a, "first reply"}, {second, b, "second reply"}} {
+			Must(t, item.store.BeginQuery(ctx, item.job.ID))
+			Must(t, item.store.Complete(ctx, item.job.ID, item.job.GatewayRequestID, item.text, []gateway.ReplyPart{{Text: item.text, Format: gateway.ReplyPlain}}))
+			delivery, err := item.store.ClaimDelivery(ctx)
+			Must(t, err)
+			if delivery == nil || delivery.JobID != item.job.ID || delivery.Text != item.text {
+				t.Fatalf("outbound integration isolation lost: %+v", delivery)
+			}
+			original, err := item.store.GetDeliveryContext(ctx, *delivery)
+			Must(t, err)
+			if original.Message.AppID != item.job.AppID {
+				t.Fatal("delivery reconstructed another installation's Slack identity")
+			}
+		}
+	})
+	t.Run("changed_target_gets_new_assignment_and_closes_old_work", func(t *testing.T) {
+		f := open(t)
+		enqueue(t, f.Store, Message("old-event", "old-thread", "alice"))
+		old := claim(t, f.Store)
+		ready(t, f.Store, old)
+		identity := DefaultIntegration()
+		identity.BackendURL = "https://other-backend.example.test"
+		rows, err := f.Root().ReconcileIntegrations(ctx, []storage.Integration{identity})
+		Must(t, err)
+		if len(rows) != 1 || !rows[0].Active {
+			t.Fatal("changed configuration not activated")
+		}
+		history, err := f.Root().ScopeName("default").Status(ctx, 100)
+		Must(t, err)
+		if len(history.Integrations) != 2 {
+			t.Fatal("prior assignment history lost")
+		}
+		active, inactive := 0, 0
+		for _, row := range history.Integrations {
+			if row.Active {
+				active++
+			} else {
+				inactive++
+			}
+		}
+		if active != 1 || inactive != 1 {
+			t.Fatal("assignment activation not reconciled")
+		}
+		for _, job := range history.GatewayJobs {
+			if job.ID == old.ID && (job.State != "rejected" || job.Reason != "integration_changed") {
+				t.Fatal("old work was not terminally closed")
+			}
+		}
+		current := f.Root().Scope(rows[0].ID)
+		enqueue(t, current, Message("new-event", "new-thread", "alice"))
+		if job := claim(t, current); job.EventID != "new-event" {
+			t.Fatal("new assignment did not accept fresh work")
+		}
+	})
 	t.Run("workspace_cooldown_is_durable_and_covers_new_threads", func(t *testing.T) {
 		f := open(t)
 		s := f.Store
-		queue := func(m gateway.Message) {
-			enqueue(t, s, m)
-			j := claim(t, s)
-			Must(t, s.Complete(ctx, j.ID, "", "reply", []gateway.ReplyPart{{Text: "reply", Format: gateway.ReplyPlain}}))
+		queue := func(target gateway.Store, m gateway.Message) {
+			enqueue(t, target, m)
+			j := claim(t, target)
+			Must(t, target.Complete(ctx, j.ID, "", "reply", []gateway.ReplyPart{{Text: "reply", Format: gateway.ReplyPlain}}))
 		}
-		queue(Message("a", "one", "alice"))
+		queue(s, Message("a", "one", "alice"))
 		d, err := s.ClaimDelivery(ctx)
 		Must(t, err)
 		until := time.Now().Add(time.Hour).Truncate(time.Millisecond)
@@ -100,14 +192,19 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 		if !got.Equal(until) {
 			t.Fatal("cooldown lost on restart")
 		}
-		queue(Message("b", "two", "bob"))
+		queue(s, Message("b", "two", "bob"))
 		if next, err := s.ClaimDelivery(ctx); err != nil || next != nil {
 			t.Fatal("new thread bypassed workspace cooldown")
 		}
 		other := Message("c", "three", "carol")
-		other.WorkspaceID = "OTHER"
-		queue(other)
-		next, err := s.ClaimDelivery(ctx)
+		other.AppID, other.WorkspaceID = "A_OTHER", "OTHER"
+		identity := DefaultIntegration()
+		identity.Name, identity.AppID, identity.WorkspaceID = "other", "A_OTHER", "OTHER"
+		_, err = f.Root().ReconcileIntegrations(ctx, []storage.Integration{DefaultIntegration(), identity})
+		Must(t, err)
+		otherStore := Scope(t, f.Root(), "other")
+		queue(otherStore, other)
+		next, err := otherStore.ClaimDelivery(ctx)
 		Must(t, err)
 		if next == nil || next.WorkspaceID != "OTHER" {
 			t.Fatal("unrelated workspace blocked")
@@ -135,27 +232,39 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 			t.Fatal("failed part bypassed, or other thread blocked")
 		}
 	})
-	t.Run("dedup_preserves_original_and_scope", func(t *testing.T) {
-		s := open(t).Store
+	t.Run("global_dedup_preserves_original_and_isolates_execution", func(t *testing.T) {
+		f := open(t)
+		s := f.Store
+		identity := DefaultIntegration()
+		identity.Name, identity.AppID, identity.WorkspaceID = "other", "A_OTHER", "OTHER"
+		_, err := f.Root().ReconcileIntegrations(ctx, []storage.Integration{DefaultIntegration(), identity})
+		Must(t, err)
+		otherStore := Scope(t, f.Root(), "other")
 		m := Message("event1", "1.000001", "alice")
 		enqueue(t, s, m)
 		duplicate := m
-		duplicate.AuthorID = "mallory"
-		duplicate.Text = "changed"
+		duplicate.AuthorID, duplicate.Text = "mallory", "changed"
 		inserted, err := s.Enqueue(ctx, duplicate)
 		Must(t, err)
 		if inserted {
 			t.Fatal("duplicate inserted")
 		}
 		j := claim(t, s)
-		if j.AuthorID != "alice" || j.Text != m.Text || j.RequestID == "" {
+		if j.AuthorID != "alice" || j.Text != m.Text || j.GatewayRequestID == "" {
 			t.Fatal("original event changed")
 		}
-		m.WorkspaceID = "OTHER"
-		enqueue(t, s, m)
-		other := claim(t, s)
+		m.AppID, m.WorkspaceID = "A_OTHER", "OTHER"
+		inserted, err = otherStore.Enqueue(ctx, m)
+		Must(t, err)
+		if inserted {
+			t.Fatal("same global event was accepted by another assignment")
+		}
+		noJob(t, otherStore)
+		m.EventID = "independent-event"
+		enqueue(t, otherStore, m)
+		other := claim(t, otherStore)
 		if other.WorkspaceID != "OTHER" {
-			t.Fatal("dedup scope is too broad")
+			t.Fatal("independent event used the wrong workspace")
 		}
 		noJob(t, s)
 	})
@@ -186,7 +295,7 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 		a := claim(t, s)
 		b := ready(t, s, a)
 		Must(t, s.BeginQuery(ctx, a.ID))
-		Must(t, s.Complete(ctx, a.ID, a.RequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}))
+		Must(t, s.Complete(ctx, a.ID, a.GatewayRequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}))
 		enqueue(t, s, Message("b", "one", "bob"))
 		next := claim(t, s)
 		bad := decision()
@@ -209,12 +318,12 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 		// Claim alone has no remote side effect and is safe to reclaim.
 		s = f.Reopen()
 		again := claim(t, s)
-		if again.ID != a.ID || again.RequestID != a.RequestID {
+		if again.ID != a.ID || again.GatewayRequestID != a.GatewayRequestID {
 			t.Fatal("lost durable correlation")
 		}
 		b := ready(t, s, again)
 		Must(t, s.BeginQuery(ctx, again.ID))
-		Must(t, s.Complete(ctx, again.ID, again.RequestID, "answer", []gateway.ReplyPart{{Text: "part one", Format: gateway.ReplyPlain}, {Text: "part two", Format: gateway.ReplyPlain}}))
+		Must(t, s.Complete(ctx, again.ID, again.GatewayRequestID, "answer", []gateway.ReplyPart{{Text: "part one", Format: gateway.ReplyPlain}, {Text: "part two", Format: gateway.ReplyPlain}}))
 		s = f.Reopen()
 		noJob(t, s)
 		binding, err := s.GetBinding(ctx, m.ThreadKey)
@@ -263,7 +372,7 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 		enqueue(t, s, Message("c", "two", "carol"))
 		s = f.Reopen()
 		next := claim(t, s)
-		if next.ID != a.ID || next.TurnID != a.RequestID || next.QueryStartedAt.IsZero() {
+		if next.ID != a.ID || next.GatewayRequestID != a.GatewayRequestID || next.BackendSubmissionStartedAt.IsZero() {
 			t.Fatal("query not recovered for exact-turn read")
 		}
 		if err := s.BeginQuery(ctx, next.ID); !errors.Is(err, gateway.ErrConflict) {
@@ -296,19 +405,19 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 		Must(t, s.BeginQuery(ctx, j.ID))
 		Must(t, s.SchedulePoll(ctx, j.ID, time.Now().Add(-time.Second)))
 		poll := claim(t, s)
-		if poll.TurnID != j.RequestID || poll.PollAttempts != 1 || poll.QueryStartedAt.IsZero() {
+		if poll.GatewayRequestID != j.GatewayRequestID || poll.PollAttempts != 1 || poll.BackendSubmissionStartedAt.IsZero() {
 			t.Fatal("poll metadata missing")
 		}
 		noJob(t, s)
 		s = g.Reopen() // Crash during a read: recover another read, not a query.
 		recovered := claim(t, s)
-		if !recovered.QueryStartedAt.Equal(poll.QueryStartedAt) || recovered.PollAttempts != 1 {
+		if !recovered.BackendSubmissionStartedAt.Equal(poll.BackendSubmissionStartedAt) || recovered.PollAttempts != 1 {
 			t.Fatal("poll deadline reset on restart")
 		}
 		if err := s.Complete(ctx, j.ID, "other-turn", "wrong", []gateway.ReplyPart{{Text: "wrong", Format: gateway.ReplyPlain}}); !errors.Is(err, gateway.ErrConflict) {
 			t.Fatal("wrong polled turn accepted")
 		}
-		Must(t, s.Complete(ctx, j.ID, j.RequestID, "right", []gateway.ReplyPart{{Text: "right", Format: gateway.ReplyPlain}}))
+		Must(t, s.Complete(ctx, j.ID, j.GatewayRequestID, "right", []gateway.ReplyPart{{Text: "right", Format: gateway.ReplyPlain}}))
 	})
 	t.Run("interrupted_creation_is_not_repeated", func(t *testing.T) {
 		f := open(t)
@@ -407,8 +516,8 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 		if err := s.Complete(ctx, j.ID, "wrong-turn", "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}); !errors.Is(err, gateway.ErrConflict) {
 			t.Fatal("wrong turn accepted")
 		}
-		Must(t, s.Complete(ctx, j.ID, j.RequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}))
-		if err := s.Complete(ctx, j.ID, j.RequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}); !errors.Is(err, gateway.ErrConflict) {
+		Must(t, s.Complete(ctx, j.ID, j.GatewayRequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}))
+		if err := s.Complete(ctx, j.ID, j.GatewayRequestID, "answer", []gateway.ReplyPart{{Text: "answer", Format: gateway.ReplyPlain}}); !errors.Is(err, gateway.ErrConflict) {
 			t.Fatal("duplicate completion accepted")
 		}
 		if err := s.Reject(ctx, j.ID, "denied"); !errors.Is(err, gateway.ErrConflict) {

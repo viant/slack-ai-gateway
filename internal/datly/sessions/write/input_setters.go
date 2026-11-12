@@ -2,7 +2,7 @@
 
 package write
 
-func (input *Input) SetRows(value []*Publication) {
+func (input *Input) SetRows(value []*SlackAgentSessionPublication) {
 	if input == nil {
 		return
 	}

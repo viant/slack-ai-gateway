@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/viant/slack-ai-gateway/internal/gateway"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
@@ -25,20 +26,23 @@ func fixtureWithDB(t *testing.T) (storetest.Fixture, *sql.DB) {
 	db, err := sql.Open("mysql", dsn)
 	storetest.Must(t, err)
 	t.Cleanup(func() { storetest.Must(t, db.Close()) })
-	s, err := Open(ctx, dsn, nil)
+	owner, err := Open(ctx, dsn, nil)
 	storetest.Must(t, err)
+	storetest.RegisterDefault(t, owner)
+	s := storetest.Scope(t, owner, "default").(*Store)
 	t.Cleanup(func() {
-		if s != nil {
-			storetest.Must(t, s.Close())
+		if owner != nil {
+			storetest.Must(t, owner.Close())
 		}
 	})
-	f := storetest.Fixture{Store: s, Reopen: func() gateway.Store {
-		storetest.Must(t, s.Close())
-		s = nil
+	f := storetest.Fixture{Store: s, Root: func() storage.Store { return owner }, Reopen: func() gateway.Store {
+		storetest.Must(t, owner.Close())
+		owner = nil
 		var err error
-		s, err = Open(ctx, dsn, nil)
+		owner, err = Open(ctx, dsn, nil)
 		storetest.Must(t, err)
-		storetest.Must(t, s.Recover(ctx))
+		storetest.Must(t, owner.Recover(ctx))
+		s = storetest.Scope(t, owner, "default").(*Store)
 		return s
 	}}
 	return f, db
@@ -73,9 +77,9 @@ func TestClaimsSerializeThreadWhenNativeIDsCommitOutOfOrder(t *testing.T) {
 	defer connection.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", pauseKey)
 	// The allocator's transient INSERT has NEW.id=0, while the real write
 	// carries its final native ID. Only the latter is paused by this fixture.
-	_, err = db.ExecContext(ctx, `CREATE TRIGGER pause_native_insert BEFORE INSERT ON inbox_jobs FOR EACH ROW
+	_, err = db.ExecContext(ctx, `CREATE TRIGGER pause_native_insert BEFORE INSERT ON gateway_job FOR EACH ROW
     BEGIN
-      IF NEW.event_id='delayed' AND NEW.id <> 0 THEN
+      IF NEW.slack_event_id='delayed' AND NEW.id <> 0 THEN
         SET @signal_ready = GET_LOCK('`+readyKey+`',0);
         SET @wait_for_release = GET_LOCK('`+pauseKey+`',15);
         DO RELEASE_LOCK('`+readyKey+`');
@@ -116,7 +120,7 @@ func TestClaimsSerializeThreadWhenNativeIDsCommitOutOfOrder(t *testing.T) {
 	storetest.Must(t, connection.QueryRowContext(ctx, "SELECT RELEASE_LOCK(?)", pauseKey).Scan(&locked))
 	storetest.Must(t, <-delayed)
 	var earlierID int64
-	storetest.Must(t, db.QueryRowContext(ctx, "SELECT id FROM inbox_jobs WHERE event_id='delayed'").Scan(&earlierID))
+	storetest.Must(t, db.QueryRowContext(ctx, "SELECT id FROM gateway_job WHERE slack_event_id='delayed'").Scan(&earlierID))
 	if earlierID >= running.ID {
 		t.Fatal("fixture did not reverse native ID and commit ordering")
 	}
@@ -142,7 +146,7 @@ func TestClaimsSerializeThreadWhenNativeIDsCommitOutOfOrder(t *testing.T) {
 	if poll == nil || poll.ID != running.ID {
 		t.Fatalf("active query poll blocked by late lower-ID pending job: %+v", poll)
 	}
-	storetest.Must(t, s.Complete(ctx, running.ID, running.RequestID, "done", []gateway.ReplyPart{{Text: "done", Format: gateway.ReplyPlain}}))
+	storetest.Must(t, s.Complete(ctx, running.ID, running.GatewayRequestID, "done", []gateway.ReplyPart{{Text: "done", Format: gateway.ReplyPlain}}))
 	next, err := s.ClaimJob(ctx)
 	storetest.Must(t, err)
 	if next == nil || next.ID != earlierID {

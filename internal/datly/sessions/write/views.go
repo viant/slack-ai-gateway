@@ -2,86 +2,94 @@
 
 package write
 
-// Publication is generated canonical view metadata for writer.
-type Publication struct {
-	WorkspaceId      string          `sqlx:"workspace_id,required=true,primaryKey=true"`
-	ChannelId        string          `sqlx:"channel_id,required=true,primaryKey=true"`
-	RootThreadTs     string          `sqlx:"root_thread_ts,required=true,primaryKey=true"`
-	LatestJobId      int             `sqlx:"latest_job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	SourceJobId      int             `sqlx:"source_job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	InitiatorUserId  string          `sqlx:"initiator_user_id,required=true"`
-	DesiredStatus    string          `sqlx:"desired_status,required=true"`
-	AgentStatus      string          `sqlx:"agent_status,required=true"`
-	SessionStatus    string          `sqlx:"session_status,required=true"`
-	Revision         int             `sqlx:"revision,required=true"`
-	SentRevision     int             `sqlx:"sent_revision,required=true"`
-	ClaimedRevision  int             `sqlx:"claimed_revision,required=true"`
-	State            string          `sqlx:"state,required=true"`
-	Attempts         int             `sqlx:"attempts,required=true"`
-	NextAttemptAt    int             `sqlx:"next_attempt_at,required=true"`
-	RefreshAt        int             `sqlx:"refresh_at,required=true"`
-	RateLimitedUntil int             `sqlx:"rate_limited_until,required=true"`
-	FirstSentAt      int             `sqlx:"first_sent_at,required=true"`
-	LastSentAt       int             `sqlx:"last_sent_at,required=true"`
-	Reason           string          `sqlx:"reason,required=true"`
-	Warning          string          `sqlx:"warning,required=true"`
-	UpdatedAt        int             `sqlx:"updated_at,required=true"`
-	Has              *PublicationHas `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"PublicationHas"`
+import (
+	time "time"
+)
+
+// SlackAgentSessionPublication is generated canonical view metadata for writer.
+type SlackAgentSessionPublication struct {
+	Id                               int                              `sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	InitialIntegrationId             int                              `sqlx:"initial_integration_id,refTable=integration,refColumn=id,required=true"`
+	SlackChannelId                   string                           `sqlx:"slack_channel_id,required=true"`
+	SlackThreadRootMessageId         string                           `sqlx:"slack_thread_root_message_id,required=true"`
+	LatestStatusJobId                int                              `sqlx:"latest_status_job_id,refTable=gateway_job,refColumn=id,required=true"`
+	StatusSourceJobId                int                              `sqlx:"status_source_job_id,refTable=gateway_job,refColumn=id,required=true"`
+	SlackInitiatorUserId             string                           `sqlx:"slack_initiator_user_id,required=true"`
+	SlackAgentDesiredStatus          string                           `sqlx:"slack_agent_desired_status,required=true"`
+	SlackAgentObservedStatus         string                           `sqlx:"slack_agent_observed_status,required=true"`
+	SlackSessionObservedStatus       string                           `sqlx:"slack_session_observed_status,required=true"`
+	SlackPublicationRevision         int                              `sqlx:"slack_publication_revision,required=true"`
+	SlackPublicationSentRevision     int                              `sqlx:"slack_publication_sent_revision,required=true"`
+	SlackPublicationClaimedRevision  int                              `sqlx:"slack_publication_claimed_revision,required=true"`
+	SlackPublicationState            string                           `sqlx:"slack_publication_state,required=true"`
+	SlackPublicationAttempts         int                              `sqlx:"slack_publication_attempts,required=true"`
+	SlackPublicationNextAttemptAt    *time.Time                       `json:",omitempty" sqlx:"slack_publication_next_attempt_at"`
+	SlackPublicationRefreshAt        *time.Time                       `json:",omitempty" sqlx:"slack_publication_refresh_at"`
+	SlackPublicationRateLimitedUntil *time.Time                       `json:",omitempty" sqlx:"slack_publication_rate_limited_until"`
+	SlackPublicationFirstSentAt      *time.Time                       `json:",omitempty" sqlx:"slack_publication_first_sent_at"`
+	SlackPublicationLastSentAt       *time.Time                       `json:",omitempty" sqlx:"slack_publication_last_sent_at"`
+	SlackPublicationReason           string                           `sqlx:"slack_publication_reason,required=true"`
+	SlackPublicationWarning          string                           `sqlx:"slack_publication_warning,required=true"`
+	CreatedAt                        time.Time                        `sqlx:"created_at,required=true"`
+	UpdatedAt                        time.Time                        `sqlx:"updated_at,required=true"`
+	Has                              *SlackAgentSessionPublicationHas `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"SlackAgentSessionPublicationHas"`
 }
 
-type PublicationHas struct {
-	WorkspaceId      bool
-	ChannelId        bool
-	RootThreadTs     bool
-	LatestJobId      bool
-	SourceJobId      bool
-	InitiatorUserId  bool
-	DesiredStatus    bool
-	AgentStatus      bool
-	SessionStatus    bool
-	Revision         bool
-	SentRevision     bool
-	ClaimedRevision  bool
-	State            bool
-	Attempts         bool
-	NextAttemptAt    bool
-	RefreshAt        bool
-	RateLimitedUntil bool
-	FirstSentAt      bool
-	LastSentAt       bool
-	Reason           bool
-	Warning          bool
-	UpdatedAt        bool
+type SlackAgentSessionPublicationHas struct {
+	Id                               bool
+	InitialIntegrationId             bool
+	SlackChannelId                   bool
+	SlackThreadRootMessageId         bool
+	LatestStatusJobId                bool
+	StatusSourceJobId                bool
+	SlackInitiatorUserId             bool
+	SlackAgentDesiredStatus          bool
+	SlackAgentObservedStatus         bool
+	SlackSessionObservedStatus       bool
+	SlackPublicationRevision         bool
+	SlackPublicationSentRevision     bool
+	SlackPublicationClaimedRevision  bool
+	SlackPublicationState            bool
+	SlackPublicationAttempts         bool
+	SlackPublicationNextAttemptAt    bool
+	SlackPublicationRefreshAt        bool
+	SlackPublicationRateLimitedUntil bool
+	SlackPublicationFirstSentAt      bool
+	SlackPublicationLastSentAt       bool
+	SlackPublicationReason           bool
+	SlackPublicationWarning          bool
+	CreatedAt                        bool
+	UpdatedAt                        bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	WorkspaceId      string `json:"workspaceId" sqlx:"workspace_id,required=true,primaryKey=true"`
-	ChannelId        string `json:"channelId" sqlx:"channel_id,required=true,primaryKey=true"`
-	RootThreadTs     string `json:"rootThreadTs" sqlx:"root_thread_ts,required=true,primaryKey=true"`
-	LatestJobId      int    `json:"latestJobId" sqlx:"latest_job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	SourceJobId      int    `json:"sourceJobId" sqlx:"source_job_id,refTable=inbox_jobs,refColumn=id,required=true"`
-	InitiatorUserId  string `json:"initiatorUserId" sqlx:"initiator_user_id,required=true"`
-	DesiredStatus    string `json:"desiredStatus" sqlx:"desired_status,required=true"`
-	AgentStatus      string `json:"agentStatus" sqlx:"agent_status,required=true"`
-	SessionStatus    string `json:"sessionStatus" sqlx:"session_status,required=true"`
-	Revision         int    `json:"revision" sqlx:"revision,required=true"`
-	SentRevision     int    `json:"sentRevision" sqlx:"sent_revision,required=true"`
-	ClaimedRevision  int    `json:"claimedRevision" sqlx:"claimed_revision,required=true"`
-	State            string `json:"state" sqlx:"state,required=true"`
-	Attempts         int    `json:"attempts" sqlx:"attempts,required=true"`
-	NextAttemptAt    int    `json:"nextAttemptAt" sqlx:"next_attempt_at,required=true"`
-	RefreshAt        int    `json:"refreshAt" sqlx:"refresh_at,required=true"`
-	RateLimitedUntil int    `json:"rateLimitedUntil" sqlx:"rate_limited_until,required=true"`
-	FirstSentAt      int    `json:"firstSentAt" sqlx:"first_sent_at,required=true"`
-	LastSentAt       int    `json:"lastSentAt" sqlx:"last_sent_at,required=true"`
-	Reason           string `json:"reason" sqlx:"reason,required=true"`
-	Warning          string `json:"warning" sqlx:"warning,required=true"`
-	UpdatedAt        int    `json:"updatedAt" sqlx:"updated_at,required=true"`
+	Id                               int        `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	InitialIntegrationId             int        `json:"initialIntegrationId" sqlx:"initial_integration_id,refTable=integration,refColumn=id,required=true"`
+	SlackChannelId                   string     `json:"slackChannelId" sqlx:"slack_channel_id,required=true"`
+	SlackThreadRootMessageId         string     `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id,required=true"`
+	LatestStatusJobId                int        `json:"latestStatusJobId" sqlx:"latest_status_job_id,refTable=gateway_job,refColumn=id,required=true"`
+	StatusSourceJobId                int        `json:"statusSourceJobId" sqlx:"status_source_job_id,refTable=gateway_job,refColumn=id,required=true"`
+	SlackInitiatorUserId             string     `json:"slackInitiatorUserId" sqlx:"slack_initiator_user_id,required=true"`
+	SlackAgentDesiredStatus          string     `json:"slackAgentDesiredStatus" sqlx:"slack_agent_desired_status,required=true"`
+	SlackAgentObservedStatus         string     `json:"slackAgentObservedStatus" sqlx:"slack_agent_observed_status,required=true"`
+	SlackSessionObservedStatus       string     `json:"slackSessionObservedStatus" sqlx:"slack_session_observed_status,required=true"`
+	SlackPublicationRevision         int        `json:"slackPublicationRevision" sqlx:"slack_publication_revision,required=true"`
+	SlackPublicationSentRevision     int        `json:"slackPublicationSentRevision" sqlx:"slack_publication_sent_revision,required=true"`
+	SlackPublicationClaimedRevision  int        `json:"slackPublicationClaimedRevision" sqlx:"slack_publication_claimed_revision,required=true"`
+	SlackPublicationState            string     `json:"slackPublicationState" sqlx:"slack_publication_state,required=true"`
+	SlackPublicationAttempts         int        `json:"slackPublicationAttempts" sqlx:"slack_publication_attempts,required=true"`
+	SlackPublicationNextAttemptAt    *time.Time `json:"slackPublicationNextAttemptAt,omitempty" sqlx:"slack_publication_next_attempt_at"`
+	SlackPublicationRefreshAt        *time.Time `json:"slackPublicationRefreshAt,omitempty" sqlx:"slack_publication_refresh_at"`
+	SlackPublicationRateLimitedUntil *time.Time `json:"slackPublicationRateLimitedUntil,omitempty" sqlx:"slack_publication_rate_limited_until"`
+	SlackPublicationFirstSentAt      *time.Time `json:"slackPublicationFirstSentAt,omitempty" sqlx:"slack_publication_first_sent_at"`
+	SlackPublicationLastSentAt       *time.Time `json:"slackPublicationLastSentAt,omitempty" sqlx:"slack_publication_last_sent_at"`
+	SlackPublicationReason           string     `json:"slackPublicationReason" sqlx:"slack_publication_reason,required=true"`
+	SlackPublicationWarning          string     `json:"slackPublicationWarning" sqlx:"slack_publication_warning,required=true"`
+	CreatedAt                        time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	UpdatedAt                        time.Time  `json:"updatedAt" sqlx:"updated_at,required=true"`
 }
 
 type WriterKeysRow struct {
-	WorkspaceId  string `sqlx:"workspace_id"`
-	ChannelId    string `sqlx:"channel_id"`
-	RootThreadTs string `sqlx:"root_thread_ts"`
+	Id int `sqlx:"id"`
 }

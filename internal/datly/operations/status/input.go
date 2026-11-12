@@ -3,4 +3,13 @@
 package status
 
 // Input is the generated input scaffold for reader.
-type Input struct{}
+type Input struct {
+	IntegrationID   int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
+	IntegrationName string    `parameter:"IntegrationName,kind=query,in=IntegrationName,dataType=string,value=,required=false"`
+	Has             *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
+}
+
+type InputHas struct {
+	IntegrationID   bool
+	IntegrationName bool
+}

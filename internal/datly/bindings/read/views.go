@@ -2,17 +2,29 @@
 
 package read
 
-// Binding is generated canonical view metadata for reader.
-type Binding struct {
-	Id             int     `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	WorkspaceId    string  `json:"workspaceId" sqlx:"workspace_id,required=true"`
-	ChannelId      string  `json:"channelId" sqlx:"channel_id,required=true"`
-	RootThreadTs   string  `json:"rootThreadTs" sqlx:"root_thread_ts,required=true"`
-	ConversationId *string `json:"conversationId" sqlx:"conversation_id"`
-	AccessMode     string  `json:"accessMode" sqlx:"access_mode,required=true"`
-	PrincipalId    string  `json:"principalId" sqlx:"principal_id,required=true"`
-	OwnerId        string  `json:"ownerId" sqlx:"owner_id,required=true"`
-	State          string  `json:"state" sqlx:"state,required=true"`
-	CreatedAt      int     `json:"createdAt" sqlx:"created_at,required=true"`
-	UpdatedAt      int     `json:"updatedAt" sqlx:"updated_at,required=true"`
+import (
+	time "time"
+)
+
+// ConversationBinding is generated canonical view metadata for reader.
+type ConversationBinding struct {
+	Id                       int        `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
+	IntegrationId            int        `json:"integrationId" sqlx:"integration_id,refTable=integration,refColumn=id,required=true"`
+	SlackChannelId           string     `json:"slackChannelId" sqlx:"slack_channel_id,required=true"`
+	SlackThreadRootMessageId string     `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id,required=true"`
+	BackendConversationId    *string    `json:"backendConversationId" sqlx:"backend_conversation_id"`
+	GatewayAccessMode        string     `json:"gatewayAccessMode" sqlx:"gateway_access_mode,required=true"`
+	BackendPrincipalId       string     `json:"backendPrincipalId" sqlx:"backend_principal_id,required=true"`
+	GatewayBindingOwnerId    string     `json:"gatewayBindingOwnerId" sqlx:"gateway_binding_owner_id,required=true"`
+	GatewayBindingState      string     `json:"gatewayBindingState" sqlx:"gateway_binding_state,required=true"`
+	BackendProtocolMessages  string     `json:"backendProtocolMessages" sqlx:"backend_protocol_messages,required=true"`
+	BackendProtocolState     string     `json:"backendProtocolState" sqlx:"backend_protocol_state,required=true"`
+	CreatedAt                time.Time  `json:"createdAt" sqlx:"created_at,required=true"`
+	UpdatedAt                time.Time  `json:"updatedAt" sqlx:"updated_at,required=true"`
+	LastActivityAt           time.Time  `json:"lastActivityAt" sqlx:"last_activity_at,required=true"`
+	ClosedAt                 *time.Time `json:"closedAt" sqlx:"closed_at"`
+	SlackWorkspaceId         string     `json:"slackWorkspaceId" sqlx:"slack_workspace_id"`
+	SlackAppId               string     `json:"slackAppId" sqlx:"slack_app_id"`
+	IntegrationName          string     `json:"integrationName" sqlx:"integration_name"`
+	IntegrationActive        int        `json:"integrationActive" sqlx:"integration_active"`
 }

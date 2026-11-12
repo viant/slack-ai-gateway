@@ -4,6 +4,7 @@ package datly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -22,8 +23,11 @@ import (
 	opn "github.com/viant/slack-ai-gateway/internal/datly/operations/notbefore"
 	ops "github.com/viant/slack-ai-gateway/internal/datly/operations/status"
 	jr "github.com/viant/slack-ai-gateway/internal/datly/read"
+	er "github.com/viant/slack-ai-gateway/internal/datly/read/event"
 	sr "github.com/viant/slack-ai-gateway/internal/datly/sessions/read"
 	sw "github.com/viant/slack-ai-gateway/internal/datly/sessions/write"
+	tgw "github.com/viant/slack-ai-gateway/internal/datly/topology/integrations/write"
+	tr "github.com/viant/slack-ai-gateway/internal/datly/topology/read"
 	jw "github.com/viant/slack-ai-gateway/internal/datly/write"
 	"github.com/viant/slack-ai-gateway/internal/gateway"
 	"github.com/viant/slack-ai-gateway/internal/storage"
@@ -36,6 +40,9 @@ import (
 
 type Store struct {
 	server        *standalone.Server
+	scope         int64
+	scopeName     string
+	root          *Store
 	statusMu      sync.Mutex
 	preferMessage bool
 }
@@ -43,7 +50,7 @@ type Store struct {
 var _ storage.Store = (*Store)(nil)
 
 func Open(ctx context.Context, connection connector.Config) (*Store, error) {
-	server, err := standalone.New(ctx, standalone.Options{RequireLinked: true, Holders: []any{&workflow.Component{}, &br.ReaderComponent{}, &bw.WriterComponent{}, &dr.ReaderComponent{}, &dw.WriterComponent{}, &jr.ReaderComponent{}, &jw.WriterComponent{}, &sr.ReaderComponent{}, &sw.WriterComponent{}, &ops.ReaderComponent{}, &opc.ReaderComponent{}, &opn.ReaderComponent{}}, Config: &config.Config{
+	server, err := standalone.New(ctx, standalone.Options{RequireLinked: true, Holders: []any{&workflow.Component{}, &br.ReaderComponent{}, &bw.WriterComponent{}, &dr.ReaderComponent{}, &dw.WriterComponent{}, &jr.ReaderComponent{}, &er.ReaderComponent{}, &jw.WriterComponent{}, &sr.ReaderComponent{}, &sw.WriterComponent{}, &ops.ReaderComponent{}, &opc.ReaderComponent{}, &opn.ReaderComponent{}, &tr.ReaderComponent{}, &tgw.WriterComponent{}}, Config: &config.Config{
 		Connector: "slack", Connectors: []connector.Config{connection},
 		GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{
 			"github.com/viant/slack-ai-gateway/internal/datly/...",
@@ -60,6 +67,9 @@ func Open(ctx context.Context, connection connector.Config) (*Store, error) {
 	return &Store{server: server}, nil
 }
 func (s *Store) Close() error {
+	if s != nil && s.root != nil {
+		return nil // The owner of the shared runtime closes it once.
+	}
 	if s == nil || s.server == nil {
 		return nil
 	}
@@ -72,6 +82,11 @@ func (s *Store) call(ctx context.Context, in *workflow.Input) (*workflow.Output,
 	if s == nil || s.server == nil {
 		return nil, fmt.Errorf("gateway storage is not initialized")
 	}
+	if !in.At.IsZero() {
+		in.At = in.At.UTC().Truncate(time.Millisecond)
+	}
+	in.Scope = s.scope
+	in.IntegrationName = s.scopeName
 	value, err := s.server.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: in})
 	if err != nil {
 		return nil, err
@@ -94,7 +109,7 @@ func (s *Store) Enqueue(ctx context.Context, m gateway.Message) (bool, error) {
 	// duplicate. This never replays a mutation or accepts an uncertain outcome.
 	var outcome handler.Outcome
 	value, err := s.server.InvokeComponent(ctx, dexec.ComponentRequest{Target: target,
-		Input:      &workflow.Input{Action: "enqueue", Message: m},
+		Input:      &workflow.Input{Action: "enqueue", Message: m, Scope: s.scope},
 		Completion: func(report handler.Outcome) { outcome = report },
 	})
 	if err == nil {
@@ -104,50 +119,65 @@ func (s *Store) Enqueue(ctx context.Context, m gateway.Message) (bool, error) {
 		}
 		return output.Inserted, nil
 	}
-	if !errx.IsDuplicateKey(err) || outcome.State() != handler.TransactionRolledBack {
+	if outcome.State() != handler.TransactionRolledBack {
+		return false, err
+	}
+	duplicate := errx.IsDuplicateKey(err)
+	var validation *handler.Validation
+	if !duplicate && errors.As(err, &validation) && len(validation.Violations) == 1 {
+		violation := validation.Violations[0]
+		// A concurrent insert can become visible to the native unique
+		// validator before it reaches SQL. Consume that exact checked event
+		// fact, without treating other validation failures as duplicates.
+		if violation != nil && violation.Field == "SlackEventId" && violation.Check == "unique" && violation.HasCheckedValue {
+			eventID, ok := violation.CheckedValue.(string)
+			duplicate = ok && eventID == m.EventID
+		}
+	}
+	if !duplicate {
 		return false, err
 	}
 	existing, lookupErr := s.call(ctx, &workflow.Input{Action: "existing_event", Message: m})
-	if lookupErr != nil || existing.Job == nil {
+	if lookupErr != nil || !existing.Duplicate {
 		return false, err
 	}
 	return false, nil
 }
 
-func (s *Store) GetBinding(ctx context.Context, k gateway.ThreadKey) (*gateway.Binding, error) {
+func (s *Store) GetBinding(ctx context.Context, k gateway.ThreadKey) (*gateway.ConversationBinding, error) {
 	o, e := s.call(ctx, &workflow.Input{Action: "get_binding", Key: k})
 	if e != nil {
 		return nil, e
 	}
-	return o.Binding, nil
+	return o.ConversationBinding, nil
 }
-func (s *Store) ClaimJob(ctx context.Context) (*gateway.Job, error) {
+func (s *Store) ClaimJob(ctx context.Context) (*gateway.GatewayJob, error) {
 	o, e := s.call(ctx, &workflow.Input{Action: "claim_job"})
 	if e != nil {
 		return nil, e
 	}
-	return o.Job, nil
+	return o.GatewayJob, nil
 }
-func (s *Store) BindJob(ctx context.Context, id int64, d gateway.Decision) (*gateway.Binding, error) {
+func (s *Store) BindJob(ctx context.Context, id int64, d gateway.Decision) (*gateway.ConversationBinding, error) {
 	o, e := s.call(ctx, &workflow.Input{Action: "bind_job", ID: id, Decision: d})
 	if e != nil {
 		return nil, e
 	}
-	return o.Binding, nil
+	return o.ConversationBinding, nil
 }
-func (s *Store) GetDeliveryContext(ctx context.Context, d gateway.Delivery) (*gateway.DeliveryContext, error) {
-	o, e := s.call(ctx, &workflow.Input{Action: "delivery_context", Delivery: d})
+func (s *Store) GetDeliveryContext(ctx context.Context, d gateway.SlackOutgoingMessage) (*gateway.DeliveryContext, error) {
+	o, e := s.call(ctx, &workflow.Input{Action: "delivery_context", SlackOutgoingMessage: d})
 	if e != nil {
 		return nil, e
 	}
 	return o.Context, nil
 }
-func (s *Store) ClaimDelivery(ctx context.Context) (*gateway.Delivery, error) {
+func (s *Store) ClaimDelivery(ctx context.Context) (*gateway.SlackOutgoingMessage, error) {
 	o, e := s.call(ctx, &workflow.Input{Action: "claim_delivery"})
 	if e != nil {
 		return nil, e
 	}
-	return o.Delivery, nil
+	return o.SlackOutgoingMessage, nil
 }
 func (s *Store) DeliveryNotBefore(ctx context.Context, w string) (time.Time, error) {
 	o, e := s.call(ctx, &workflow.Input{Action: "not_before", Key: gateway.ThreadKey{WorkspaceID: w}})
@@ -156,7 +186,7 @@ func (s *Store) DeliveryNotBefore(ctx context.Context, w string) (time.Time, err
 	}
 	return o.NotBefore, nil
 }
-func (s *Store) ClaimStatus(ctx context.Context, at time.Time, kind string) (*gateway.RequestStatus, error) {
+func (s *Store) ClaimStatus(ctx context.Context, at time.Time, kind string) (*gateway.GatewayJobProgress, error) {
 	if s == nil || s.server == nil {
 		return nil, fmt.Errorf("gateway storage is not initialized")
 	}
@@ -171,7 +201,7 @@ func (s *Store) ClaimStatus(ctx context.Context, at time.Time, kind string) (*ga
 	}
 	return o.Status, nil
 }
-func (s *Store) GetStatusContext(ctx context.Context, v gateway.RequestStatus) (*gateway.DeliveryContext, error) {
+func (s *Store) GetStatusContext(ctx context.Context, v gateway.GatewayJobProgress) (*gateway.DeliveryContext, error) {
 	o, e := s.call(ctx, &workflow.Input{Action: "status_context", Status: v})
 	if e != nil {
 		return nil, e
@@ -191,16 +221,19 @@ func (s *Store) CheckRunBindings(ctx context.Context, r gateway.Route, p string)
 func (s *Store) ResolveDelivery(ctx context.Context, id int64, action, ts string, risk bool) error {
 	return s.apply(ctx, &workflow.Input{Action: "resolve_delivery", ID: id, Kind: action, Text: ts, AcceptDuplicateRisk: risk})
 }
-func (s *Store) Complete(ctx context.Context, id int64, turn, result string, parts []gateway.ReplyPart) error {
-	return s.apply(ctx, &workflow.Input{Action: "complete", ID: id, TurnID: turn, Text: result, Parts: parts})
+func (s *Store) Complete(ctx context.Context, id int64, requestID, result string, parts []gateway.ReplyPart, protocol ...gateway.ProtocolSnapshot) error {
+	return s.apply(ctx, &workflow.Input{Action: "complete", ID: id, GatewayRequestID: requestID, Text: result, Parts: parts, Protocol: protocol})
 }
 func (s *Store) FailUnstarted(ctx context.Context, reason string) error {
 	return s.apply(ctx, &workflow.Input{Action: "fail_unstarted", Text: reason})
 }
+func (s *Store) FailCleanup(ctx context.Context, reason string) error {
+	return s.apply(ctx, &workflow.Input{Action: "fail_cleanup", Text: reason})
+}
 func (s *Store) RecordObservation(ctx context.Context, id int64, state string, at time.Time) error {
 	return s.apply(ctx, &workflow.Input{Action: "observe", ID: id, Text: state, At: at})
 }
-func (s *Store) FinishStatus(ctx context.Context, v gateway.RequestStatus, r gateway.StatusResult, at time.Time) error {
+func (s *Store) FinishStatus(ctx context.Context, v gateway.GatewayJobProgress, r gateway.StatusResult, at time.Time) error {
 	return s.apply(ctx, &workflow.Input{Action: "finish_status", Status: v, StatusResult: r, At: at})
 }
 func (s *Store) BeginCreate(ctx context.Context, id int64) error {

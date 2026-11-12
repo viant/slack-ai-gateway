@@ -2,7 +2,7 @@
 
 package write
 
-func (input *Input) SetRows(value []*Binding) {
+func (input *Input) SetRows(value []*ConversationBinding) {
 	if input == nil {
 		return
 	}

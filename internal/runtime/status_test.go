@@ -12,10 +12,10 @@ import (
 
 type statusRuntimeSender struct {
 	senderFunc
-	status func(context.Context, gateway.RequestStatus, string) (string, error)
+	status func(context.Context, gateway.GatewayJobProgress, string) (string, error)
 }
 
-func (s statusRuntimeSender) SendStatus(ctx context.Context, status gateway.RequestStatus, text string) (gateway.StatusReceipt, error) {
+func (s statusRuntimeSender) SendStatus(ctx context.Context, status gateway.GatewayJobProgress, text string) (gateway.StatusReceipt, error) {
 	ts, err := s.status(ctx, status, text)
 	return gateway.StatusReceipt{SlackTS: ts}, err
 }
@@ -39,8 +39,8 @@ func TestMoreThanFourObservationsAndIndependentStatusAcknowledgment(t *testing.T
 		_, err := s.Enqueue(ctx, storetest.Message(fmt.Sprint(i), fmt.Sprint(i), "alice"))
 		storetest.Must(t, err)
 	}
-	statuses := make(chan gateway.RequestStatus, 20)
-	r.Sender = statusRuntimeSender{senderFunc: func(context.Context, gateway.Delivery) (string, error) { return "4.000001", nil }, status: func(_ context.Context, status gateway.RequestStatus, _ string) (string, error) {
+	statuses := make(chan gateway.GatewayJobProgress, 20)
+	r.Sender = statusRuntimeSender{senderFunc: func(context.Context, gateway.SlackOutgoingMessage) (string, error) { return "4.000001", nil }, status: func(_ context.Context, status gateway.GatewayJobProgress, _ string) (string, error) {
 		statuses <- status
 		if status.SlackTS != "" {
 			return status.SlackTS, nil
@@ -100,11 +100,11 @@ func TestBackendAuthenticationShutdownAttemptsOnlyTerminalStatus(t *testing.T) {
 	b.query = func(context.Context, gateway.Query) (gateway.Turn, error) {
 		return gateway.Turn{}, gateway.ErrBackendAuth
 	}
-	terminal := make(chan gateway.RequestStatus, 4)
-	r.Sender = statusRuntimeSender{senderFunc: func(context.Context, gateway.Delivery) (string, error) {
+	terminal := make(chan gateway.GatewayJobProgress, 4)
+	r.Sender = statusRuntimeSender{senderFunc: func(context.Context, gateway.SlackOutgoingMessage) (string, error) {
 		t.Error("shutdown drained final replies")
 		return "", nil
-	}, status: func(_ context.Context, status gateway.RequestStatus, _ string) (string, error) {
+	}, status: func(_ context.Context, status gateway.GatewayJobProgress, _ string) (string, error) {
 		if status.Phase == "needs_review" {
 			terminal <- status
 		}
@@ -128,7 +128,7 @@ func TestBackendAuthenticationShutdownAttemptsOnlyTerminalStatus(t *testing.T) {
 	}
 	metadata, err := s.Status(context.Background(), 10)
 	storetest.Must(t, err)
-	if metadata.Counts["inbox_jobs"]["pending"] != 1 || b.queries.Load() != 1 || r.Delivered() != 0 {
+	if metadata.Counts["gateway_job.gateway_execution_state"]["pending"] != 1 || b.queries.Load() != 1 || r.Delivered() != 0 {
 		t.Fatal("authentication shutdown drained queued work")
 	}
 }

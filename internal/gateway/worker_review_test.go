@@ -37,14 +37,14 @@ func TestReviewNotifiesOnlyAfterPersistence(t *testing.T) {
 			if fail {
 				s.err = errors.New("storage unavailable")
 			}
-			j := &Job{ID: 42, RequestID: "request-1"}
+			j := &GatewayJob{ID: 42, GatewayRequestID: "request-1"}
 			calls := 0
 			w := Worker{Store: s, OnReview: func(jobID int64, requestID, reason string) {
 				calls++
 				if s.jobID != jobID || s.reason != reason || s.err != nil {
 					t.Error("notification preceded persistence")
 				}
-				if jobID != j.ID || requestID != j.RequestID || reason != "backend_protocol_or_access_error" {
+				if jobID != j.ID || requestID != j.GatewayRequestID || reason != "backend_protocol_or_access_error" {
 					t.Error("incorrect review metadata")
 				}
 			}}
@@ -80,7 +80,7 @@ func TestSettleNotifiesReviewReasons(t *testing.T) {
 					t.Error("incorrect review metadata")
 				}
 			}}
-			err := w.settle(context.Background(), &Job{ID: 42, RequestID: "m"}, "conversation", Turn{ID: tc.turnID, State: tc.state}, tc.err)
+			err := w.settle(context.Background(), &GatewayJob{ID: 42, GatewayRequestID: "m"}, "conversation", Turn{ID: tc.turnID, State: tc.state}, tc.err)
 			if tc.err == ErrBackendAuth {
 				if !errors.Is(err, ErrBackendAuth) {
 					t.Fatal("fatal auth failure suppressed")
