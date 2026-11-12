@@ -48,11 +48,15 @@ Then, from `e2e/`:
 endly -t=init
 ```
 
-This creates the project's own MySQL container and persistent volume, binds
-`127.0.0.1:3309`, and applies `script/mysql/schema_versioned.ddl` to
-`slack_ai_gateway`. Its initial business tables are empty. Repeating `init`
-preserves data; use the same password when restarting an existing volume.
-The workflow does not reset other MySQL databases or existing Agently test servers.
+Stop the gateway first. This workflow creates or reuses the project's own MySQL
+container and persistent volume, bound to `127.0.0.1:3309`. **Every `init` drops
+and recreates only `slack_ai_gateway`**, then applies
+`script/mysql/schema_versioned.ddl`. All previous local gateway tables and rows
+are removed; the current schema starts empty without migrating old data.
+
+The container, volume, authentication and other databases remain unchanged.
+Use the original password when restarting an existing volume. This explicit
+local reset does not run during gateway startup or reset Agently test databases.
 See the [fixture instructions](../e2e/mysql/README.md).
 
 For another environment, have its database administrator apply the versioned
@@ -100,8 +104,10 @@ unavailable storage causes an error; the gateway never switches to SQLite.
 
 The assignment schema requires a fresh database. This development change does
 not migrate the earlier four-table registry or other prerelease initial schemas.
-Reapplying a compatible initial definition preserves data; an incompatible
-initial shape is rejected instead of being silently upgraded or reset.
+Directly reapplying a compatible initial DDL definition preserves data; an
+incompatible initial shape is rejected instead of being silently upgraded or
+reset. The explicit local `endly -t=init` workflow drops its database before
+applying that DDL, so it always starts fresh.
 
 The [six business tables](schema.md) use eight single-column foreign keys to
 stable parent IDs. `integration` records Slack app/workspace and backend/agent
@@ -185,7 +191,8 @@ nor Slack or Agently credentials.
 For generation or validation against the initialized local fixture, use
 `endly -r=transcribe` or `endly -r=validate` from `e2e/datly/`. They load the
 local E2E credentials through Endly and connect to
-`127.0.0.1:3309/slack_ai_gateway`. These commands do not start MySQL.
+`127.0.0.1:3309/slack_ai_gateway`. These standalone commands use the existing
+fixture; they do not start MySQL, recreate the database or run initialization.
 Their default credential name is `mysql-e2e.json`; use `mysqlCred` to choose
 another file. An explicit `dsn` workflow parameter overrides the discovery
 connection and bypasses the personal credential file, without changing local

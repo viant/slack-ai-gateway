@@ -49,11 +49,21 @@ With the separate credential:
 endly -t=init mysqlCred=mysql-slack-e2e.json
 ```
 
-The workflow starts MySQL 8.0 with the project's own container and persistent
-volume, binds `127.0.0.1:3309`, and applies the versioned DDL to
-`slack_ai_gateway`. Repeating initialization preserves existing rows.
-This explicit workflow does not run during gateway startup. Use one gateway
-process per database. The fixture is intended for local development only.
+Stop the gateway before initialization. The workflow starts MySQL 8.0 with the
+project's own container and persistent volume, bound to `127.0.0.1:3309`.
+**Every invocation drops and recreates only the `slack_ai_gateway` database**,
+then applies `script/mysql/schema_versioned.ddl`. All previous local gateway
+tables and rows are removed, including conversation mappings and pending work.
+There is no migration of an older development schema or its data.
+
+The existing container, volume, server credentials and other databases are
+preserved. The workflow does not run during gateway startup. Use one gateway
+process per database; this fixture is intended for local development only.
+
+Applying the versioned DDL directly is different: reapplying a compatible
+installed definition preserves its data, while an incompatible development
+schema is rejected. The explicit local `init` workflow performs the reset before
+that DDL runs.
 
 Configure the gateway with `storage.driver: mysql`, a mixed `storage.dsn`
 targeting `127.0.0.1:3309/slack_ai_gateway` and `storage.secret` pointing to a
@@ -78,8 +88,8 @@ endly -r=transcribe mysqlCred=mysql-slack-e2e.json
 endly -r=validate mysqlCred=mysql-slack-e2e.json
 ```
 
-These commands use the same Endly credentials and existing local server; they
-do not start Docker or provision a database. See the
+These commands use the same Endly credentials and existing local fixture; they
+do not start Docker, recreate the database or run initialization. See the
 [Datly workflow instructions](../datly/README.md).
 For standalone transcription/validation, an explicit `dsn` workflow parameter
 overrides the credential-based local connection and bypasses the personal
@@ -87,8 +97,8 @@ credential file. It does not change local provisioning or the password in an
 existing volume. See the Datly workflow instructions for connection selection and logging.
 
 Run `endly -t=verify` for schema acceptance on a separate temporary container.
-It checks versioning, repeat initialization, uniqueness, case sensitivity,
-foreign keys, CHECK constraints and large Unicode payloads. It does not modify
+It checks versioning, repeated DDL application, uniqueness, case sensitivity,
+foreign keys, absence of MySQL CHECK constraints and large Unicode payloads. It does not modify
 the persistent local fixture or require the personal MySQL credential file or
 Slack/Agently credentials. The full `endly -r=run` workflow in `e2e/datly/` also
 uses its own isolated fixture and credentials.

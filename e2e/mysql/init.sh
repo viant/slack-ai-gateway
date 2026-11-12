@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Explicit, repeatable provisioning of this project's local MySQL fixture.
+# Explicit initialization of this project's local MySQL fixture with a fresh schema.
 set -euo pipefail
 
 : "${SLACK_AI_GATEWAY_MYSQL_PASSWORD:?Run endly -t=init with the documented MySQL credentials}"
@@ -40,7 +40,12 @@ for ((attempt=1; attempt<=90; attempt++)); do
 done
 [ "$ready" = true ] || { echo "Local gateway MySQL did not become ready" >&2; exit 1; }
 
+# Explicit local init always starts empty; the canonical DDL owns database creation.
+docker exec --env MYSQL_PWD "$container" \
+  mysql --host=127.0.0.1 --protocol=tcp --user="$mysql_user" \
+  --execute='DROP DATABASE IF EXISTS `slack_ai_gateway`;'
+
 docker exec --interactive --env MYSQL_PWD "$container" \
   mysql --host=127.0.0.1 --protocol=tcp --user="$mysql_user" \
   < "$repo_root/script/mysql/schema_versioned.ddl"
-echo 'MySQL schema slack_ai_gateway is ready on 127.0.0.1:3309.'
+echo 'Fresh MySQL schema slack_ai_gateway is ready on 127.0.0.1:3309.'
