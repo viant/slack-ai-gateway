@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -98,8 +99,18 @@ func (s *Source) handle(ctx context.Context, req socketmode.Request, sink gatewa
 		} else {
 			acceptCtx, cancel := context.WithTimeout(ctx, time.Second)
 			result, err := sink.Accept(acceptCtx, m)
+			acceptErr := acceptCtx.Err()
 			cancel()
 			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) && acceptErr == context.DeadlineExceeded && ctx.Err() == nil {
+					// The attempt remains unacknowledged and may have an unknown
+					// commit outcome. Only durable jobs and existing event deduplication
+					// determine subsequent execution; do not replay it here.
+					s.log.Warn("slack_intake_timeout", "event_id", m.EventID, "envelope_id", req.EnvelopeID,
+						"duration_ms", time.Since(start).Milliseconds(), "retry_attempt", req.RetryAttempt,
+						"reason", "accept_budget_exceeded", "ack_state", "not_sent")
+					return nil
+				}
 				return fmt.Errorf("%w; envelope not acknowledged", gateway.ErrIntakePersistence)
 			}
 			if !result.Accepted && !result.Duplicate && !result.Ignored {

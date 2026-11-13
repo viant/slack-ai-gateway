@@ -364,7 +364,7 @@ func TestOOBLoginFailuresAreRedactedAndFailClosed(t *testing.T) {
 		"oauth_error":        "Agently OOB authorization failed (authorization rejected, HTTP 302)",
 		"missing_code":       "Agently OOB authorization failed (authorization code missing, HTTP 302)",
 		"malformed_redirect": "Agently OOB authorization failed (authorization code missing, HTTP 302)",
-		"token_error":        "Agently OOB authorization failed (token exchange, HTTP 400)",
+		"token_error":        "Agently OOB authorization failed (token exchange, HTTP 400) [configured_auth_style=in_params]",
 	}
 	for _, mode := range []string{"bad_password", "wrong_state", "redirect", "oauth_error", "missing_code", "malformed_redirect", "token_error", "session_error", "no_cookie", "wrong_subject", "wrong_provider", "missing_agent"} {
 		t.Run(mode, func(t *testing.T) {
@@ -427,6 +427,9 @@ func TestOOBTransportFailureDiagnosticsAreRedacted(t *testing.T) {
 			})}
 			factory, err := loginOOB(context.Background(), f.server.URL, "agently_scheduler", "steward", f.secretRef, loadOAuthConfig, loadBasicSecret, client)
 			want := "Agently OOB authorization failed (" + stage + ", HTTP status unavailable)"
+			if stage == "token exchange" {
+				want += " [configured_auth_style=in_params]"
+			}
 			if factory != nil || err == nil || err.Error() != want || strings.Contains(fmt.Sprintf("%+v %#v", err, err), "secret-marker") {
 				t.Fatalf("unsafe transport diagnostic: %v", err)
 			}

@@ -169,6 +169,42 @@ notice and terminal progress updates; otherwise publication fails locally.
 `status --integration NAME` includes inactive assignment history. See
 [assignment lifecycle](integrations.md#recorded-assignments-and-restarts).
 
+## Slack intake deadlines and acknowledgements
+
+The source gives durable admission a one-second context budget before requesting
+an acknowledgement from Slack. A failed admission whose error includes
+`context.DeadlineExceeded`, whose admission budget has expired, and whose parent
+source is still running produces `slack_intake_timeout`. It skips ACK for that
+attempt and continues receiving through the same Socket Mode client. The record
+includes `event_id`, `envelope_id`, `duration_ms`, `retry_attempt`,
+`reason=accept_budget_exceeded` and `ack_state=not_sent`; it excludes the raw
+storage error and message contents.
+
+This is evidence that the admission budget expired, not proof that the database
+is healthy or that a transaction rolled back. A joined error can also contain
+another database cause. The native transaction outcome remains unchanged. Other
+intake failures keep the existing persistence-failure handling, and a separately
+reported shared storage failure can still stop the process.
+
+The source does not replay the prompt. If the attempt committed, ordinary durable
+claims or the shared reconciliation discover its job. A subsequent Slack retry
+uses the existing global `slack_event_id` deduplication and acknowledges its own
+envelope. If the attempt did not persist, a later retry can be admitted normally.
+A successful durable admission follows the normal ACK path even when its child
+context expires immediately afterward. Access checks and ignored-event handling
+retain their existing behavior.
+
+Slack retries are not an indefinitely durable queue. A long database outage can
+exhaust delivery attempts; leaving an envelope unacknowledged cannot guarantee
+eventual delivery. A later message may be accepted before a retry of an earlier
+unaccepted message. Ordering applies to durably accepted jobs.
+
+The native SDK queues acknowledgements before its WebSocket writer sends them.
+`AckCtx` success and `slack_envelope_handled` do not prove that Slack received
+the acknowledgement. The admission timer also excludes residence in the SDK's
+event buffer. Investigate bursts and transport write errors separately from the
+time spent in the admission handler; increasing its timeout can delay later events.
+
 ## Viant Steward connection recovery
 
 The Slack connection and backend readiness have separate lifecycles. A backend
@@ -186,6 +222,16 @@ Wait for both `slack_connection state=ready` and `agently_backend state=ready`
 before sending a new question. `agently_backend_retry` logs the fixed error
 category and `retry_after_ms`; `agently_backend_blocked` records a redacted
 permanent failure. Raw server bodies, credentials and question text are excluded.
+For a failed OOB token exchange, the redacted reason can additionally include
+`oauth_error` and `configured_auth_style`. OAuth error codes are restricted to
+known protocol values, with unknown values shown as `other`. The style is the
+loaded setting (`auto_detect`, `in_params` or `in_header`), not an inference about
+which request AutoDetect tried first. Native AutoDetect can try two authentication
+styles with the same authorization code and return the last error; an
+`invalid_grant` alone does not establish the first failure's cause.
+Use the provider's client configuration and available IdP diagnostics to establish
+the cause before changing authentication. The existing OAuth resource supports
+[native client authentication style selection](secrets.md#oauth-client-authentication-style).
 Retry intervals grow to approximately 30 seconds, with jitter and longer
 `Retry-After` delays respected. Native session/token refresh is reused. A missing
 session can trigger a new OOB login; a query-specific access rejection does not

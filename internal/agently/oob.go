@@ -193,11 +193,7 @@ func authorizeOOB(ctx context.Context, config *oauth2.Config, basic *cred.Basic,
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
 	token, err := flow.Exchange(ctx, config, query.Get("code"), opts...)
 	if err != nil || token == nil {
-		var responseErr *oauth2.RetrieveError
-		if errors.As(err, &responseErr) && responseErr.Response != nil {
-			return nil, oobResponseFailure("token exchange", responseErr.Response)
-		}
-		return nil, oobFailure("token exchange, HTTP status unavailable", 0)
+		return nil, oobTokenExchangeFailure(err, config.Endpoint.AuthStyle)
 	}
 	idToken, _ := token.Extra("id_token").(string)
 	if token.AccessToken == "" && idToken == "" {
@@ -227,5 +223,42 @@ func oobFailure(stage string, status int) error {
 func oobResponseFailure(stage string, response *http.Response) error {
 	failure := oobFailure(stage, response.StatusCode).(*authFailure)
 	failure.retryAfter = retryAfter(response.Header.Get("Retry-After"), time.Now())
+	return failure
+}
+
+// The native OAuth error can contain credentials in its body, description,
+// request URL and headers. Retain only bounded diagnostic values in the existing
+// safe reason. AutoDetect reports the configured policy, not which attempt failed.
+func oobTokenExchangeFailure(cause error, configured oauth2.AuthStyle) error {
+	failure := oobFailure("token exchange, HTTP status unavailable", 0).(*authFailure)
+	var responseErr *oauth2.RetrieveError
+	code := ""
+	if errors.As(cause, &responseErr) {
+		if responseErr.Response != nil {
+			failure = oobResponseFailure("token exchange", responseErr.Response).(*authFailure)
+		}
+		switch responseErr.ErrorCode {
+		case "invalid_client", "invalid_grant", "unauthorized_client", "invalid_request",
+			"access_denied", "temporarily_unavailable", "server_error", "unsupported_grant_type":
+			code = responseErr.ErrorCode
+		case "":
+		default:
+			code = "other"
+		}
+	}
+	style := "other"
+	switch configured {
+	case oauth2.AuthStyleAutoDetect:
+		style = "auto_detect"
+	case oauth2.AuthStyleInParams:
+		style = "in_params"
+	case oauth2.AuthStyleInHeader:
+		style = "in_header"
+	}
+	if code != "" {
+		failure.message += fmt.Sprintf(" [oauth_error=%s configured_auth_style=%s]", code, style)
+	} else {
+		failure.message += fmt.Sprintf(" [configured_auth_style=%s]", style)
+	}
 	return failure
 }

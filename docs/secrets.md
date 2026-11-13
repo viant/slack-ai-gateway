@@ -137,6 +137,32 @@ Manager authorization, IAM and access to the private configuration as the access
 boundary. This selection is separate from AWS Secrets Manager's encryption at
 rest and does not select a managed application KMS adapter.
 
+## OAuth client authentication style
+
+The OAuth configuration referenced by Agently's authentication metadata is a
+native Scy OAuth resource. It is separate from the gateway YAML and from the
+OOB account credential. If the provider's registered client requires a specific
+token-endpoint authentication method, its existing `Endpoint.AuthStyle` selects:
+
+| Value | Native style | Client credentials |
+| --- | --- | --- |
+| `0` | AutoDetect | Native detection and fallback |
+| `1` | InParams | Token request form |
+| `2` | InHeader | HTTP Basic authentication |
+
+For a JSON OAuth resource, set the numeric `AuthStyle` inside its existing
+`Endpoint` object, retaining the authorization/token URLs and other client
+configuration. The native YAML spelling is `endpoint.authstyle`, also numeric.
+Encrypted and inline native resources retain the same setting. Use the native
+resource's existing format rather than adding a gateway YAML option. A flat
+`authStyle: params` field from another configuration format does not select this
+setting in the Scy loader.
+
+Choose an explicit style only from provider/client evidence. The diagnostic
+`configured_auth_style=auto_detect` reports the setting, not the actual first
+attempt or a confirmed explanation of HTTP401. Keep a private backup and use the
+existing restart procedure after a verified configuration correction.
+
 ## Migration and rotation
 
 The former `app_token_env`, `bot_token_env`, `secrets_url_env` and `dsn_env`
