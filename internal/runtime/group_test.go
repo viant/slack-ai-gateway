@@ -11,12 +11,26 @@ import (
 
 	"github.com/viant/slack-ai-gateway/internal/gateway"
 	runner "github.com/viant/slack-ai-gateway/internal/runtime"
+	"github.com/viant/slack-ai-gateway/internal/storage"
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
 type recoveryOwner struct {
-	gateway.Store
+	storage.Store
 	recoveries atomic.Int32
+}
+
+func setupGroup(t *testing.T) (*runner.Runtime, storage.Store, *runner.Runtime, storage.Store) {
+	t.Helper()
+	first, firstStore, _ := setup(t)
+	secondIdentity := storetest.DefaultIntegration()
+	secondIdentity.Name = "second"
+	root := firstStore.Scope(0)
+	identities, err := root.ReconcileIntegrations(context.Background(), []storage.Integration{storetest.DefaultIntegration(), secondIdentity})
+	storetest.Must(t, err)
+	secondStore := root.Scope(identities[1].ID)
+	second, _ := runtimeForStore(secondStore)
+	return first, firstStore, second, secondStore
 }
 
 func (s *recoveryOwner) Recover(ctx context.Context) error {
@@ -25,8 +39,7 @@ func (s *recoveryOwner) Recover(ctx context.Context) error {
 }
 
 func TestGroupUsesPreparedRootAndIsolatesSlackSourceFailure(t *testing.T) {
-	first, firstStore, _ := setup(t)
-	second, secondStore, _ := setup(t)
+	first, firstStore, second, secondStore := setupGroup(t)
 	owner := &recoveryOwner{Store: firstStore.Scope(0)}
 	firstScope := &recoveryOwner{Store: firstStore}
 	secondScope := &recoveryOwner{Store: secondStore}
@@ -53,16 +66,17 @@ func TestGroupUsesPreparedRootAndIsolatesSlackSourceFailure(t *testing.T) {
 	}
 }
 
-type failedClaims struct{ gateway.Store }
+type failedClaims struct{ storage.Store }
 
 func (s failedClaims) ClaimJob(context.Context) (*gateway.GatewayJob, error) {
 	return nil, errors.New("synthetic storage failure")
 }
 
 func TestGroupStorageFailureStopsOtherIntegrations(t *testing.T) {
-	first, firstStore, _ := setup(t)
-	second, _, _ := setup(t)
+	first, firstStore, second, _ := setupGroup(t)
 	first.Store = failedClaims{Store: firstStore}
+	_, err := firstStore.Enqueue(context.Background(), storetest.Message("failure", "failure", "alice"))
+	storetest.Must(t, err)
 	secondStopped := make(chan struct{})
 	second.Source = sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error {
 		ready()
@@ -80,7 +94,7 @@ func TestGroupStorageFailureStopsOtherIntegrations(t *testing.T) {
 }
 
 type failureAfterSourceStop struct {
-	gateway.Store
+	runtimeTestStore
 	claimed chan struct{}
 	once    sync.Once
 }
@@ -92,9 +106,10 @@ func (s *failureAfterSourceStop) ClaimJob(ctx context.Context) (*gateway.Gateway
 }
 
 func TestGroupDoesNotHideStorageFailureBehindEarlierSlackFailure(t *testing.T) {
-	first, firstStore, _ := setup(t)
-	second, _, _ := setup(t)
-	scope := &failureAfterSourceStop{Store: firstStore, claimed: make(chan struct{})}
+	first, firstStore, second, _ := setupGroup(t)
+	_, err := firstStore.Enqueue(context.Background(), storetest.Message("failure", "failure", "alice"))
+	storetest.Must(t, err)
+	scope := &failureAfterSourceStop{runtimeTestStore: firstStore, claimed: make(chan struct{})}
 	first.Store = scope
 	first.Source = sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error {
 		ready()

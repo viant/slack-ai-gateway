@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/viant/slack-ai-gateway/internal/gateway"
@@ -18,9 +19,33 @@ import (
 
 // These fakes isolate lifecycle ownership. The native storage/CLI tests cover
 // the actual Datly transaction and integration scope contracts separately.
+type runtimeTestStore interface {
+	gateway.Store
+	gateway.WorkPlanner
+}
+
+var lifecycleIdentity atomic.Int64
+
 type lifecycleStore struct {
 	gateway.Store
 	recoveries atomic.Int32
+	id         atomic.Int64
+}
+
+func (s *lifecycleStore) IntegrationID() int64 {
+	if s.id.Load() == 0 {
+		s.id.CompareAndSwap(0, lifecycleIdentity.Add(1))
+	}
+	return s.id.Load()
+}
+func (*lifecycleStore) WorkChanges() <-chan struct{} { return nil }
+func (*lifecycleStore) WorkRevision(int64) uint64    { return 0 }
+func (*lifecycleStore) WorkCandidates(context.Context, time.Time) ([]gateway.WorkCandidate, error) {
+	var result []gateway.WorkCandidate
+	for id := int64(1); id <= lifecycleIdentity.Load(); id++ {
+		result = append(result, gateway.WorkCandidate{IntegrationID: id, Query: gateway.WorkHint{ProbeNow: true}, Outbound: gateway.WorkHint{ProbeNow: true}})
+	}
+	return result, nil
 }
 
 func (s *lifecycleStore) Recover(context.Context) error {
@@ -93,7 +118,7 @@ func TestGroupLifecycleUsesPreparedRootAndIsolatesLocalFailure(t *testing.T) {
 
 func TestGroupLifecyclePreservesSharedFailureDuringLocalShutdown(t *testing.T) {
 	root := &lifecycleStore{}
-	firstStore := &failureAfterSourceStop{Store: &lifecycleStore{}, claimed: make(chan struct{})}
+	firstStore := &failureAfterSourceStop{runtimeTestStore: &lifecycleStore{}, claimed: make(chan struct{})}
 	first, second := lifecycleRuntime(firstStore), lifecycleRuntime(&lifecycleStore{})
 	first.Source = sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error {
 		ready()
@@ -178,7 +203,7 @@ func (s *canceledClaims) ClaimJob(ctx context.Context) (*gateway.GatewayJob, err
 
 func TestGroupLifecycleDoesNotPromoteCanceledClaimsToStorageFailure(t *testing.T) {
 	root := &lifecycleStore{}
-	claims := &canceledClaims{failureAfterSourceStop: &failureAfterSourceStop{Store: &lifecycleStore{}, claimed: make(chan struct{})}, canceled: make(chan struct{})}
+	claims := &canceledClaims{failureAfterSourceStop: &failureAfterSourceStop{runtimeTestStore: &lifecycleStore{}, claimed: make(chan struct{})}, canceled: make(chan struct{})}
 	first, second := lifecycleRuntime(claims), lifecycleRuntime(&lifecycleStore{})
 	first.Source = sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error {
 		ready()
@@ -222,4 +247,99 @@ func TestGroupLifecycleRetainsStorageFailureFromTerminalDrain(t *testing.T) {
 	if err := finished(t, done); err == nil || !strings.Contains(err.Error(), "runtime worker or storage failed") {
 		t.Fatalf("shared terminal status failure was hidden behind a backend rejection: %v", err)
 	}
+}
+
+type shutdownDiscoveryFailure struct {
+	*lifecycleStore
+	entered chan struct{}
+}
+
+func (s *shutdownDiscoveryFailure) WorkCandidates(ctx context.Context, _ time.Time) ([]gateway.WorkCandidate, error) {
+	close(s.entered)
+	<-ctx.Done()
+	return nil, errors.New("private discovery failure during shutdown")
+}
+
+func TestRuntimeAndGroupRetainDiscoveryFailureAfterLocalShutdown(t *testing.T) {
+	for _, grouped := range []bool{false, true} {
+		for _, shutdown := range []string{"local", "normal", "existing_global"} {
+			t.Run(map[bool]string{false: "standalone", true: "group"}[grouped]+"/"+shutdown, func(t *testing.T) {
+				planner := &shutdownDiscoveryFailure{lifecycleStore: &lifecycleStore{}, entered: make(chan struct{})}
+				r := lifecycleRuntime(planner)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if shutdown == "existing_global" {
+					r.Backend = &backendShutdownFailure{}
+				}
+				r.Source = sourceFunc(func(sourceCtx context.Context, _ gateway.EventSink, ready func()) error {
+					ready()
+					<-planner.entered
+					if shutdown == "normal" {
+						cancel()
+						<-sourceCtx.Done()
+						return nil
+					}
+					return gateway.ErrSlackAuth
+				})
+				done := make(chan error, 1)
+				go func() {
+					if grouped {
+						g := &runner.Group{Store: planner, Integrations: []runner.Integration{{ID: "first", Runtime: r}}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+						done <- g.Run(ctx)
+					} else {
+						done <- r.Run(ctx)
+					}
+				}()
+				err := finished(t, done)
+				want := "runtime work discovery failed"
+				if shutdown == "existing_global" {
+					want = "backend connection recovery or storage failed"
+				}
+				if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "private") {
+					t.Fatalf("shared error priority or redaction changed: %v, want %s", err, want)
+				}
+			})
+		}
+	}
+}
+
+type closedStateChangesBackend struct {
+	backend
+	changes chan struct{}
+	reads   atomic.Int32
+}
+
+func (*closedStateChangesBackend) State() gateway.BackendState     { return gateway.BackendReady }
+func (*closedStateChangesBackend) WithReady(fn func() error) error { return fn() }
+func (*closedStateChangesBackend) Run(ctx context.Context) error   { <-ctx.Done(); return nil }
+func (b *closedStateChangesBackend) StateChanges() <-chan struct{} {
+	if b.reads.Add(1) == 1 {
+		return b.changes
+	}
+	return nil
+}
+
+func TestRuntimeClosedBackendStateChangesStopsWatcher(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		changes := make(chan struct{})
+		close(changes)
+		b := &closedStateChangesBackend{changes: changes}
+		r := lifecycleRuntime(&lifecycleStore{})
+		r.Backend = b
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- r.Run(ctx) }()
+		synctest.Wait()
+		if b.reads.Load() != 1 {
+			t.Fatalf("state channel was reacquired after closure: %d", b.reads.Load())
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("notification closure stopped the runtime: %v", err)
+		default:
+		}
+		cancel()
+		storetest.Must(t, finished(t, done))
+	})
 }

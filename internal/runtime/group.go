@@ -36,11 +36,16 @@ func runtimeFailure(message string, local bool) error {
 	return err
 }
 
-func (g *Group) Run(ctx context.Context) error {
+func (g *Group) Run(ctx context.Context) (runErr error) {
 	if g.Store == nil || len(g.Integrations) == 0 {
 		return fmt.Errorf("runtime group requires storage and integrations")
 	}
 	seen := map[string]bool{}
+	scopes := map[int64]bool{}
+	planner, ok := g.Store.(gateway.WorkPlanner)
+	if !ok {
+		return fmt.Errorf("runtime group storage must support work planning")
+	}
 	for _, integration := range g.Integrations {
 		if integration.ID == "" || seen[integration.ID] || integration.Runtime == nil {
 			return fmt.Errorf("runtime group requires unique integration identities and complete runtimes")
@@ -49,6 +54,11 @@ func (g *Group) Run(ctx context.Context) error {
 		if err := integration.Runtime.validate(); err != nil {
 			return fmt.Errorf("integration %s: %w", integration.ID, err)
 		}
+		id := integration.Runtime.Store.(gateway.WorkPlanner).IntegrationID()
+		if scopes[id] {
+			return fmt.Errorf("runtime group requires unique integration scopes")
+		}
+		scopes[id] = true
 	}
 	log := g.Log
 	if log == nil {
@@ -56,15 +66,21 @@ func (g *Group) Run(ctx context.Context) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	var fatal error
+	scheduler := newWorkScheduler(planner)
+	defer func() {
+		if err := scheduler.close(); err != nil && fatal == nil {
+			runErr = err
+		}
+	}()
 	type result struct {
 		id  string
 		err error
 	}
 	finished := make(chan result, len(g.Integrations))
 	for _, integration := range g.Integrations {
-		go func() { finished <- result{id: integration.ID, err: integration.Runtime.runPrepared(ctx)} }()
+		go func() { finished <- result{id: integration.ID, err: integration.Runtime.runPrepared(ctx, scheduler)} }()
 	}
-	var fatal error
 	stopped := 0
 	for range g.Integrations {
 		result := <-finished

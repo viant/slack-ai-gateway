@@ -40,6 +40,16 @@ func TestNativeSessionCleanupRetainsPhysicalThreadAcrossAssignments(t *testing.T
 			unrelated := testIdentity("other-bot", "B")
 			registerNativeIntegrations(t, root, &b, &unrelated)
 			bs := root.Scope(b.ID)
+			// Discovery routes historical publications/notices to the current
+			// physical bot without advertising inactive backend query work.
+			work := discoveryFor(t, root, b.ID, now.Add(time.Second))
+			if work.Query.ProbeNow || !work.Query.NextAt.IsZero() || !work.Outbound.ProbeNow {
+				t.Fatalf("historical cleanup was not discovered by its current bot: %+v", work)
+			}
+			otherWork := discoveryFor(t, root, unrelated.ID, now.Add(time.Second))
+			if otherWork.Outbound.ProbeNow || !otherWork.Outbound.NextAt.IsZero() {
+				t.Fatal("another physical bot discovered historical cleanup")
+			}
 			cleanup, err := bs.ClaimStatus(ctx, now.Add(time.Second), "integration_terminal")
 			storetest.Must(t, err)
 			if cleanup == nil || cleanup.Target != gateway.StatusTargetAgentSession || cleanup.SessionState != "active" || !cleanup.Terminal {

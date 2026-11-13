@@ -8,6 +8,7 @@ import (
 	"github.com/viant/slack-ai-gateway/internal/gateway"
 	"github.com/viant/slack-ai-gateway/internal/storage"
 	xdatly "github.com/viant/xdatly"
+	"github.com/viant/xdatly/handler"
 )
 
 type Component struct {
@@ -51,4 +52,17 @@ type Output struct {
 	Status               *gateway.GatewayJobProgress
 	Snapshot             *storage.Status
 	NotBefore            time.Time
+
+	// Invocation-local evidence is detached after the owning native transaction
+	// finishes. It never becomes part of the storage command's public output.
+	reporter    handler.MutationReporter
+	changed     bool
+	scope       int64
+	appID       string
+	workspaceID string
+}
+
+// WorkChange reports only an executed mutation in a confirmed committed root.
+func (o *Output) WorkChange() (bool, int64, string, string) {
+	return o.changed, o.scope, o.appID, o.workspaceID
 }

@@ -34,12 +34,14 @@ func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, o
 		return fmt.Errorf("incomplete storage invocation")
 	}
 	deps := struct {
-		Invoker handler.ComponentInvoker   `bind:"kind=component_invoker,required"`
-		Starter handler.TransactionStarter `bind:"kind=transactionStarter,required"`
+		Invoker  handler.ComponentInvoker   `bind:"kind=component_invoker,required"`
+		Starter  handler.TransactionStarter `bind:"kind=transactionStarter,required"`
+		Reporter handler.MutationReporter   `bind:"kind=mutationReporter,required"`
 	}{}
 	if err := session.Binder().Bind(ctx, &deps); err != nil {
 		return err
 	}
+	out.reporter, out.scope = deps.Reporter, in.Scope
 	// MySQL native transient identity allocation uses a spare transaction.
 	// Read-committed avoids holding empty-range locks across that allocation;
 	// explicit record locks still protect every state transition. SQLite's
@@ -57,6 +59,7 @@ func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, o
 			return err
 		}
 		x.identity = identity
+		out.appID, out.workspaceID = identity.AppID, identity.WorkspaceID
 		if !identity.Active {
 			switch in.Action {
 			case "claim_job":
@@ -104,4 +107,25 @@ func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, o
 	default:
 		return fmt.Errorf("unknown storage operation")
 	}
+}
+
+// FinalizeOutcome observes native execution only after the root has completed.
+// In particular, an empty claim and a rolled-back child write cannot wake work.
+func (*Workflow) FinalizeOutcome(_ context.Context, _ rh.Invocation, result any, outcome handler.Outcome) error {
+	out, ok := result.(*Output)
+	if !ok || out == nil || out.reporter == nil {
+		return nil
+	}
+	report := out.reporter.MutationReport()
+	out.reporter = nil
+	if !outcome.CommitConfirmed() {
+		return nil
+	}
+	for _, item := range report.Results {
+		if item.Error == nil && item.Affected > 0 {
+			out.changed = true
+			break
+		}
+	}
+	return nil
 }

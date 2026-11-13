@@ -22,6 +22,7 @@ import (
 	opc "github.com/viant/slack-ai-gateway/internal/datly/operations/check"
 	opn "github.com/viant/slack-ai-gateway/internal/datly/operations/notbefore"
 	ops "github.com/viant/slack-ai-gateway/internal/datly/operations/status"
+	opw "github.com/viant/slack-ai-gateway/internal/datly/operations/work"
 	jr "github.com/viant/slack-ai-gateway/internal/datly/read"
 	er "github.com/viant/slack-ai-gateway/internal/datly/read/event"
 	sr "github.com/viant/slack-ai-gateway/internal/datly/sessions/read"
@@ -45,12 +46,13 @@ type Store struct {
 	root          *Store
 	statusMu      sync.Mutex
 	preferMessage bool
+	work          *workState
 }
 
 var _ storage.Store = (*Store)(nil)
 
 func Open(ctx context.Context, connection connector.Config) (*Store, error) {
-	server, err := standalone.New(ctx, standalone.Options{RequireLinked: true, Holders: []any{&workflow.Component{}, &br.ReaderComponent{}, &bw.WriterComponent{}, &dr.ReaderComponent{}, &dw.WriterComponent{}, &jr.ReaderComponent{}, &er.ReaderComponent{}, &jw.WriterComponent{}, &sr.ReaderComponent{}, &sw.WriterComponent{}, &ops.ReaderComponent{}, &opc.ReaderComponent{}, &opn.ReaderComponent{}, &tr.ReaderComponent{}, &tgw.WriterComponent{}}, Config: &config.Config{
+	server, err := standalone.New(ctx, standalone.Options{RequireLinked: true, Holders: []any{&workflow.Component{}, &br.ReaderComponent{}, &bw.WriterComponent{}, &dr.ReaderComponent{}, &dw.WriterComponent{}, &jr.ReaderComponent{}, &er.ReaderComponent{}, &jw.WriterComponent{}, &sr.ReaderComponent{}, &sw.WriterComponent{}, &ops.ReaderComponent{}, &opc.ReaderComponent{}, &opn.ReaderComponent{}, &opw.ReaderComponent{}, &tr.ReaderComponent{}, &tgw.WriterComponent{}}, Config: &config.Config{
 		Connector: "slack", Connectors: []connector.Config{connection},
 		GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{
 			"github.com/viant/slack-ai-gateway/internal/datly/...",
@@ -64,7 +66,7 @@ func Open(ctx context.Context, connection connector.Config) (*Store, error) {
 		_ = server.Shutdown(context.Background())
 		return nil, fmt.Errorf("cannot initialize gateway storage runtime")
 	}
-	return &Store{server: server}, nil
+	return &Store{server: server, work: newWorkState()}, nil
 }
 func (s *Store) Close() error {
 	if s != nil && s.root != nil {
@@ -95,6 +97,7 @@ func (s *Store) call(ctx context.Context, in *workflow.Input) (*workflow.Output,
 	if !ok || out == nil {
 		return nil, fmt.Errorf("unexpected storage workflow output %T", value)
 	}
+	s.workChanged(out)
 	return out, nil
 }
 func (s *Store) apply(ctx context.Context, in *workflow.Input) error {
@@ -117,6 +120,7 @@ func (s *Store) Enqueue(ctx context.Context, m gateway.Message) (bool, error) {
 		if !ok || output == nil {
 			return false, fmt.Errorf("unexpected storage intake output %T", value)
 		}
+		s.workChanged(output)
 		return output.Inserted, nil
 	}
 	if outcome.State() != handler.TransactionRolledBack {

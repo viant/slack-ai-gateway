@@ -90,6 +90,7 @@ type Manager struct {
 	onUnavailable                      func(context.Context, gateway.BackendState) error
 	log                                *slog.Logger
 	wake                               chan struct{}
+	stateChanges                       chan struct{}
 	fatal                              chan error
 	running                            atomic.Bool
 	retryBase, retryMax, probeInterval time.Duration
@@ -102,10 +103,23 @@ func NewManager(login func(context.Context) (gateway.AgentlyClientFactory, error
 		log = slog.Default()
 	}
 	return &Manager{state: gateway.BackendStarting, login: login, onUnavailable: onUnavailable, log: log,
-		wake: make(chan struct{}, 1), fatal: make(chan error, 1), retryBase: time.Second, retryMax: 30 * time.Second, probeInterval: 30 * time.Second}
+		wake: make(chan struct{}, 1), stateChanges: make(chan struct{}, 1), fatal: make(chan error, 1), retryBase: time.Second, retryMax: 30 * time.Second, probeInterval: 30 * time.Second}
 }
 
 func (m *Manager) State() gateway.BackendState { m.mu.RLock(); defer m.mu.RUnlock(); return m.state }
+
+// StateChanges wakes the owning runtime when readiness changes. It is distinct
+// from the manager's recovery wake channel, which has a single internal reader.
+// Consumers inspect State after receiving a hint; notifications never block the
+// readiness lock or perform work while that lock is held.
+func (m *Manager) StateChanges() <-chan struct{} { return m.stateChanges }
+
+func (m *Manager) notifyStateChange() {
+	select {
+	case m.stateChanges <- struct{}{}:
+	default:
+	}
+}
 
 // WithReady serializes only local durable admission with an outage transition.
 // The callback must not perform HTTP or call back into Manager.
@@ -149,6 +163,7 @@ func (m *Manager) ForPrincipal(ctx context.Context, principal string) (gateway.A
 // unavailable state has been persisted. No network request is made here.
 func (m *Manager) unavailableLocked(ctx context.Context, state gateway.BackendState) error {
 	m.state, m.generation = state, m.generation+1
+	defer m.notifyStateChange()
 	m.log.Info("agently_backend", "state", state)
 	if m.onUnavailable != nil {
 		return m.onUnavailable(ctx, state)
@@ -228,6 +243,7 @@ func (m *Manager) ready(factory gateway.AgentlyClientFactory) {
 	}
 	m.current, m.state, m.notBefore = factory, gateway.BackendReady, time.Time{}
 	m.log.Info("agently_backend", "state", gateway.BackendReady)
+	m.notifyStateChange()
 }
 
 func (m *Manager) snapshot() (gateway.AgentlyClientFactory, uint64, gateway.BackendState) {

@@ -158,6 +158,19 @@ Each active entry has its own backend readiness, access policy and lifecycle.
 A Slack connection or credential failure stops that integration while others
 continue. A common storage failure stops the process.
 
+Work scheduling is shared by the process. Four admission-step slots and four
+separate outbound-step slots serve the configured integrations in rotation.
+Admission slots cover claiming and preparing a request; backend query/stream
+observers have independent lifetimes, so four slots do not limit the gateway to
+four ongoing conversations. Each integration retains its scoped atomic claims
+and serialized outbound worker.
+
+Committed changes and backend readiness transitions wake scheduling. Persisted
+poll, retry and status-refresh deadlines determine later wakeups; a shared
+five-second reconciliation also checks for missed changes. Idle integrations do
+not run their own database-polling loops. The database remains authoritative
+after restart, and notification hints never authorize a query or Slack write.
+
 ## Generic AG-UI
 
 Generic AG-UI uses the native SDK run transport and protocol state projection.

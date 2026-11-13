@@ -9,6 +9,7 @@ import (
 // Store includes the runtime and offline operator capabilities of a backend.
 type Store interface {
 	gateway.Store
+	gateway.WorkPlanner
 	ReconcileIntegrations(context.Context, []Integration) ([]Integration, error)
 	Scope(int64) Store
 	ScopeName(string) Store

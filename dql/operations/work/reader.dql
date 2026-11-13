@@ -1,0 +1,18 @@
+#package('github.com/viant/slack-ai-gateway/internal/datly/operations/work')
+
+#import('jobsql','github.com/viant/slack-ai-gateway/dql/read')
+
+#setting($_ = $connector('slack'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/internal/gateway/operations/work','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+
+#define($_ = $Now<time.Time>(query/now).Optional())
+#define($_ = $Data<[]*WorkTiming>(output/view))
+
+SELECT work.*, type(work,'WorkTiming'), CAST(work.integration_id AS int64), CAST(work.kind AS string),
+       CAST(work.candidate_at AS *time.Time), CAST(work.refresh_at AS *time.Time), CAST(work.observed_at AS *time.Time),
+       required(work.kind), required(work.slack_app_id), required(work.slack_workspace_id), set_limit(work,0)
+FROM (${embed:sql/work.sql}) work

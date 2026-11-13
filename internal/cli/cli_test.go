@@ -544,6 +544,13 @@ type operatorStore struct {
 	resolved bool
 }
 
+func (*operatorStore) IntegrationID() int64         { return 1 }
+func (*operatorStore) WorkChanges() <-chan struct{} { return nil }
+func (*operatorStore) WorkRevision(int64) uint64    { return 0 }
+func (*operatorStore) WorkCandidates(context.Context, time.Time) ([]gateway.WorkCandidate, error) {
+	return nil, nil
+}
+
 func (s *operatorStore) ReconcileIntegrations(_ context.Context, wanted []storage.Integration) ([]storage.Integration, error) {
 	rows := append([]storage.Integration(nil), wanted...)
 	for i := range rows {

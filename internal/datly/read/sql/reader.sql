@@ -27,6 +27,7 @@ WHERE j.id = (
      AND earlier.slack_channel_id=candidate.slack_channel_id AND earlier.slack_thread_root_message_id=candidate.slack_thread_root_message_id
      AND earlier.id<candidate.id AND earlier.gateway_execution_state NOT IN ('completed','rejected'))
    ))
+
   ORDER BY candidate.id LIMIT 1
  ) eligible
 )

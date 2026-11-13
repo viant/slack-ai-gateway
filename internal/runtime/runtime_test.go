@@ -75,13 +75,18 @@ func setup(t *testing.T) (*runner.Runtime, storage.Store, *backend) {
 	storetest.Must(t, s.Migrate(ctx))
 	integrationID := storetest.RegisterDefault(t, s)
 	scope := s.Scope(integrationID)
+	r, b := runtimeForStore(scope)
+	return r, scope, b
+}
+
+func runtimeForStore(scope storage.Store) (*runner.Runtime, *backend) {
 	b := &backend{}
 	r := &runner.Runtime{Store: scope, Clients: b, AgentID: "steward", Route: storetest.Route("A", "T", "C"),
 		Policy: storetest.Policy("A", "T", "shared", "C"),
 		Source: sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error { ready(); <-ctx.Done(); return nil }),
 		Sender: senderFunc(func(context.Context, gateway.SlackOutgoingMessage) (string, error) { return "2.000001", nil }),
 		Log:    slog.New(slog.NewTextHandler(io.Discard, nil))}
-	return r, scope, b
+	return r, b
 }
 
 func seedReply(t *testing.T, s storage.Store, event, root string) {
@@ -381,7 +386,7 @@ func TestUncertainDeliveryDoesNotBlockOtherThreads(t *testing.T) {
 }
 
 type brokenStore struct {
-	gateway.Store
+	storage.Store
 	recoverErr bool
 }
 
@@ -404,6 +409,8 @@ func TestFatalErrorsAreVisibleAndRedacted(t *testing.T) {
 				r.Store = brokenStore{Store: s, recoverErr: true}
 			case "worker":
 				r.Store = brokenStore{Store: s}
+				_, err := s.Enqueue(context.Background(), storetest.Message("worker-failure", "failure", "alice"))
+				storetest.Must(t, err)
 			case "source":
 				r.Source = sourceFunc(func(context.Context, gateway.EventSink, func()) error { return errors.New("secret-marker") })
 			}

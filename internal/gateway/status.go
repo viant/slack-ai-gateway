@@ -278,6 +278,9 @@ func (w *OutboundWorker) now() time.Time {
 	return time.Now()
 }
 
+// NextReadyAt is read by the dispatch owner only between Step calls.
+func (w *OutboundWorker) NextReadyAt() time.Time { return w.nextSend }
+
 func (w *OutboundWorker) Step(ctx context.Context) (worked bool, err error) {
 	if w.now().Before(w.nextSend) {
 		return false, nil

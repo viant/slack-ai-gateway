@@ -40,14 +40,23 @@ func (r *Runtime) Delivered() int64 { return r.delivered.Load() }
 
 // Run requires exclusive ownership of a migrated Store for its entire lifetime.
 // Workers start only after the transport's identity-verified ready signal.
-func (r *Runtime) Run(ctx context.Context) error {
+func (r *Runtime) Run(ctx context.Context) (runErr error) {
 	if err := r.validate(); err != nil {
 		return err
 	}
 	if err := r.Store.Recover(ctx); err != nil {
 		return fmt.Errorf("runtime recovery failed")
 	}
-	return r.runPrepared(ctx)
+	scheduler := newWorkScheduler(r.Store.(gateway.WorkPlanner))
+	defer func() {
+		if err := scheduler.close(); err != nil {
+			var local *integrationFailure
+			if runErr == nil || errors.As(runErr, &local) {
+				runErr = err
+			}
+		}
+	}()
+	return r.runPrepared(ctx, scheduler)
 }
 
 func (r *Runtime) validate() error {
@@ -66,13 +75,16 @@ func (r *Runtime) validate() error {
 	if _, ok := r.Sender.(gateway.StatusSender); !ok {
 		return fmt.Errorf("runtime sender must support request statuses")
 	}
+	if planner, ok := r.Store.(gateway.WorkPlanner); !ok || planner.IntegrationID() <= 0 {
+		return fmt.Errorf("runtime storage must support scoped work planning")
+	}
 	return nil
 }
 
 // runPrepared reuses the worker lifecycle after the process owner has recovered
 // storage once. Query work stays scoped to this assignment; its Slack bot may
 // also publish terminal cleanup for historical assignments.
-func (r *Runtime) runPrepared(ctx context.Context) error {
+func (r *Runtime) runPrepared(ctx context.Context, scheduler *workScheduler) error {
 	deliveryPolicy := r.Policy.(gateway.DeliveryPolicy)
 	statusSender := r.Sender.(gateway.StatusSender)
 	log := r.Log
@@ -178,62 +190,37 @@ func (r *Runtime) runPrepared(ctx context.Context) error {
 		}
 		return false
 	}
-	// Admission loops and observers share one lifetime. A loop registers its
-	// task before returning, so shutdown joins every stream before closing Store.
+	// Dispatched steps and observers share one lifetime. A step registers its
+	// observer before returning, so shutdown joins every stream before closing Store.
 	execute := func(task func() error) {
 		workers.Add(1)
 		go func() { defer workers.Done(); report(workCtx, task()) }()
 	}
-	start := func(step func(context.Context) (bool, error)) {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-stopClaims:
-					return
-				case <-workCtx.Done():
-					return
-				default:
-				}
-				worked, err := step(workCtx)
-				if report(workCtx, err) {
-					return
-				}
-				if !worked {
-					timer := time.NewTimer(100 * time.Millisecond)
-					select {
-					case <-timer.C:
-					case <-ctx.Done():
-						timer.Stop()
-						return
-					case <-stopClaims:
-						timer.Stop()
-						return
-					case <-workCtx.Done():
-						timer.Stop()
-						return
-					}
-				}
-			}
-		}()
+	canStart := func() bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-stopClaims:
+			return false
+		case <-workCtx.Done():
+			return false
+		default:
+			return true
+		}
 	}
 	var runErr error
 	var outbound *gateway.OutboundWorker
+	registered := false
+	integrationID := r.Store.(gateway.WorkPlanner).IntegrationID()
 	sourceJoined := false
 	startup := time.NewTimer(30 * time.Second)
 	select {
 	case <-ready:
-		for range 4 {
-			w := gateway.Worker{Store: r.Store, Policy: r.Policy, Clients: r.Clients, Backend: r.Backend, AgentID: r.AgentID, Execute: execute,
-				ResponseMode: r.ResponseMode, AgentlyBaseURL: r.AgentlyBaseURL, Log: log,
-				OnReview: func(jobID int64, requestID, reason string) {
-					log.Warn("query_needs_review", "job_id", jobID, "gateway_request_id", requestID, "reason", reason)
-				}}
-			start(w.Step)
-		}
+		w := gateway.Worker{Store: r.Store, Policy: r.Policy, Clients: r.Clients, Backend: r.Backend, AgentID: r.AgentID, Execute: execute,
+			ResponseMode: r.ResponseMode, AgentlyBaseURL: r.AgentlyBaseURL, Log: log,
+			OnReview: func(jobID int64, requestID, reason string) {
+				log.Warn("query_needs_review", "job_id", jobID, "gateway_request_id", requestID, "reason", reason)
+			}}
 		delivery := gateway.DeliveryWorker{Store: r.Store, Sender: r.Sender, Policy: deliveryPolicy, OnDelivered: func(d gateway.SlackOutgoingMessage) {
 			r.delivered.Add(1)
 			log.Info("reply_delivered", "delivery_id", d.ID, "job_id", d.JobID, "kind", d.Kind, "workspace_id", d.WorkspaceID, "channel_id", d.ChannelID, "slack_thread_root_message_id", d.RootTS, "slack_message_id", d.SlackTS)
@@ -254,7 +241,30 @@ func (r *Runtime) runPrepared(ctx context.Context) error {
 				}
 			}}
 		outbound = &gateway.OutboundWorker{SlackOutgoingMessage: &delivery, Status: statuses, Interval: time.Second}
-		start(outbound.Step)
+		scheduler.register(&scheduledRuntime{id: integrationID, ctx: workCtx, canStart: canStart,
+			query: w.Step, outbound: outbound.Step, nextSend: outbound.NextReadyAt,
+			report: report, fatal: recordFatal, workers: &workers})
+		registered = true
+		if backend, ok := r.Backend.(interface{ StateChanges() <-chan struct{} }); ok {
+			// The manager coalesces changes for its lifetime. A backend may close
+			// its notification channel when that lifetime ends.
+			changes := backend.StateChanges()
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				for {
+					select {
+					case <-stopClaims:
+						return
+					case _, open := <-changes:
+						if !open {
+							return
+						}
+						scheduler.wake(integrationID)
+					}
+				}
+			}()
+		}
 		select {
 		case <-ctx.Done():
 		case runErr = <-fatal:
@@ -274,6 +284,9 @@ func (r *Runtime) runPrepared(ctx context.Context) error {
 	// Stop ingestion and new claims first. Already started operations can finish
 	// and persist their results, but shutdown never drains the entire queue.
 	close(stopClaims)
+	if registered {
+		scheduler.unregister(integrationID)
+	}
 	cancelSource()
 	shutdownDeadline := time.Now().Add(15 * time.Second)
 	if runErr != nil {

@@ -272,6 +272,20 @@ The one-second sender pacing and durable 429 cooldown apply across all channels.
 
 ## Current execution boundary
 
+Idle work discovery uses a read-only Datly component shared by the process.
+It does not claim a job, begin the mutation workflow, or load prompt/result
+bodies. Candidate hints are checked by the existing scoped transactional workers.
+An empty check waits for a relevant change, a future deadline, or the shared
+five-second reconciliation instead of polling every 100 milliseconds.
+Committed changes wake the affected scoped workers directly, including while a
+discovery query is in flight. Discovery supplies future deadlines and missed-work
+reconciliation; its database cost still depends on retained history and indexes.
+
+`slack.status.refresh_interval_sec` continues to control visible message status
+refreshes. It is independent of the reconciliation interval and does not control
+the number of workers. Native session refreshes, one-second outbound pacing and
+durable Slack rate-limit deadlines retain their existing behavior.
+
 Unlike the storage operator commands, `check-agently` contacts the IdP and Agently
 to create and validate an authentication session. It does not use gateway storage
 or Slack, and does not create/query a conversation. `run` independently connects
