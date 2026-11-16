@@ -374,20 +374,29 @@ Committed changes wake the affected scoped workers directly, including while a
 discovery query is in flight. Discovery supplies future deadlines and missed-work
 reconciliation; its database cost still depends on retained history and indexes.
 
-Datly owns bounded transaction replay. The workflow opts into one retry after a
-proven rollback of its own composed transaction; HTTP is never part of that
-replay. Unknown/partial completion, caller-owned transactions and cleanup
-failures remain ineligible. A storage failure after the native retry still stops
-the process. `storage_operation_failed` records the operation, completion state,
-safe driver code and timing without SQL, prompt text or credentials.
+The gateway can retry its private storage workflow once, using Datly's native
+`Completion` evidence after the original invocation has returned. Retry requires
+exactly one confirmed rolled-back transaction and only typed database contention
+(MySQL deadlock/lock-wait errors or SQLite busy/locked errors). Missing or repeated
+completion notifications, additional cleanup/finalizer errors, cancellation,
+caller-owned transactions and unknown, partial or committed outcomes prevent
+retry. A detached input snapshot preserves the original command and request ID.
 
-The concurrency update requires Datly's custom capability forwarding, composed
-transaction ownership proof and preservation of unannotated typed input facts.
-The actual-workflow regression
-`TestWorkflow022NativeRetryKeepsIntakeAndPublicationAtomic` is the dependency
-release gate. Publish and pin the framework fix before a standalone gateway
-release; a local workspace is suitable for cross-repository verification and
-must not become a permanent module replacement.
+The 10-millisecond retry delay is cancellable and shares the original deadline,
+thread owner and database execution slot. Each attempt starts a fresh native
+invocation; no transaction remains open during the delay. HTTP and standalone
+readers/discovery are outside this retry, so a retried storage receipt does not
+repeat a Slack send or backend query. Successful changes notify workers once,
+after the final committed attempt. Ineligible failures and failures after the
+second attempt keep the existing failure handling. `storage_operation_failed`
+records `attempts`, operation, completion state, safe driver code and total timing
+without SQL, prompt text or credentials. `attempts` is zero for a failure before
+native execution, one for an unretried invocation, and two after a second
+invocation starts.
+
+This uses the published Datly dependency and its existing outcome/finalizer
+contracts. It requires no local framework patch or module replacement, and the
+workflow does not opt into a second retry mechanism inside Datly.
 
 `slack.status.refresh_interval_sec` continues to control visible message status
 refreshes. It is independent of the reconciliation interval and does not control

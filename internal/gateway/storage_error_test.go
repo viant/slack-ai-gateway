@@ -11,7 +11,7 @@ import (
 
 func TestStorageDiagnosticsPreserveClassificationWithoutSecretOutput(t *testing.T) {
 	private := errors.New("SQL and private prompt and password")
-	issue := &StorageError{Operation: "enqueue", IntegrationID: 4, TransactionState: "rolled_back", MySQLCode: 1213, SQLState: "40001", CompletionObserved: true, Cause: private}
+	issue := &StorageError{Operation: "enqueue", IntegrationID: 4, TransactionState: "rolled_back", MySQLCode: 1213, SQLState: "40001", CompletionObserved: true, Attempts: 2, Cause: private}
 	if !errors.Is(issue, private) {
 		t.Fatal("native error chain lost")
 	}
@@ -26,7 +26,7 @@ func TestStorageDiagnosticsPreserveClassificationWithoutSecretOutput(t *testing.
 			t.Fatalf("private diagnostic leaked: %s", text)
 		}
 	}
-	if !strings.Contains(output.String(), "mysql_code=1213") || !strings.Contains(output.String(), "transaction_state=rolled_back") {
+	if !strings.Contains(output.String(), "mysql_code=1213") || !strings.Contains(output.String(), "transaction_state=rolled_back") || !strings.Contains(output.String(), "attempts=2") {
 		t.Fatal("safe native diagnostic missing")
 	}
 }

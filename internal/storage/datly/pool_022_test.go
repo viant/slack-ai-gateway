@@ -1,4 +1,4 @@
-package datly_test
+package datly
 
 import (
 	"context"
@@ -45,6 +45,8 @@ import (
 	xconnector "github.com/viant/xdatly/connector"
 	"github.com/viant/xdatly/handler"
 )
+
+var pool022DriverNumber atomic.Uint64
 
 type pool022ProbeInput struct{}
 type pool022ProbeOutput struct {
@@ -157,7 +159,7 @@ func (c *pool022Conn) BeginTx(ctx context.Context, options driver.TxOptions) (dr
 
 func (c *pool022Conn) before(statement string) error {
 	text := strings.ToLower(strings.TrimSpace(strings.NewReplacer("`", "", "\"", "").Replace(statement)))
-	if c.gate.armed.Load() && strings.HasPrefix(text, "insert into slack_agent_session_publication") && c.gate.faulted.CompareAndSwap(false, true) {
+	if c.gate.armed.Load() && strings.HasPrefix(text, "insert into slack_agent_session_publication") && strings.Contains(text, "slack_thread_root_message_id") && c.gate.faulted.CompareAndSwap(false, true) {
 		return &mysqldriver.MySQLError{Number: 1213, SQLState: [5]byte{'4', '0', '0', '0', '1'}, Message: "fixture coded contention"}
 	}
 	return nil
@@ -237,22 +239,23 @@ func TestNativePool022FourRootsTransientAllocatorsAndDiscovery(t *testing.T) {
 	gate := newPool022Gate()
 	driverType := reflect.TypeFor[pool022Driver]()
 	storetest.Must(t, registry.RegisterDriver(*mysqlproduct.MySQL5(), driverType.PkgPath(), driverType.Name()))
-	driverName := fmt.Sprintf("gateway_pool_022_%d", retry022DriverNumber.Add(1))
+	driverName := fmt.Sprintf("gateway_pool_022_%d", pool022DriverNumber.Add(1))
 	sql.Register(driverName, pool022Driver{gate: gate})
 	server, err := standalone.New(t.Context(), standalone.Options{RequireLinked: true,
 		Holders: []any{&workflow.Component{}, &br.ReaderComponent{}, &bw.WriterComponent{}, &dr.ReaderComponent{}, &dw.WriterComponent{}, &jr.ReaderComponent{}, &er.ReaderComponent{}, &jw.WriterComponent{}, &sr.ReaderComponent{}, &sw.WriterComponent{}, &ops.ReaderComponent{}, &opc.ReaderComponent{}, &opn.ReaderComponent{}, &opw.ReaderComponent{}, &tr.ReaderComponent{}, &tgw.WriterComponent{}, &pool022ProbeComponent{}},
 		Config: &config.Config{Connector: "slack", Connectors: []connector.Config{{Name: "slack", Driver: driverName, DSN: dsn, MaxOpenConns: 10, MaxIdleConns: 4}},
 			GoBootstrap: &config.Packages{LinkedOnly: true, Packages: []string{"github.com/viant/slack-ai-gateway/internal/datly/...", "github.com/viant/slack-ai-gateway/internal/storage/datly/workflow", reflect.TypeFor[pool022ProbeComponent]().PkgPath()}}}})
 	storetest.Must(t, err)
-	t.Cleanup(func() { storetest.Must(t, server.Shutdown(context.Background())) })
+	root := &Store{server: server, work: newWorkState(), owners: newThreadOwners(), readLane: make(chan struct{}, 1)}
+	t.Cleanup(func() { storetest.Must(t, root.Close()) })
 	t.Cleanup(gate.release)
 	storetest.Must(t, server.Reload(t.Context(), 1))
-	workflowTarget := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[workflow.Component]().PkgPath(), Name: "Workflow"}, Route: spec.RouteRef{Method: "POST", Path: "/internal/slack/storage"}}
 	probeTarget := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[pool022ProbeComponent]().PkgPath(), Name: "Pool022Probe"}, Route: spec.RouteRef{Method: "GET", Path: "/internal/test/pool022"}}
-	value, err := server.InvokeComponent(t.Context(), dexec.ComponentRequest{Target: workflowTarget, Input: &workflow.Input{Action: "reconcile_integrations", Integrations: []storage.Integration{storetest.DefaultIntegration()}}})
+	identities, err := root.ReconcileIntegrations(t.Context(), []storage.Integration{storetest.DefaultIntegration()})
 	storetest.Must(t, err)
-	id := value.(*workflow.Output).Integrations[0].ID
-	value, err = server.InvokeComponent(t.Context(), dexec.ComponentRequest{Target: probeTarget, Input: &pool022ProbeInput{}})
+	id := identities[0].ID
+	root.StartThreadOwnership()
+	value, err := server.InvokeComponent(t.Context(), dexec.ComponentRequest{Target: probeTarget, Input: &pool022ProbeInput{}})
 	storetest.Must(t, err)
 	db := value.(*pool022ProbeOutput).db
 	if db == nil || db.Stats().MaxOpenConnections != 10 {
@@ -271,10 +274,8 @@ func TestNativePool022FourRootsTransientAllocatorsAndDiscovery(t *testing.T) {
 			defer cancel()
 			m := storetest.Message(fmt.Sprintf("pool-event-%d", i), fmt.Sprintf("pool-root-%d", i), "alice")
 			m.StatusMode = gateway.StatusHybrid
-			key := m.PhysicalThread()
-			committed := false
-			_, err := server.InvokeComponent(ctx, dexec.ComponentRequest{Target: workflowTarget, Input: &workflow.Input{Action: "enqueue", Scope: id, PhysicalThread: &key, Message: m, GatewayRequestID: fmt.Sprintf("pool-request-%d", i)}, Completion: func(outcome handler.Outcome) { committed = outcome.CommitConfirmed() }})
-			results <- result{committed, err}
+			inserted, err := root.Scope(id).Enqueue(ctx, m)
+			results <- result{inserted, err}
 		}()
 	}
 	wait := func(ch <-chan struct{}, count int) {
@@ -300,12 +301,7 @@ func TestNativePool022FourRootsTransientAllocatorsAndDiscovery(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 		defer cancel()
-		now := time.Now().UTC().Truncate(time.Millisecond)
-		input := &opw.Input{}
-		input.SetMode("page")
-		input.SetNow(now)
-		input.SetCutoff(now)
-		_, err := server.InvokeComponent(ctx, dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[opw.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/internal/gateway/operations/work"}}, Input: input})
+		_, err := root.WorkPage(ctx, time.Now().UTC().Truncate(time.Millisecond), nil)
 		discoveryDone <- err
 	}()
 	wait(gate.discoveryReady, 1)
@@ -319,7 +315,7 @@ func TestNativePool022FourRootsTransientAllocatorsAndDiscovery(t *testing.T) {
 		r := <-results
 		storetest.Must(t, r.err)
 		if !r.committed {
-			t.Fatal("native terminal completion was not confirmed committed")
+			t.Fatal("gateway retry did not return a committed intake")
 		}
 	}
 	var jobs, publications int

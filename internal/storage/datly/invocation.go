@@ -21,23 +21,64 @@ func (s *Store) invokeNative(ctx context.Context, in *workflow.Input) (any, hand
 		}
 		defer release()
 	}
-	var outcome handler.Outcome
-	observed := false
-	value, err := s.server.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: in,
-		Completion: func(report handler.Outcome) { outcome = report; observed = true }})
-	if err == nil {
-		return value, outcome, nil
+	operation := ""
+	if in != nil {
+		operation = in.Action
 	}
-	if outcome.State() == handler.TransactionRolledBack && (errors.Is(err, gateway.ErrConflict) || errors.Is(err, gateway.ErrBackendUnavailable) || errors.Is(err, gateway.ErrDenied)) {
-		return value, outcome, err
+	if err := ctx.Err(); err != nil {
+		return s.finishWorkflowAttempt(operation, workflowAttempt{err: err}, 0, started)
 	}
-	issue := &gateway.StorageError{Operation: in.Action, IntegrationID: s.scope,
-		CompletionObserved: observed, Cause: err, WaitMillis: s.queueWait.Milliseconds(), ExecutionMillis: time.Since(started).Milliseconds()}
+	snapshot, err := captureWorkflowInput(in)
+	if err != nil {
+		return s.finishWorkflowAttempt(operation, workflowAttempt{err: err}, 0, started)
+	}
+	if err := ctx.Err(); err != nil {
+		return s.finishWorkflowAttempt(operation, workflowAttempt{err: err}, 0, started)
+	}
+	attempt := s.invokeWorkflowAttempt(ctx, in)
+	attempts := 1
+	if canRetryWorkflow(ctx, attempt) {
+		// Retain the same command owner, executor, read lane and caller budget.
+		// The native transaction and finalizers have already finished here.
+		attempt.value = nil
+		if err := waitWorkflowRetry(ctx); err != nil {
+			attempt.err = errors.Join(attempt.err, err)
+		} else if retryInput, err := captureWorkflowInput(snapshot); err != nil {
+			attempt.err = errors.Join(attempt.err, err)
+		} else if err := ctx.Err(); err != nil {
+			attempt.err = errors.Join(attempt.err, err)
+		} else {
+			attempts++
+			attempt = s.invokeWorkflowAttempt(ctx, retryInput)
+		}
+	}
+	return s.finishWorkflowAttempt(operation, attempt, attempts, started)
+}
+
+func (s *Store) invokeWorkflowAttempt(ctx context.Context, in *workflow.Input) (a workflowAttempt) {
+	a.value, a.err = s.server.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: in,
+		Completion: func(report handler.Outcome) {
+			a.outcome = report.Clone()
+			a.completions++
+		}})
+	return a
+}
+
+func (s *Store) finishWorkflowAttempt(operation string, a workflowAttempt, attempts int, started time.Time) (any, handler.Outcome, error) {
+	if a.err == nil {
+		return a.value, a.outcome, nil
+	}
+	if a.outcome.State() == handler.TransactionRolledBack && (errors.Is(a.err, gateway.ErrConflict) || errors.Is(a.err, gateway.ErrBackendUnavailable) || errors.Is(a.err, gateway.ErrDenied)) {
+		return a.value, a.outcome, a.err
+	}
+	observed := a.completions != 0
+	issue := &gateway.StorageError{Operation: operation, IntegrationID: s.scope, Attempts: attempts,
+		CompletionObserved: observed, Cause: a.err, WaitMillis: s.queueWait.Milliseconds(), ExecutionMillis: time.Since(started).Milliseconds()}
 	if observed {
-		issue.TransactionState = string(outcome.State())
+		issue.TransactionState = string(a.outcome.State())
 	}
 	var driver *mysql.MySQLError
-	if errors.As(err, &driver) {
+	if errors.As(a.err, &driver) && driver != nil {
 		issue.MySQLCode = driver.Number
 		issue.SQLState = string(driver.SQLState[:])
 		for _, c := range issue.SQLState {
@@ -49,10 +90,10 @@ func (s *Store) invokeNative(ctx context.Context, in *workflow.Input) (any, hand
 	}
 	// A targeted read of durable truth is safe even when completion is unknown.
 	// It does not authorize replay of any external side effect.
-	if s.thread != nil && (!observed || outcome.State() == handler.TransactionUnknown || outcome.State() == handler.TransactionCommitUnknown || outcome.State() == handler.TransactionRollbackUnknown || outcome.State() == handler.TransactionMixed || outcome.State() == handler.TransactionPartial) {
+	if attempts != 0 && s.thread != nil && (!observed || a.outcome.State() == handler.TransactionUnknown || a.outcome.State() == handler.TransactionCommitUnknown || a.outcome.State() == handler.TransactionRollbackUnknown || a.outcome.State() == handler.TransactionMixed || a.outcome.State() == handler.TransactionPartial) {
 		s.reconcileThreadHint(*s.thread)
 	}
-	return value, outcome, issue
+	return a.value, a.outcome, issue
 }
 
 func (s *Store) invokeReader(ctx context.Context, request dexec.ComponentRequest) (any, error) {

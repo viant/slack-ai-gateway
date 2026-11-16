@@ -14,6 +14,7 @@ type StorageError struct {
 	MySQLCode          uint16
 	SQLState           string
 	CompletionObserved bool
+	Attempts           int
 	WaitMillis         int64
 	ExecutionMillis    int64
 	Cause              error `json:"-"`
@@ -29,5 +30,6 @@ func LogStorageError(log *slog.Logger, err error) {
 	}
 	log.Error("storage_operation_failed", "operation", issue.Operation, "integration_id", issue.IntegrationID,
 		"transaction_state", issue.TransactionState, "completion_observed", issue.CompletionObserved,
-		"mysql_code", issue.MySQLCode, "sqlstate", issue.SQLState, "wait_ms", issue.WaitMillis, "execution_ms", issue.ExecutionMillis)
+		"mysql_code", issue.MySQLCode, "sqlstate", issue.SQLState, "attempts", issue.Attempts,
+		"wait_ms", issue.WaitMillis, "execution_ms", issue.ExecutionMillis)
 }

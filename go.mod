@@ -110,7 +110,7 @@ require (
 	github.com/viant/authz v0.1.2-0.20261112184253-02e92dcfc66b // indirect
 	github.com/viant/bindly v0.5.1-0.20261113195222-531abbb2409d
 	github.com/viant/bintly v0.2.0 // indirect
-	github.com/viant/datly v1.1.1-0.20261109185227-674263d179f1
+	github.com/viant/datly v1.1.1-0.20261116204501-da0af64319ec
 	github.com/viant/embedius v0.5.8-0.20261108015858-2dbb2e0a515a // indirect
 	github.com/viant/forge v0.3.47-0.20261109173735-ebb545c0b9e6 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
@@ -125,16 +125,16 @@ require (
 	github.com/viant/mcp-ui v0.2.1 // indirect
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/sqlite-vec v0.3.1 // indirect
-	github.com/viant/sqlparser v0.13.1 // indirect
+	github.com/viant/sqlparser v0.13.2-0.20261116181906-966687e8c8a7 // indirect
 	github.com/viant/sqlx v0.26.2-0.20261113032806-87f5818ff1ed
-	github.com/viant/structology v0.10.2-0.20261113180916-935b893ed193 // indirect
+	github.com/viant/structology v0.10.2-0.20261116121336-d1368d5fc29c // indirect
 	github.com/viant/structql v0.5.5 // indirect
-	github.com/viant/tagly v0.4.2-0.20261114220424-b7354b0404e2 // indirect
+	github.com/viant/tagly v0.4.2-0.20261116201554-3f045edeac17 // indirect
 	github.com/viant/vec v0.2.4 // indirect
 	github.com/viant/velty v0.4.1 // indirect
 	github.com/viant/x v0.6.1-0.20261106041415-0487ec66884b
 	github.com/viant/xdatly v1.0.1-0.20261113190124-9ad673c8f3b5
-	github.com/viant/xlsy v0.3.2-0.20261113010534-151b55bf6abc // indirect
+	github.com/viant/xlsy v0.3.2-0.20261116092351-baa9ff16d7d4 // indirect
 	github.com/viant/xmlify v0.2.0 // indirect
 	github.com/viant/xreflect v0.7.5 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
@@ -193,5 +193,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
-
-replace github.com/viant/datly => ../datly_main
