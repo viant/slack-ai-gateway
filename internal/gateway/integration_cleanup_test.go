@@ -94,7 +94,7 @@ func TestConfigurationClosureStillChecksDirectMessagePeer(t *testing.T) {
 }
 
 type cleanupStatusStore struct {
-	StatusStore
+	*cleanupDeliveryStore
 	status  *GatewayJobProgress
 	kinds   []string
 	results []StatusResult
@@ -162,12 +162,12 @@ func (cleanupRecoveringBackend) State() BackendState { return BackendRecovering 
 func TestConfigurationClosurePreemptsBackendRecoveryWithSharedPacing(t *testing.T) {
 	now := time.Now()
 	original := cleanupContext()
-	statuses := &cleanupStatusStore{status: &GatewayJobProgress{JobID: 1, ThreadKey: original.Message.ThreadKey,
-		MessageTS: original.Message.MessageTS, SlackTS: "2.000001", Phase: "integration_changed", Terminal: true, Submitted: true, CreatedAt: now}}
 	deliveries := &cleanupDeliveryStore{}
+	statuses := &cleanupStatusStore{cleanupDeliveryStore: deliveries, status: &GatewayJobProgress{JobID: 1, ThreadKey: original.Message.ThreadKey,
+		MessageTS: original.Message.MessageTS, SlackTS: "2.000001", Phase: "integration_changed", Terminal: true, Submitted: true, CreatedAt: now}}
 	slack := &cleanupSlack{}
 	statusWorker := &StatusWorker{Store: statuses, Sender: slack, Policy: cleanupPolicy(t, &cleanupDirectory{}, nil), Backend: cleanupRecoveringBackend{}, Now: func() time.Time { return now }}
-	w := &OutboundWorker{Status: statusWorker, SlackOutgoingMessage: &DeliveryWorker{Store: deliveries, Sender: slack}, Interval: time.Second, Now: func() time.Time { return now }}
+	w := &OutboundWorker{Status: statusWorker, SlackOutgoingMessage: &DeliveryWorker{Store: statuses, Sender: slack}, Interval: time.Second, Now: func() time.Time { return now }}
 	worked, err := w.Step(context.Background())
 	if err != nil || !worked || deliveries.claims != 0 || len(slack.order) != 1 || slack.order[0] != "closure" || statuses.kinds[0] != "integration_terminal" {
 		t.Fatalf("configuration closure did not preempt other work: worked=%v err=%v claims=%d kinds=%v", worked, err, deliveries.claims, statuses.kinds)

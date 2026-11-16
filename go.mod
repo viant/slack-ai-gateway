@@ -3,6 +3,7 @@ module github.com/viant/slack-ai-gateway
 go 1.26.0
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/slack-go/slack v0.30.1
 	github.com/viant/agently-core v0.1.60-0.20261109173735-a37e7fd49266
@@ -106,8 +107,8 @@ require (
 	github.com/viant/agently-core/protocol/primitive v0.1.0 // indirect
 	github.com/viant/agently-core/protocol/resource v0.1.0 // indirect
 	github.com/viant/agently-core/protocol/window v0.1.0 // indirect
-	github.com/viant/authz v0.1.2-0.20261027201251-5ba403d7e022 // indirect
-	github.com/viant/bindly v0.5.1-0.20261107224459-fee82b537c68
+	github.com/viant/authz v0.1.2-0.20261112184253-02e92dcfc66b // indirect
+	github.com/viant/bindly v0.5.1-0.20261113195222-531abbb2409d
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/datly v1.1.1-0.20261109185227-674263d179f1
 	github.com/viant/embedius v0.5.8-0.20261108015858-2dbb2e0a515a // indirect
@@ -119,21 +120,21 @@ require (
 	github.com/viant/jsonrpc v0.25.1 // indirect
 	github.com/viant/linager v0.1.0 // indirect
 	github.com/viant/mcp v0.24.2-0.20261108032237-21edf2c50ace // indirect
-	github.com/viant/mcp-protocol v0.19.2-0.20261109171433-0c12367a2739 // indirect
+	github.com/viant/mcp-protocol v0.19.2-0.20261114220942-9489f5fccb2b // indirect
 	github.com/viant/mcp-tasks v0.1.0 // indirect
 	github.com/viant/mcp-ui v0.2.1 // indirect
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/sqlite-vec v0.3.1 // indirect
 	github.com/viant/sqlparser v0.13.1 // indirect
-	github.com/viant/sqlx v0.26.2-0.20261106174837-52540c3f870c
-	github.com/viant/structology v0.10.2-0.20261107222012-8e078e89542f // indirect
+	github.com/viant/sqlx v0.26.2-0.20261113032806-87f5818ff1ed
+	github.com/viant/structology v0.10.2-0.20261113180916-935b893ed193 // indirect
 	github.com/viant/structql v0.5.5 // indirect
-	github.com/viant/tagly v0.4.2-0.20261109165833-97d17304159d // indirect
+	github.com/viant/tagly v0.4.2-0.20261114220424-b7354b0404e2 // indirect
 	github.com/viant/vec v0.2.4 // indirect
 	github.com/viant/velty v0.4.1 // indirect
 	github.com/viant/x v0.6.1-0.20261106041415-0487ec66884b
-	github.com/viant/xdatly v1.0.1-0.20261106191133-04634a407286
-	github.com/viant/xlsy v0.3.1 // indirect
+	github.com/viant/xdatly v1.0.1-0.20261113190124-9ad673c8f3b5
+	github.com/viant/xlsy v0.3.2-0.20261113010534-151b55bf6abc // indirect
 	github.com/viant/xmlify v0.2.0 // indirect
 	github.com/viant/xreflect v0.7.5 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
@@ -178,7 +179,6 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -193,3 +193,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
+
+replace github.com/viant/datly => ../datly_main

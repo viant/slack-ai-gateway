@@ -18,6 +18,7 @@ type Component struct {
 // Input is a trusted in-process command, never an HTTP or model-controlled body.
 type Input struct {
 	Action               string
+	PhysicalThread       *gateway.PhysicalThreadKey
 	Scope                int64
 	IntegrationName      string
 	Integrations         []storage.Integration
@@ -52,6 +53,7 @@ type Output struct {
 	Status               *gateway.GatewayJobProgress
 	Snapshot             *storage.Status
 	NotBefore            time.Time
+	AffectedThreads      []gateway.PhysicalThreadKey
 
 	// Invocation-local evidence is detached after the owning native transaction
 	// finishes. It never becomes part of the storage command's public output.

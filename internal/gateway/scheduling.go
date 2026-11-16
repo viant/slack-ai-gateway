@@ -16,8 +16,29 @@ type WorkHint struct {
 // authoritative; discovery neither claims work nor authorizes its execution.
 type WorkCandidate struct {
 	IntegrationID int64
-	Query         WorkHint
-	Outbound      WorkHint
+	Thread        PhysicalThreadKey
+	// Reconcile requests refreshed deadline metadata after a timing change.
+	Reconcile bool
+	Query     WorkHint
+	Outbound  WorkHint
+}
+
+type WorkCursor struct {
+	After  PhysicalThreadKey
+	Cutoff time.Time
+}
+
+type WorkPage struct {
+	Candidates []WorkCandidate
+	Next       *WorkCursor
+	Deadline   *WorkCandidate
+}
+
+// ThreadWorkPlanner preserves bounded discovery and direct, committed-key hints.
+type ThreadWorkPlanner interface {
+	WorkPage(context.Context, time.Time, *WorkCursor) (WorkPage, error)
+	TakeWorkHints() []WorkCandidate
+	ThreadRevision(PhysicalThreadKey) uint64
 }
 
 // WorkPlanner is supplied by the shared storage owner and its scoped handles.

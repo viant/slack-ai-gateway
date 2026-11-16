@@ -57,6 +57,8 @@ func (t QueryTiming) defaults() QueryTiming {
 }
 
 func (w Worker) Step(ctx context.Context) (bool, error) {
+	release := RetainThread(w.Store)
+	defer release()
 	j, err := w.Store.ClaimJob(ctx)
 	if err != nil || j == nil {
 		return false, err
@@ -75,26 +77,26 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 	d, err := w.Policy.Authorize(ctx, j.Message, b)
 	if err != nil {
 		if errors.Is(err, ErrSlackAuth) {
-			return true, errors.Join(err, w.finishBeforeSubmission(ctx, j, func() error { return w.review(ctx, j, "slack_auth_rejected") }))
+			return true, errors.Join(err, w.finishBeforeSubmission(ctx, j, func(local Store) error { return w.reviewStore(ctx, local, j, "slack_auth_rejected") }))
 		}
 		if errors.Is(err, ErrDenied) && j.BackendSubmissionStartedAt.IsZero() {
-			return true, w.finishBeforeSubmission(ctx, j, func() error { return w.Store.Reject(ctx, j.ID, "policy_denied") })
+			return true, w.finishBeforeSubmission(ctx, j, func(local Store) error { return local.Reject(ctx, j.ID, "policy_denied") })
 		}
 		if errors.Is(err, ErrDenied) {
 			return true, w.review(ctx, j, "policy_denied")
 		}
-		return true, w.finishBeforeSubmission(ctx, j, func() error { return w.review(ctx, j, "policy_unavailable") })
+		return true, w.finishBeforeSubmission(ctx, j, func(local Store) error { return w.reviewStore(ctx, local, j, "policy_unavailable") })
 	}
 	if strings.TrimSpace(j.Text) == "" {
 		text := "Mention the bot and include a question."
 		if j.HasAttachments {
 			text += " Attachments are not read; paste the relevant text."
 		}
-		return true, w.finishBeforeSubmission(ctx, j, func() error { return w.Store.Complete(ctx, j.ID, "", text, RenderText(text)) })
+		return true, w.finishBeforeSubmission(ctx, j, func(local Store) error { return local.Complete(ctx, j.ID, "", text, RenderText(text)) })
 	}
-	err = w.withReady(func() error {
+	err = w.withReady(ctx, func(local Store) error {
 		var bindErr error
-		b, bindErr = w.Store.BindJob(ctx, j.ID, d)
+		b, bindErr = local.BindJob(ctx, j.ID, d)
 		return bindErr
 	})
 	if err != nil {
@@ -134,8 +136,13 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 			return w.settle(ctx, j, b.ConversationID, turn, readErr)
 		})
 	}
+	var createEpoch uint64
+	var created, hasCreateEpoch bool
 	if b.ConversationID == "" {
-		if err = w.withReady(func() error { return w.Store.BeginCreate(ctx, b.ID) }); err != nil {
+		if err = w.withReadyEpoch(ctx, func(local Store, epoch uint64, known bool) error {
+			createEpoch, hasCreateEpoch = epoch, known
+			return local.BeginCreate(ctx, b.ID)
+		}); err != nil {
 			if errors.Is(err, ErrBackendUnavailable) {
 				err = w.deferUnavailable(ctx, j)
 			}
@@ -156,10 +163,31 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 			return true, err
 		}
 		b.ConversationID = id
+		created = true
+		// Creation may have outlived the authenticated client generation. Obtain
+		// its replacement outside the thread owner before durable submission.
+		client, err = w.Clients.ForPrincipal(ctx, b.PrincipalID)
+		if err != nil {
+			if ctx.Err() != nil {
+				return true, ctx.Err()
+			}
+			if w.Backend != nil && (errors.Is(err, ErrBackendAuth) || errors.Is(err, ErrBackendUnavailable)) {
+				return true, w.deferUnavailable(persistCtx, j)
+			}
+			if errors.Is(err, ErrBackendAuth) {
+				return true, w.authReview(persistCtx, j, err)
+			}
+			return true, w.review(persistCtx, j, "credentials_unavailable")
+		}
 	}
 	// The durable marker precedes the external side effect. Never blindly replay
 	// an interrupted query; stable MessageID is correlation, not idempotency.
-	if err = w.withReady(func() error { return w.Store.BeginQuery(ctx, j.ID) }); err != nil {
+	if err = w.withReadyEpoch(ctx, func(local Store, epoch uint64, known bool) error {
+		if created && hasCreateEpoch && known && epoch != createEpoch {
+			return ErrBackendUnavailable
+		}
+		return local.BeginQuery(ctx, j.ID)
+	}); err != nil {
 		if errors.Is(err, ErrBackendUnavailable) {
 			err = w.deferUnavailable(ctx, j)
 		}
@@ -174,11 +202,20 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 	})
 }
 
-func (w Worker) withReady(fn func() error) error {
-	if w.Backend != nil {
-		return w.Backend.WithReady(fn)
-	}
-	return fn()
+func (w Worker) withReady(ctx context.Context, fn func(Store) error) error {
+	return w.withReadyEpoch(ctx, func(local Store, _ uint64, _ bool) error { return fn(local) })
+}
+
+func (w Worker) withReadyEpoch(ctx context.Context, fn func(Store, uint64, bool) error) error {
+	return InThread(ctx, w.Store, func(local Store) error {
+		if epochs, ok := w.Backend.(ReadyEpochLifecycle); ok {
+			return epochs.WithReadyEpoch(func(epoch uint64) error { return fn(local, epoch, true) })
+		}
+		if w.Backend != nil {
+			return w.Backend.WithReady(func() error { return fn(local, 0, false) })
+		}
+		return fn(local, 0, false)
+	})
 }
 
 func (w Worker) pauseUnavailable(ctx context.Context, j *GatewayJob) (bool, error) {
@@ -206,11 +243,11 @@ func (w Worker) deferUnavailable(ctx context.Context, j *GatewayJob) error {
 	return err
 }
 
-func (w Worker) finishBeforeSubmission(ctx context.Context, j *GatewayJob, fn func() error) error {
+func (w Worker) finishBeforeSubmission(ctx context.Context, j *GatewayJob, fn func(Store) error) error {
 	if w.Backend == nil || !j.BackendSubmissionStartedAt.IsZero() {
-		return fn()
+		return InThread(ctx, w.Store, fn)
 	}
-	err := w.withReady(fn)
+	err := w.withReady(ctx, fn)
 	if errors.Is(err, ErrBackendUnavailable) {
 		return w.deferUnavailable(ctx, j)
 	}
@@ -218,10 +255,12 @@ func (w Worker) finishBeforeSubmission(ctx context.Context, j *GatewayJob, fn fu
 }
 
 func (w Worker) execute(task func() error) error {
+	release := RetainThread(w.Store)
 	if w.Execute != nil {
-		w.Execute(task)
+		w.Execute(func() error { defer release(); return task() })
 		return nil
 	}
+	defer release()
 	return task()
 }
 func (w Worker) observer(ctx context.Context, j *GatewayJob) func(Turn) error {
@@ -325,7 +364,11 @@ func (w Worker) settle(ctx context.Context, j *GatewayJob, conversationID string
 }
 
 func (w Worker) review(ctx context.Context, j *GatewayJob, reason string) error {
-	if err := w.Store.Review(ctx, j.ID, reason); err != nil {
+	return w.reviewStore(ctx, w.Store, j, reason)
+}
+
+func (w Worker) reviewStore(ctx context.Context, local Store, j *GatewayJob, reason string) error {
+	if err := local.Review(ctx, j.ID, reason); err != nil {
 		return err
 	}
 	if w.OnReview != nil {

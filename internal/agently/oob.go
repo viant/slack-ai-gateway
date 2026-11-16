@@ -181,14 +181,16 @@ func authorizeOOB(ctx context.Context, config *oauth2.Config, basic *cred.Basic,
 		return nil, oobFailure("authorization redirect", response.StatusCode)
 	}
 	query := location.Query()
-	if query.Get("error") != "" {
-		return nil, oobFailure("authorization rejected", response.StatusCode)
-	}
-	if query.Get("code") == "" {
-		return nil, oobFailure("authorization code missing", response.StatusCode)
-	}
 	if query.Get("state") != state {
 		return nil, oobFailure("authorization state mismatch", response.StatusCode)
+	}
+	if query.Get("error") != "" {
+		failure := oobResponseFailure("authorization rejected", response).(*authFailure)
+		failure.oauthError = safeOAuthCode(query.Get("error"))
+		return nil, failure
+	}
+	if query.Get("code") == "" {
+		return nil, oobResponseFailure("authorization code missing", response)
 	}
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, client)
 	token, err := flow.Exchange(ctx, config, query.Get("code"), opts...)
@@ -209,9 +211,17 @@ func authorizeOOB(ctx context.Context, config *oauth2.Config, basic *cred.Basic,
 // Stage must be an internal literal, never data from the IdP or its libraries.
 // Raw errors, URLs, response bodies and headers can all contain credentials.
 func oobFailure(stage string, status int) error {
-	failure := &authFailure{permanent: true}
-	// An absent HTTP status is transient only at an actual HTTP exchange.
-	failure.permanent = !(status >= 500 || status == 408 || status == 429 || status == 0 && (stage == "authorization request, HTTP status unavailable" || stage == "token exchange, HTTP status unavailable"))
+	failure := &authFailure{stage: stage, status: status}
+	switch stage {
+	case "endpoint validation", "PKCE initialization", "authorization URL construction", "authorization request construction", "authorization redirect", "authorization state mismatch":
+		failure.permanent, failure.category = true, "oauth_validation_failed"
+	default:
+		if status >= 500 || status == 408 || status == 429 || status == 0 && (stage == "authorization request, HTTP status unavailable" || stage == "token exchange, HTTP status unavailable") {
+			failure.category = "remote_unavailable"
+		} else {
+			failure.category, failure.retryAfter = "remote_authentication_rejected", authRetryDelay()
+		}
+	}
 	if status != 0 {
 		failure.message = fmt.Sprintf("Agently OOB authorization failed (%s, HTTP %d)", stage, status)
 	} else {
@@ -222,7 +232,7 @@ func oobFailure(stage string, status int) error {
 
 func oobResponseFailure(stage string, response *http.Response) error {
 	failure := oobFailure(stage, response.StatusCode).(*authFailure)
-	failure.retryAfter = retryAfter(response.Header.Get("Retry-After"), time.Now())
+	failure.retryAfter = max(failure.retryAfter, retryAfter(response.Header.Get("Retry-After"), time.Now()))
 	return failure
 }
 
@@ -231,20 +241,17 @@ func oobResponseFailure(stage string, response *http.Response) error {
 // safe reason. AutoDetect reports the configured policy, not which attempt failed.
 func oobTokenExchangeFailure(cause error, configured oauth2.AuthStyle) error {
 	failure := oobFailure("token exchange, HTTP status unavailable", 0).(*authFailure)
+	var network net.Error
+	if !errors.As(cause, &network) && !errors.Is(cause, context.DeadlineExceeded) && !errors.Is(cause, context.Canceled) {
+		failure.category, failure.retryAfter = "remote_response_invalid", authRetryDelay()
+	}
 	var responseErr *oauth2.RetrieveError
 	code := ""
 	if errors.As(cause, &responseErr) {
 		if responseErr.Response != nil {
 			failure = oobResponseFailure("token exchange", responseErr.Response).(*authFailure)
 		}
-		switch responseErr.ErrorCode {
-		case "invalid_client", "invalid_grant", "unauthorized_client", "invalid_request",
-			"access_denied", "temporarily_unavailable", "server_error", "unsupported_grant_type":
-			code = responseErr.ErrorCode
-		case "":
-		default:
-			code = "other"
-		}
+		code = safeOAuthCode(responseErr.ErrorCode)
 	}
 	style := "other"
 	switch configured {
@@ -255,10 +262,23 @@ func oobTokenExchangeFailure(cause error, configured oauth2.AuthStyle) error {
 	case oauth2.AuthStyleInHeader:
 		style = "in_header"
 	}
+	failure.oauthError, failure.authStyle = code, style
 	if code != "" {
 		failure.message += fmt.Sprintf(" [oauth_error=%s configured_auth_style=%s]", code, style)
 	} else {
 		failure.message += fmt.Sprintf(" [configured_auth_style=%s]", style)
 	}
 	return failure
+}
+
+func safeOAuthCode(code string) string {
+	switch code {
+	case "invalid_client", "invalid_grant", "unauthorized_client", "invalid_request",
+		"access_denied", "temporarily_unavailable", "server_error", "unsupported_grant_type":
+		return code
+	case "":
+		return ""
+	default:
+		return "other"
+	}
 }

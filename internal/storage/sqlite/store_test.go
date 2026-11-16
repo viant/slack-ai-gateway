@@ -20,6 +20,10 @@ type scopedFixture struct {
 	id    int64
 }
 
+func (s *scopedFixture) ForThread(key gateway.PhysicalThreadKey) gateway.Store {
+	return gateway.ForThread(s.Store, key)
+}
+
 func (s *scopedFixture) Migrate(ctx context.Context) error {
 	if err := s.owner.Migrate(ctx); err != nil {
 		return err
@@ -99,8 +103,10 @@ func TestMigrations(t *testing.T) {
 		storetest.Must(t, s.CheckSchema(ctx))
 		var n int
 		storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&n))
-		if n != 1 {
-			t.Fatal("initial schema applied more than once")
+		list, err := migrationList()
+		storetest.Must(t, err)
+		if n != len(list) {
+			t.Fatalf("expected each migration once: got %d, want %d", n, len(list))
 		}
 		storetest.Must(t, fixtureDB(t, s).QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&n))
 		if n != 7 {

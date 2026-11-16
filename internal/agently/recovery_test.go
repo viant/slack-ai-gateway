@@ -248,19 +248,32 @@ func TestManagerReadyProtected401PreservesSessionAndCooldown(t *testing.T) {
 	}
 }
 
-func TestManagerQuery403IsLocalAndMetadata403Blocks(t *testing.T) {
+func TestManagerQuery403IsLocalAndMetadata403IsRecoverable(t *testing.T) {
 	f := newLoginFixture(t)
-	m := testManager(t, f, nil)
-	waitBackend(t, m, gateway.BackendReady)
+	factory, err := f.login()
+	storetest.Must(t, err)
+	m := NewManager(nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.ready(factory)
 	f.mode.Store("run_forbidden")
-	_, err := managerClient(t, m).Query(context.Background(), gateway.Query{ConversationID: "c", MessageID: "r", AgentID: "steward", Text: "question"}, nil)
+	_, err = managerClient(t, m).Query(context.Background(), gateway.Query{ConversationID: "c", MessageID: "r", AgentID: "steward", Text: "question"}, nil)
 	if !errors.Is(err, gateway.ErrBackendProtocol) || errors.Is(err, gateway.ErrBackendAuth) || m.State() != gateway.BackendReady {
 		t.Fatal("request-specific 403 invalidated shared identity")
 	}
 	f.mode.Store("metadata_forbidden")
-	waitBackend(t, m, gateway.BackendBlocked)
-	if f.count("/authorize") != 1 {
-		t.Fatal("permission failure triggered relogin")
+	err = factory.Verify(context.Background())
+	var failure *authFailure
+	if !errors.As(err, &failure) || failure.permanent || factory.session.invalid.Load() {
+		t.Fatalf("remote metadata refusal poisoned valid identity: %v", err)
+	}
+	_, generation, _ := m.snapshot()
+	m.failed(generation, err)
+	if m.State() != gateway.BackendRecovering || f.count("/authorize") != 1 {
+		t.Fatal("metadata refusal blocked the manager or triggered an immediate login")
+	}
+	f.mode.Store("")
+	storetest.Must(t, factory.Verify(context.Background()))
+	if f.count("/authorize") != 1 || f.count("/v1/api/auth/session") != 1 {
+		t.Fatal("a valid cookie was replaced after permissions recovered")
 	}
 }
 
@@ -282,15 +295,16 @@ func TestManagerUncertainQueryIsNeverReplayed(t *testing.T) {
 	}
 }
 
-func TestManagerBadCredentialsBlockWithoutLoop(t *testing.T) {
+func TestManagerRemotePasswordRejectionSchedulesRecovery(t *testing.T) {
 	f := newLoginFixture(t)
 	f.mode.Store("bad_password")
-	m := testManager(t, f, nil)
-	waitBackend(t, m, gateway.BackendBlocked)
-	f.mode.Store("")
-	time.Sleep(50 * time.Millisecond)
-	if m.State() != gateway.BackendBlocked || f.count("/authorize") != 1 {
-		t.Fatal("bad password was retried indefinitely")
+	_, err := f.login()
+	var failure *authFailure
+	if !errors.As(err, &failure) || failure.permanent || failure.retryAfter < time.Minute || failure.retryAfter > 75*time.Second {
+		t.Fatalf("remote password rejection did not receive a bounded recovery delay: %v", err)
+	}
+	if f.count("/authorize") != 1 || f.count("/token") != 0 || f.count("/v1/api/auth/session") != 0 {
+		t.Fatal("a single failed login retried credentials or reached session creation")
 	}
 }
 
@@ -327,11 +341,19 @@ func TestManagerPersistsUnavailableBeforeReady(t *testing.T) {
 	<-entered
 	var admitted atomic.Bool
 	checked := make(chan struct{})
-	go func() { _ = m.WithReady(func() error { admitted.Store(true); return nil }); close(checked) }()
+	go func() {
+		if err := m.WithReady(func() error { admitted.Store(true); return nil }); !errors.Is(err, gateway.ErrBackendUnavailable) {
+			t.Errorf("unfinished cleanup readiness: %v", err)
+		}
+		close(checked)
+	}()
 	select {
 	case <-checked:
-		t.Fatal("admission passed an unfinished durable outage transition")
-	case <-time.After(20 * time.Millisecond):
+	case <-time.After(time.Second):
+		t.Fatal("unavailable readiness gate waited for cleanup instead of rejecting admission")
+	}
+	if m.State() != gateway.BackendRecovering || m.ready(genericFactory{}) {
+		t.Fatal("cleanup blocked state inspection or allowed premature readiness")
 	}
 	close(release)
 	<-finished
@@ -362,7 +384,7 @@ func TestOOBClassifiesFailuresAndValidatesLocalSecrets(t *testing.T) {
 			if !errors.As(err, &failure) || strings.Contains(fmt.Sprintf("%+v %#v", err, err), "secret-marker") {
 				t.Fatal("unclassified or unredacted authentication failure")
 			}
-			permanent := mode == "bad_password" || mode == "wrong_state" || mode == "token_error"
+			permanent := mode == "wrong_state"
 			if failure.permanent != permanent {
 				t.Fatalf("permanent = %v, want %v", failure.permanent, permanent)
 			}

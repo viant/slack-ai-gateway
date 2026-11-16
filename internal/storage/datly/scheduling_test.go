@@ -140,22 +140,33 @@ func TestWorkDiscoveryKeepsStatusTimersFallbackAndBotCooldown(t *testing.T) {
 			if !candidate.Outbound.ProbeNow || !candidate.Outbound.NextAt.Equal(stale) {
 				t.Fatalf("status staleness timer was lost behind immediate probe: %+v", candidate.Outbound)
 			}
-			// During backend recovery/blocked state, a submitted native-only
-			// question needs a message fallback even without a Slack timestamp.
+			// A healthy native-only question does not require repeated message
+			// probes merely because its native publication has failed.
 			_, err = db.Exec("UPDATE gateway_job SET slack_progress_mode='agent_session',gateway_execution_state='querying',backend_submission_started_at=?", now)
 			storetest.Must(t, err)
 			_, err = db.Exec("UPDATE slack_agent_session_publication SET slack_publication_state='failed'")
 			storetest.Must(t, err)
 			candidate = discoveryFor(t, root, a.ID, now)
-			if !candidate.Outbound.ProbeNow {
-				t.Fatal("native-only submitted question lost backend fallback")
+			if candidate.Outbound.ProbeNow {
+				t.Fatal("healthy native-only question remained permanently eligible")
 			}
-			status, err := s.ClaimStatus(ctx, now, "backend_blocked")
+			// Backend state transitions explicitly wake submitted physical
+			// threads, including native-only questions without a Slack timestamp.
+			planner := root.(gateway.ThreadWorkPlanner)
+			planner.TakeWorkHints()
+			root.(interface{ StartThreadOwnership() }).StartThreadOwnership()
+			storetest.Must(t, s.FailUnstarted(ctx, "backend_blocked"))
+			hints := planner.TakeWorkHints()
+			if len(hints) != 1 || hints[0].IntegrationID != a.ID || hints[0].Thread != message.PhysicalThread() || !hints[0].Outbound.ProbeNow {
+				t.Fatalf("backend transition lost its physical fallback wake: %+v", hints)
+			}
+			bound := gateway.ForThread(s, message.PhysicalThread())
+			status, err := bound.ClaimStatus(ctx, now, "backend_blocked")
 			storetest.Must(t, err)
 			if status == nil || status.Target != gateway.StatusTargetMessage {
 				t.Fatal("native backend fallback path did not claim a message")
 			}
-			storetest.Must(t, s.FinishStatus(ctx, *status, gateway.StatusResult{State: "ready", SlackTS: "200.000001", NextRefreshAt: refresh}, now))
+			storetest.Must(t, bound.FinishStatus(ctx, *status, gateway.StatusResult{State: "ready", SlackTS: "200.000001", NextRefreshAt: refresh}, now))
 			cooldown := now.Add(2 * time.Minute)
 			_, err = db.Exec("UPDATE gateway_job SET slack_progress_rate_limited_until=?", cooldown)
 			storetest.Must(t, err)

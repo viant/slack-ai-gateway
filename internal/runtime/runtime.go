@@ -47,6 +47,12 @@ func (r *Runtime) Run(ctx context.Context) (runErr error) {
 	if err := r.Store.Recover(ctx); err != nil {
 		return fmt.Errorf("runtime recovery failed")
 	}
+	if err := r.prepareUnavailable(ctx); err != nil {
+		return err
+	}
+	if owner, ok := r.Store.(interface{ StartThreadOwnership() }); ok {
+		owner.StartThreadOwnership()
+	}
 	scheduler := newWorkScheduler(r.Store.(gateway.WorkPlanner))
 	defer func() {
 		if err := scheduler.close(); err != nil {
@@ -81,6 +87,77 @@ func (r *Runtime) validate() error {
 	return nil
 }
 
+// Startup cleanup finishes before any source or scheduler can admit new work.
+// Runtime backend transitions use the same Store's thread-owned fanout later.
+func (r *Runtime) prepareUnavailable(ctx context.Context) error {
+	if r.Backend != nil {
+		if err := r.Store.FailUnstarted(ctx, "backend_unavailable"); err != nil {
+			return fmt.Errorf("runtime unavailable-work recovery failed")
+		}
+	}
+	return nil
+}
+
+// Terminal drain reuses the scheduler's physical-bot permit and HTTP/receipt
+// stages after normal admission has stopped. Global metadata remains read-only.
+func (r *Runtime) drainTerminal(ctx context.Context, scheduler *workScheduler, outbound *gateway.OutboundWorker, report func(context.Context, error) bool, fatal func(error)) error {
+	planner, native := r.Store.(gateway.ThreadWorkPlanner)
+	if !native {
+		for ctx.Err() == nil {
+			worked, err := outbound.TerminalStep(ctx)
+			if err != nil || !worked {
+				return err
+			}
+		}
+		return nil
+	}
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	integration := r.Store.(gateway.WorkPlanner).IntegrationID()
+	var cursor *gateway.WorkCursor
+	for ctx.Err() == nil {
+		page, err := planner.WorkPage(ctx, time.Now(), cursor)
+		if err != nil {
+			return err
+		}
+		for _, candidate := range page.Candidates {
+			if candidate.IntegrationID != integration || !candidate.Thread.Valid() || !candidate.Outbound.ProbeNow {
+				continue
+			}
+			var reported bool
+			terminal := &scheduledRuntime{id: integration, ctx: ctx, canStart: func() bool { return ctx.Err() == nil },
+				threadStore: func(key gateway.PhysicalThreadKey) gateway.Store { return gateway.ForThread(r.Store, key) },
+				prepareOutbound: func(ctx context.Context, _ gateway.PhysicalThreadKey, local gateway.Store) (*gateway.PreparedOutbound, error) {
+					return outbound.Status.Prepare(ctx, local, "terminal")
+				},
+				report: func(taskCtx context.Context, err error) bool {
+					reported = true
+					return report(taskCtx, err)
+				}, fatal: fatal, workers: &workers}
+			for ctx.Err() == nil {
+				reported = false
+				worked, err := scheduler.terminal(ctx, terminal, candidate.Thread)
+				if err != nil || !worked {
+					if err != nil {
+						// Accepted flights report before their completion reply;
+						// failures before admission still need the outer report.
+						if reported {
+							return nil
+						}
+						return err
+					}
+					break
+				}
+			}
+		}
+		cursor = page.Next
+		if cursor == nil {
+			return nil
+		}
+	}
+	return nil
+}
+
 // runPrepared reuses the worker lifecycle after the process owner has recovered
 // storage once. Query work stays scoped to this assignment; its Slack bot may
 // also publish terminal cleanup for historical assignments.
@@ -90,12 +167,6 @@ func (r *Runtime) runPrepared(ctx context.Context, scheduler *workScheduler) err
 	log := r.Log
 	if log == nil {
 		log = slog.Default()
-	}
-	if r.Backend != nil {
-		// Restart must not replay unsubmitted questions from a previous process.
-		if err := r.Store.FailUnstarted(ctx, "backend_unavailable"); err != nil {
-			return fmt.Errorf("runtime unavailable-work recovery failed")
-		}
 	}
 	fatal := make(chan error, 1)
 	var sharedFailure atomic.Pointer[error]
@@ -126,7 +197,9 @@ func (r *Runtime) runPrepared(ctx context.Context, scheduler *workScheduler) err
 		backendDone := make(chan struct{})
 		go func() {
 			defer close(backendDone)
-			if err := r.Backend.Run(backendCtx); err != nil && (backendCtx.Err() == nil || !errors.Is(err, backendCtx.Err())) {
+			err := r.Backend.Run(backendCtx)
+			gateway.LogStorageError(log, err)
+			if err != nil && (backendCtx.Err() == nil || !errors.Is(err, backendCtx.Err())) {
 				recordFatal(errors.New("backend connection recovery or storage failed"))
 			}
 		}()
@@ -151,6 +224,7 @@ func (r *Runtime) runPrepared(ctx context.Context, scheduler *workScheduler) err
 		if err == nil {
 			return false
 		}
+		gateway.LogStorageError(log, err)
 		if taskCtx.Err() != nil && errors.Is(err, taskCtx.Err()) {
 			// A local transport stop cancels in-flight claims. Their native
 			// cancellation is not evidence that the shared database failed.
@@ -210,7 +284,6 @@ func (r *Runtime) runPrepared(ctx context.Context, scheduler *workScheduler) err
 	}
 	var runErr error
 	var outbound *gateway.OutboundWorker
-	registered := false
 	integrationID := r.Store.(gateway.WorkPlanner).IntegrationID()
 	sourceJoined := false
 	startup := time.NewTimer(30 * time.Second)
@@ -243,8 +316,16 @@ func (r *Runtime) runPrepared(ctx context.Context, scheduler *workScheduler) err
 		outbound = &gateway.OutboundWorker{SlackOutgoingMessage: &delivery, Status: statuses, Interval: time.Second}
 		scheduler.register(&scheduledRuntime{id: integrationID, ctx: workCtx, canStart: canStart,
 			query: w.Step, outbound: outbound.Step, nextSend: outbound.NextReadyAt,
+			threadStore: func(key gateway.PhysicalThreadKey) gateway.Store { return gateway.ForThread(r.Store, key) },
+			queryThread: func(ctx context.Context, key gateway.PhysicalThreadKey) (bool, error) {
+				threadWorker := w
+				threadWorker.Store = gateway.ForThread(r.Store, key)
+				return threadWorker.Step(ctx)
+			},
+			prepareOutbound: func(ctx context.Context, _ gateway.PhysicalThreadKey, local gateway.Store) (*gateway.PreparedOutbound, error) {
+				return outbound.Prepare(ctx, local)
+			},
 			report: report, fatal: recordFatal, workers: &workers})
-		registered = true
 		if backend, ok := r.Backend.(interface{ StateChanges() <-chan struct{} }); ok {
 			// The manager coalesces changes for its lifetime. A backend may close
 			// its notification channel when that lifetime ends.
@@ -284,9 +365,7 @@ func (r *Runtime) runPrepared(ctx context.Context, scheduler *workScheduler) err
 	// Stop ingestion and new claims first. Already started operations can finish
 	// and persist their results, but shutdown never drains the entire queue.
 	close(stopClaims)
-	if registered {
-		scheduler.unregister(integrationID)
-	}
+	scheduler.unregister(integrationID)
 	cancelSource()
 	shutdownDeadline := time.Now().Add(15 * time.Second)
 	if runErr != nil {
@@ -306,15 +385,8 @@ func (r *Runtime) runPrepared(ctx context.Context, scheduler *workScheduler) err
 	// writes. Only terminal statuses are attempted within the remaining grace.
 	if backendAuth.Load() && !slackUnavailable.Load() && outbound != nil && time.Now().Before(shutdownDeadline) {
 		drainCtx, cancel := context.WithDeadline(context.WithoutCancel(ctx), shutdownDeadline)
-		for drainCtx.Err() == nil {
-			worked, err := outbound.TerminalStep(drainCtx)
-			if err != nil {
-				report(drainCtx, err)
-				break
-			}
-			if !worked {
-				break
-			}
+		if err := r.drainTerminal(drainCtx, scheduler, outbound, report, recordFatal); err != nil {
+			report(drainCtx, err)
 		}
 		cancel()
 	}

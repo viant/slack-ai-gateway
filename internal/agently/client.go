@@ -68,7 +68,7 @@ func NewFactory(baseURL string, client *http.Client, tokens TokenProvider) (*Fac
 
 func (f *Factory) ForPrincipal(_ context.Context, principal string) (gateway.AgentlyClient, error) {
 	if f.session != nil && (f.session.invalid.Load() || principal != f.session.principal) {
-		return nil, f.rejectIdentity()
+		return nil, f.rejectIdentity("session_identity")
 	}
 	if strings.TrimSpace(principal) == "" {
 		return nil, gateway.ErrDenied
@@ -249,7 +249,7 @@ func (c *Client) CreateConversation(ctx context.Context, agent string) (string, 
 	}
 	if c.factory.session != nil {
 		if agent != c.factory.session.agent {
-			return "", c.factory.rejectIdentity()
+			return "", c.factory.rejectIdentity("conversation_identity")
 		}
 		if err := c.verifyIdentity(ctx); err != nil {
 			return "", err
@@ -276,7 +276,7 @@ func (c *Client) Query(ctx context.Context, q gateway.Query, observe func(gatewa
 	}
 	if c.factory.session != nil {
 		if q.AgentID != c.factory.session.agent {
-			return gateway.Turn{}, c.factory.rejectIdentity()
+			return gateway.Turn{}, c.factory.rejectIdentity("conversation_identity")
 		}
 	}
 	threadID, err := c.conversationThread(ctx, q.ConversationID)

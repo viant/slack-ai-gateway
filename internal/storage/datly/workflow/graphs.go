@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 
-	dexec "github.com/viant/datly/exec"
 	br "github.com/viant/slack-ai-gateway/internal/datly/bindings/read"
 	bw "github.com/viant/slack-ai-gateway/internal/datly/bindings/write"
 	dr "github.com/viant/slack-ai-gateway/internal/datly/deliveries/read"
@@ -22,9 +21,6 @@ func graphTarget[T any](name, method, path string) handler.ComponentTarget {
 	return handler.ComponentTarget{Scope: reflect.TypeFor[T]().PkgPath(), Name: name, Method: method, Path: "/internal/gateway/" + path}
 }
 func readGraph[T any](ctx context.Context, invoker handler.ComponentInvoker, target handler.ComponentTarget, input any, lock bool) (*T, error) {
-	if lock {
-		ctx = (dexec.ReaderOptions{ForUpdate: []string{dexec.RootView}}).Context(ctx)
-	}
 	value, err := invoker.Invoke(ctx, handler.ComponentRequest{Target: target, Input: input})
 	if err != nil {
 		return nil, err
@@ -50,12 +46,22 @@ func (x *execution) readJobs(ctx context.Context, in *jr.Input, lock bool) ([]*j
 			in.SetIntegrationID(0)
 		}
 	}
+	if x.thread != nil {
+		in.SetPhysicalThread(true)
+		in.SetAppID(x.thread.AppID)
+		in.SetWorkspaceID(x.thread.WorkspaceID)
+		in.SetChannelID(x.thread.ChannelID)
+		in.SetSlackThreadRootMessageID(x.thread.RootTS)
+	}
 	out, e := readGraph[jr.Output](ctx, x.invoke, graphTarget[jr.ReaderComponent]("reader", "GET", "jobs"), in, lock)
 	if e != nil {
 		return nil, e
 	}
 	for _, j := range out.Data {
 		if j == nil || (x.identity != nil && (j.SlackAppId != x.identity.AppID || j.SlackWorkspaceId != x.identity.WorkspaceID)) {
+			return nil, gateway.ErrConflict
+		}
+		if x.thread != nil && (j.SlackAppId != x.thread.AppID || j.SlackWorkspaceId != x.thread.WorkspaceID || j.SlackChannelId != x.thread.ChannelID || j.SlackThreadRootMessageId != x.thread.RootTS) {
 			return nil, gateway.ErrConflict
 		}
 		if _, err := contextFromJob(j); err != nil {
@@ -105,9 +111,20 @@ func (x *execution) readBindings(ctx context.Context, in *br.Input, lock bool) (
 		in.SetAppID(x.identity.AppID)
 		in.SetWorkspaceID(x.identity.WorkspaceID)
 	}
+	if x.thread != nil {
+		in.SetAppID(x.thread.AppID)
+		in.SetWorkspaceID(x.thread.WorkspaceID)
+		in.SetChannelID(x.thread.ChannelID)
+		in.SetSlackThreadRootMessageID(x.thread.RootTS)
+	}
 	out, e := readGraph[br.Output](ctx, x.invoke, graphTarget[br.ReaderComponent]("reader", "GET", "bindings"), in, lock)
 	if e != nil {
 		return nil, e
+	}
+	for _, b := range out.Data {
+		if b == nil || (x.thread != nil && (b.SlackAppId != x.thread.AppID || b.SlackWorkspaceId != x.thread.WorkspaceID || b.SlackChannelId != x.thread.ChannelID || b.SlackThreadRootMessageId != x.thread.RootTS)) {
+			return nil, gateway.ErrConflict
+		}
 	}
 	return out.Data, nil
 }
@@ -121,12 +138,22 @@ func (x *execution) readDeliveries(ctx context.Context, in *dr.Input, lock bool)
 	if x.name != "" {
 		in.SetIntegrationName(x.name)
 	}
+	if x.thread != nil {
+		in.SetPhysicalThread(true)
+		in.SetAppID(x.thread.AppID)
+		in.SetWorkspaceID(x.thread.WorkspaceID)
+		in.SetChannelID(x.thread.ChannelID)
+		in.SetSlackThreadRootMessageID(x.thread.RootTS)
+	}
 	out, e := readGraph[dr.Output](ctx, x.invoke, graphTarget[dr.ReaderComponent]("reader", "GET", "deliveries"), in, lock)
 	if e != nil {
 		return nil, e
 	}
 	for _, d := range out.Data {
 		if d == nil || (x.identity != nil && (d.SlackAppId != x.identity.AppID || d.SlackWorkspaceId != x.identity.WorkspaceID)) {
+			return nil, gateway.ErrConflict
+		}
+		if x.thread != nil && (d.SlackAppId != x.thread.AppID || d.SlackWorkspaceId != x.thread.WorkspaceID || d.SlackChannelId != x.thread.ChannelID || d.SlackThreadRootMessageId != x.thread.RootTS) {
 			return nil, gateway.ErrConflict
 		}
 	}
@@ -145,12 +172,22 @@ func (x *execution) readSessions(ctx context.Context, in *sr.Input, lock bool) (
 		in.SetAppID(x.identity.AppID)
 		in.SetWorkspaceID(x.identity.WorkspaceID)
 	}
+	if x.thread != nil {
+		in.SetPhysicalThread(true)
+		in.SetAppID(x.thread.AppID)
+		in.SetWorkspaceID(x.thread.WorkspaceID)
+		in.SetChannelID(x.thread.ChannelID)
+		in.SetSlackThreadRootMessageID(x.thread.RootTS)
+	}
 	out, e := readGraph[sr.Output](ctx, x.invoke, graphTarget[sr.ReaderComponent]("reader", "GET", "sessions"), in, lock)
 	if e != nil {
 		return nil, e
 	}
 	for _, p := range out.Data {
 		if p == nil || (x.identity != nil && (p.SlackAppId != x.identity.AppID || p.SlackWorkspaceId != x.identity.WorkspaceID)) {
+			return nil, gateway.ErrConflict
+		}
+		if x.thread != nil && (p.SlackAppId != x.thread.AppID || p.SlackWorkspaceId != x.thread.WorkspaceID || p.SlackChannelId != x.thread.ChannelID || p.SlackThreadRootMessageId != x.thread.RootTS) {
 			return nil, gateway.ErrConflict
 		}
 		var source, latest bool

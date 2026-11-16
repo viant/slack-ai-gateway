@@ -64,6 +64,9 @@ func (x *execution) failUnstarted(ctx context.Context, in *Input, _ *Output) err
 	if err := x.writeJobs(ctx, updates); err != nil {
 		return err
 	}
+	for _, j := range jobs {
+		x.affectJob(j)
+	}
 	for id := range bindings {
 		if err := x.touchBinding(ctx, id, now); err != nil {
 			return err

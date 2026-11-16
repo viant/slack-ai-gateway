@@ -60,29 +60,30 @@ func (i Intake) Accept(ctx context.Context, m Message) (AcceptResult, error) {
 	}
 	m.Text = strings.TrimSpace(m.Text)
 	m.StatusMode = i.StatusMode
+	store := ForThread(i.Store, m.PhysicalThread())
 	var inserted bool
-	enqueue := func() error {
-		var err error
-		inserted, err = i.Store.Enqueue(ctx, m)
-		return err
+	// Keep the arrival disposition even if readiness changes while queued.
+	if i.Backend != nil && i.Backend.State() != BackendReady {
+		m.BackendReason = BackendReason(i.Backend.State())
+		if m.BackendReason == "" {
+			m.BackendReason = "backend_unavailable"
+		}
 	}
-	var err error
-	if i.Backend == nil {
-		err = enqueue()
-	} else {
-		// Admission and the outage sweep share the manager's readiness lock.
-		// A ready snapshot alone could otherwise enqueue work after that sweep.
-		err = i.Backend.WithReady(enqueue)
+	err := InThread(ctx, store, func(local Store) error {
+		enqueue := func() error { var err error; inserted, err = local.Enqueue(ctx, m); return err }
+		if i.Backend == nil || m.BackendReason != "" {
+			return enqueue()
+		}
+		err := i.Backend.WithReady(enqueue)
 		if errors.Is(err, ErrBackendUnavailable) {
 			m.BackendReason = BackendReason(i.Backend.State())
 			if m.BackendReason == "" {
-				// This question arrived before recovery completed. Preserve its
-				// local disposition even if the connection is now ready.
 				m.BackendReason = "backend_unavailable"
 			}
-			err = enqueue()
+			return enqueue()
 		}
-	}
+		return err
+	})
 	if err != nil {
 		return AcceptResult{}, err
 	}

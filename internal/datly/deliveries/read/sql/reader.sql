@@ -7,6 +7,11 @@ SELECT * FROM  (SELECT m.*, owner_job.integration_id,owner_job.gateway_execution
  owner_job.slack_channel_id,owner_job.slack_thread_root_message_id
 FROM slack_outgoing_message m JOIN gateway_job owner_job ON owner_job.id=m.job_id
 WHERE 1=1
+#if($PhysicalThread)
+AND owner_job.slack_channel_id=$ChannelID AND owner_job.slack_thread_root_message_id=$SlackThreadRootMessageID
+AND EXISTS (SELECT 1 FROM integration thread_integration WHERE thread_integration.id=owner_job.integration_id
+ AND thread_integration.slack_app_id=$AppID AND thread_integration.slack_workspace_id=$WorkspaceID)
+#end
 #if($IntegrationID != 0)
 AND (owner_job.integration_id=$IntegrationID OR (m.slack_message_kind='integration_notice'
  AND EXISTS (SELECT 1 FROM integration historical JOIN integration current_integration

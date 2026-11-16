@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,7 +19,10 @@ import (
 
 // missingSession is distinct from an identity mismatch: a missing/expired
 // cookie can be replaced, whereas a verified wrong identity must be blocked.
-type missingSession struct{}
+type missingSession struct {
+	status     int
+	retryAfter time.Duration
+}
 
 func (*missingSession) Error() string { return "Viant Steward session is unavailable" }
 func (*missingSession) Unwrap() error { return gateway.ErrBackendAuth }
@@ -30,27 +34,102 @@ type authFailure struct {
 	permanent  bool
 	retryAfter time.Duration
 	candidate  *Factory
+	stage      string
+	category   string
+	status     int
+	oauthError string
+	authStyle  string
+	identity   bool
 }
 
 func (e *authFailure) Error() string    { return e.message }
 func (e *authFailure) String() string   { return e.message }
 func (e *authFailure) GoString() string { return e.message }
 
+// Only a verified identity rejection satisfies the authentication sentinel.
+// Remote refusals are handled by Manager without poisoning the session.
+func (e *authFailure) Unwrap() error {
+	if e.identity {
+		return gateway.ErrBackendAuth
+	}
+	return nil
+}
+
+const authRetryMin = time.Minute
+const authRetryJitter = 15 * time.Second
+
+func authRetryDelay() time.Duration {
+	return authRetryMin + time.Duration(rand.Int64N(int64(authRetryJitter)+1))
+}
+
+func (e *authFailure) logAttrs() []any {
+	stage, category := e.stage, e.category
+	if stage == "" {
+		stage = "authentication"
+	}
+	if category == "" {
+		category = "authentication_failed"
+	}
+	attrs := []any{"reason", e.message, "stage", stage, "category", category}
+	if e.status != 0 {
+		attrs = append(attrs, "http_status", e.status)
+	}
+	if e.oauthError != "" {
+		attrs = append(attrs, "oauth_error", e.oauthError)
+	}
+	if e.authStyle != "" {
+		attrs = append(attrs, "configured_auth_style", e.authStyle)
+	}
+	return attrs
+}
+
 func transientAPI(e *APIError) bool {
 	return e.Status == 0 && !e.Permanent || e.Status >= 500 || e.Status == 408 || e.Status == 429
 }
 
-func loginFailure(message string, cause error, candidate *Factory) error {
-	failure := &authFailure{message: message, permanent: true}
+// This boundary owns authentication/readiness failures only. Query-specific
+// API errors keep their existing classification in managedClient.result.
+func loginFailure(stage, message string, cause error, candidate *Factory) *authFailure {
+	failure := &authFailure{message: message, stage: stage}
 	var auth *authFailure
 	var api *APIError
-	if errors.As(cause, &auth) {
-		failure.permanent, failure.retryAfter = auth.permanent, auth.retryAfter
-	} else if errors.As(cause, &api) {
-		failure.permanent = !(transientAPI(api) || api.Status == http.StatusUnauthorized && !api.Permanent)
+	var missing *missingSession
+	var network net.Error
+	switch {
+	case errors.As(cause, &auth):
+		*failure = *auth
+		failure.message = message
+		if failure.stage == "" {
+			failure.stage = stage
+		}
+	case errors.As(cause, &missing):
+		failure.stage, failure.category, failure.status = "session_identity", "session_missing", missing.status
+		failure.retryAfter = missing.retryAfter
+	case errors.As(cause, &api):
+		failure.status = api.Status
 		failure.retryAfter = api.RetryAfter
+		switch {
+		case api.Status == 0 && api.Permanent:
+			failure.category = "remote_response_invalid"
+			failure.retryAfter = max(failure.retryAfter, authRetryDelay())
+		case transientAPI(api):
+			failure.category = "remote_unavailable"
+		case stage == "workspace_metadata" && api.Status == http.StatusUnauthorized && !api.Permanent:
+			failure.category = "token_refresh_pending"
+		default:
+			failure.category = "remote_authentication_rejected"
+			failure.retryAfter = max(failure.retryAfter, authRetryDelay())
+		}
+	case errors.Is(cause, gateway.ErrBackendAuth):
+		failure.permanent, failure.identity, failure.category = true, true, "identity_mismatch"
+	case errors.As(cause, &network), errors.Is(cause, context.DeadlineExceeded), errors.Is(cause, context.Canceled):
+		failure.category = "remote_unavailable"
+	default:
+		failure.category, failure.retryAfter = "remote_response_invalid", authRetryDelay()
 	}
-	if !failure.permanent {
+	if failure.permanent {
+		failure.candidate = nil
+	} else if candidate != nil {
 		failure.candidate = candidate
 	}
 	return failure
@@ -72,7 +151,7 @@ func retryAfter(value string, now time.Time) time.Duration {
 func ValidateOOBReference(ctx context.Context, ref *scy.Resource) error {
 	secret, err := loadBasicSecret(ctx, ref)
 	if err != nil || secret == nil || secret.Username == "" || secret.Password == "" {
-		return &authFailure{message: "cannot load Viant Steward OOB credentials", permanent: true}
+		return &authFailure{message: "cannot load Viant Steward OOB credentials", permanent: true, stage: "local_configuration", category: "credentials_invalid"}
 	}
 	return nil
 }
@@ -84,6 +163,9 @@ type Manager struct {
 	mu                                 sync.RWMutex
 	state                              gateway.BackendState
 	generation                         uint64
+	outageEpoch                        uint64
+	cleanup                            *backendCleanup
+	runContext                         context.Context
 	current                            gateway.AgentlyClientFactory
 	notBefore                          time.Time
 	login                              func(context.Context) (gateway.AgentlyClientFactory, error)
@@ -96,7 +178,17 @@ type Manager struct {
 	retryBase, retryMax, probeInterval time.Duration
 }
 
+// backendCleanup belongs to one unavailable generation. Its callback runs on
+// the already tracked caller, outside mu; recovery waits for its completion.
+type backendCleanup struct {
+	generation uint64
+	state      gateway.BackendState
+	done       chan struct{}
+	err        error
+}
+
 var _ gateway.BackendLifecycle = (*Manager)(nil)
+var _ gateway.ReadyEpochLifecycle = (*Manager)(nil)
 
 func NewManager(login func(context.Context) (gateway.AgentlyClientFactory, error), onUnavailable func(context.Context, gateway.BackendState) error, log *slog.Logger) *Manager {
 	if log == nil {
@@ -124,12 +216,16 @@ func (m *Manager) notifyStateChange() {
 // WithReady serializes only local durable admission with an outage transition.
 // The callback must not perform HTTP or call back into Manager.
 func (m *Manager) WithReady(fn func() error) error {
+	return m.WithReadyEpoch(func(uint64) error { return fn() })
+}
+
+func (m *Manager) WithReadyEpoch(fn func(uint64) error) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.state != gateway.BackendReady {
 		return gateway.ErrBackendUnavailable
 	}
-	return fn()
+	return fn(m.outageEpoch)
 }
 
 func (m *Manager) valid(generation uint64) error {
@@ -159,16 +255,75 @@ func (m *Manager) ForPrincipal(ctx context.Context, principal string) (gateway.A
 	return &managedClient{manager: m, generation: generation, inner: client}, nil
 }
 
-// The exclusive lock also prevents new local admissions until their terminal
-// unavailable state has been persisted. No network request is made here.
-func (m *Manager) unavailableLocked(ctx context.Context, state gateway.BackendState) error {
+// Close admission before releasing mu. Waiting for thread owners must happen
+// afterward: their earlier commands may still need the readiness read lock.
+func (m *Manager) unavailableLocked(_ context.Context, state gateway.BackendState, failure *authFailure) error {
+	if m.state == gateway.BackendReady {
+		m.outageEpoch++
+	}
 	m.state, m.generation = state, m.generation+1
-	defer m.notifyStateChange()
-	m.log.Info("agently_backend", "state", state)
-	if m.onUnavailable != nil {
-		return m.onUnavailable(ctx, state)
+	m.cleanup = &backendCleanup{generation: m.generation, state: state, done: make(chan struct{})}
+	attrs := []any{"state", state}
+	if failure != nil {
+		attrs = append(attrs, failure.logAttrs()...)
+		if !failure.permanent {
+			attrs = append(attrs, "retry_after_ms", max(int64(0), time.Until(m.notBefore).Milliseconds()), "retry_at", m.notBefore)
+		}
+	} else {
+		attrs = append(attrs, "reason", "Backend authentication is starting", "stage", "readiness", "category", "connection_starting")
+	}
+	m.log.Info("agently_backend", attrs...)
+	if state == gateway.BackendBlocked && failure != nil {
+		m.log.Error("agently_backend_blocked", failure.logAttrs()...)
 	}
 	return nil
+}
+
+func (m *Manager) finishCleanup(ctx context.Context, cleanup *backendCleanup) error {
+	var err error
+	if m.onUnavailable != nil {
+		err = m.onUnavailable(ctx, cleanup.state)
+	}
+	m.mu.Lock()
+	cleanup.err = err
+	close(cleanup.done)
+	current := m.cleanup == cleanup && m.generation == cleanup.generation
+	if current {
+		if err != nil {
+			m.state = gateway.BackendBlocked
+			select {
+			case m.fatal <- err:
+			default:
+			}
+		}
+		m.notifyStateChange()
+	}
+	m.mu.Unlock()
+	if !current {
+		return nil
+	}
+	return err
+}
+
+func (m *Manager) waitCleanup(ctx context.Context) error {
+	m.mu.RLock()
+	cleanup := m.cleanup
+	m.mu.RUnlock()
+	if cleanup == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-cleanup.done:
+		m.mu.RLock()
+		current := m.cleanup == cleanup && m.generation == cleanup.generation
+		m.mu.RUnlock()
+		if current {
+			return cleanup.err
+		}
+		return nil
+	}
 }
 
 func (m *Manager) failed(generation uint64, err error) {
@@ -195,36 +350,63 @@ func (m *Manager) failed(generation uint64, err error) {
 		return
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if generation != m.generation || m.state != gateway.BackendReady {
+		m.mu.Unlock()
 		return
 	}
 	var cooldown time.Duration
 	if api != nil {
 		cooldown = api.RetryAfter
 	}
-	if auth != nil {
-		cooldown = max(cooldown, auth.retryAfter)
-	}
-	m.notBefore = time.Now().Add(cooldown)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := m.unavailableLocked(ctx, state); err != nil {
-		m.state = gateway.BackendBlocked
-		select {
-		case m.fatal <- err:
+	if auth == nil {
+		switch {
+		case missing != nil:
+			auth = loginFailure("session_identity", missing.Error(), missing, nil)
+		case api != nil:
+			// This API failure came from a conversation operation, not an auth
+			// endpoint. Keep its existing recovery delay and request semantics.
+			auth = &authFailure{message: "Viant Steward API request failed", stage: "backend_request", category: "remote_unavailable", status: api.Status}
 		default:
+			auth = loginFailure("identity", gateway.ErrBackendAuth.Error(), gateway.ErrBackendAuth, nil)
 		}
 	}
+	cooldown = max(cooldown, auth.retryAfter)
+	m.notBefore = time.Now().Add(cooldown)
+	ctx := m.runContext
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_ = m.unavailableLocked(ctx, state, auth)
+	cleanup := m.cleanup
+	m.mu.Unlock()
+	_ = m.finishCleanup(ctx, cleanup)
 	select {
 	case m.wake <- struct{}{}:
 	default:
 	}
 }
 
-func (m *Manager) ready(factory gateway.AgentlyClientFactory) {
+func (m *Manager) ready(factory gateway.AgentlyClientFactory) bool {
+	_, generation, _ := m.snapshot()
+	return m.readyGeneration(factory, generation)
+}
+
+func (m *Manager) readyGeneration(factory gateway.AgentlyClientFactory, expected uint64) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.generation != expected {
+		return false
+	}
+	if m.cleanup != nil {
+		select {
+		case <-m.cleanup.done:
+			if m.cleanup.err != nil {
+				return false
+			}
+		default:
+			return false
+		}
+	}
 	m.generation++
 	generation := m.generation
 	if native, ok := factory.(*Factory); ok {
@@ -242,8 +424,9 @@ func (m *Manager) ready(factory gateway.AgentlyClientFactory) {
 		factory = &copy
 	}
 	m.current, m.state, m.notBefore = factory, gateway.BackendReady, time.Time{}
-	m.log.Info("agently_backend", "state", gateway.BackendReady)
+	m.log.Info("agently_backend", "state", gateway.BackendReady, "reason", "Backend session and configured agent verified", "stage", "readiness", "category", "connection_verified")
 	m.notifyStateChange()
+	return true
 }
 
 func (m *Manager) snapshot() (gateway.AgentlyClientFactory, uint64, gateway.BackendState) {
@@ -265,15 +448,15 @@ func (m *Manager) verifyOrLogin(ctx context.Context) (gateway.AgentlyClientFacto
 			if native, ok := current.(*Factory); ok {
 				candidate = native
 			}
-			return nil, loginFailure("Viant Steward session verification failed", err, candidate)
+			return nil, loginFailure("readiness", "Viant Steward session verification failed", err, candidate)
 		}
 	}
 	if m.login == nil {
-		return nil, &authFailure{message: "Viant Steward authentication is not configured", permanent: true}
+		return nil, &authFailure{message: "Viant Steward authentication is not configured", permanent: true, stage: "local_configuration", category: "configuration_invalid"}
 	}
 	factory, err := m.login(ctx)
 	if err == nil && factory == nil {
-		err = &authFailure{message: "Viant Steward authentication returned no session", permanent: true}
+		err = &authFailure{message: "Viant Steward authentication returned no session", permanent: true, stage: "local_configuration", category: "configuration_invalid"}
 	}
 	return factory, err
 }
@@ -286,13 +469,24 @@ func (m *Manager) Run(ctx context.Context) error {
 		return errors.New("Viant Steward recovery is already running")
 	}
 	m.mu.Lock()
-	err := m.unavailableLocked(ctx, gateway.BackendStarting)
+	m.runContext = ctx
+	_ = m.unavailableLocked(ctx, gateway.BackendStarting, nil)
+	cleanup := m.cleanup
 	m.mu.Unlock()
-	if err != nil {
+	if err := m.finishCleanup(ctx, cleanup); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return err
 	}
 	delay := m.retryBase
 	for ctx.Err() == nil {
+		if err := m.waitCleanup(ctx); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
 		current, generation, state := m.snapshot()
 		if state == gateway.BackendReady || state == gateway.BackendBlocked {
 			var tick <-chan time.Time
@@ -324,7 +518,7 @@ func (m *Manager) Run(ctx context.Context) error {
 					if ctx.Err() == nil && err != nil {
 						var missing *missingSession
 						if !errors.As(err, &missing) {
-							err = loginFailure("Viant Steward session verification failed", err, nil)
+							err = loginFailure("readiness", "Viant Steward session verification failed", err, nil)
 						}
 						m.failed(generation, err)
 					}
@@ -347,6 +541,10 @@ func (m *Manager) Run(ctx context.Context) error {
 			case <-timer.C:
 			}
 		}
+		_, generation, state = m.snapshot()
+		if state != gateway.BackendStarting && state != gateway.BackendRecovering {
+			continue
+		}
 		attempt, cancel := context.WithTimeout(ctx, 90*time.Second)
 		factory, err := m.verifyOrLogin(attempt)
 		cancel()
@@ -354,35 +552,43 @@ func (m *Manager) Run(ctx context.Context) error {
 			return nil
 		}
 		if err == nil {
-			m.ready(factory)
+			m.readyGeneration(factory, generation)
 			delay = m.retryBase
 			continue
 		}
 		var failure *authFailure
 		if !errors.As(err, &failure) {
-			err = loginFailure("Viant Steward authentication failed", err, nil)
+			err = loginFailure("authentication", "Viant Steward authentication failed", err, nil)
 			_ = errors.As(err, &failure)
 		}
 		m.mu.Lock()
+		if m.generation != generation {
+			m.mu.Unlock()
+			continue
+		}
 		if failure.candidate != nil {
 			m.current = failure.candidate
 		}
 		if failure.permanent {
-			err = m.unavailableLocked(ctx, gateway.BackendBlocked)
+			err = m.unavailableLocked(ctx, gateway.BackendBlocked, failure)
+			cleanup = m.cleanup
 		} else {
 			err = nil
 		}
 		m.mu.Unlock()
+		if failure.permanent {
+			err = m.finishCleanup(ctx, cleanup)
+		}
 		if err != nil {
 			return err
 		}
 		if failure.permanent {
-			m.log.Error("agently_backend_blocked", "reason", failure.Error())
 			continue
 		}
 		// Jitter only the exponential interval; never shorten Retry-After.
 		wait := max(time.Duration(float64(delay)*(0.8+rand.Float64()*0.4)), failure.retryAfter)
-		m.log.Info("agently_backend_retry", "state", m.State(), "retry_after_ms", wait.Milliseconds(), "reason", failure.Error())
+		attrs := []any{"state", m.State(), "retry_after_ms", wait.Milliseconds(), "retry_at", time.Now().Add(wait)}
+		m.log.Info("agently_backend_retry", append(attrs, failure.logAttrs()...)...)
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():

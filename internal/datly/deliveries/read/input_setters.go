@@ -28,6 +28,61 @@ func (input *Input) SetIntegrationName(value string) {
 	input.Has.IntegrationName = true
 }
 
+func (input *Input) SetPhysicalThread(value bool) {
+	if input == nil {
+		return
+	}
+	input.PhysicalThread = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.PhysicalThread = true
+}
+
+func (input *Input) SetAppID(value string) {
+	if input == nil {
+		return
+	}
+	input.AppID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.AppID = true
+}
+
+func (input *Input) SetWorkspaceID(value string) {
+	if input == nil {
+		return
+	}
+	input.WorkspaceID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.WorkspaceID = true
+}
+
+func (input *Input) SetChannelID(value string) {
+	if input == nil {
+		return
+	}
+	input.ChannelID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.ChannelID = true
+}
+
+func (input *Input) SetSlackThreadRootMessageID(value string) {
+	if input == nil {
+		return
+	}
+	input.SlackThreadRootMessageID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.SlackThreadRootMessageID = true
+}
+
 func (input *Input) SetID(value int64) {
 	if input == nil {
 		return

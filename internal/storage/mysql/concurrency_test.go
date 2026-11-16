@@ -13,9 +13,9 @@ import (
 	"github.com/viant/slack-ai-gateway/internal/storetest"
 )
 
-// Exercise the real cross-workflow lock order: intake updates the native session
-// after inserting a job, status reads session/job graphs, and query workers claim
-// and settle jobs. No Slack or Agently calls participate in this test.
+// Exercise the actual physical-thread owners across intake, native/message
+// publication and execution. Independent threads may transact concurrently;
+// every transition of one thread uses the same owner. No external HTTP occurs.
 func TestConcurrentHybridIntakeStatusAndQueryClaims(t *testing.T) {
 	s := fixture(t).Store.(*Store)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -33,7 +33,11 @@ func TestConcurrentHybridIntakeStatusAndQueryClaims(t *testing.T) {
 	}
 	// Begin with an actual publication in flight. Intake must preserve its
 	// claimed revision while new questions update the same two session rows.
-	firstStatus, err := s.ClaimStatus(ctx, time.Now(), "urgent")
+	threadStore := func(thread int) gateway.Store {
+		return s.ForThread(gateway.PhysicalThreadKey{AppID: "A", WorkspaceID: "T", ChannelID: "C", RootTS: fmt.Sprintf("thread-%d", thread)})
+	}
+	s.StartThreadOwnership()
+	firstStatus, err := threadStore(0).ClaimStatus(ctx, time.Now(), "urgent")
 	storetest.Must(t, err)
 	if firstStatus == nil || firstStatus.Target != gateway.StatusTargetAgentSession {
 		t.Fatal("expected an initial native session publication")
@@ -100,8 +104,11 @@ func TestConcurrentHybridIntakeStatusAndQueryClaims(t *testing.T) {
 	go func() {
 		defer actors.Done()
 		<-start
+		cursor := 0
 		for ctx.Err() == nil {
-			j, err := s.ClaimJob(ctx)
+			owner := threadStore(cursor % 2)
+			cursor++
+			j, err := owner.ClaimJob(ctx)
 			if err != nil {
 				report("claim query", err)
 				return
@@ -115,7 +122,7 @@ func TestConcurrentHybridIntakeStatusAndQueryClaims(t *testing.T) {
 				}
 				continue
 			}
-			if err := s.Reject(ctx, j.ID, "concurrent_storage_test"); err != nil {
+			if err := owner.Reject(ctx, j.ID, "concurrent_storage_test"); err != nil {
 				report(fmt.Sprintf("settle query %d", j.ID), err)
 				return
 			}
@@ -127,10 +134,12 @@ func TestConcurrentHybridIntakeStatusAndQueryClaims(t *testing.T) {
 		defer actors.Done()
 		<-start
 		a := firstStatus
+		cursor := 0
 		for ctx.Err() == nil {
 			if a == nil {
 				var err error
-				a, err = s.ClaimStatus(ctx, time.Now(), "urgent")
+				a, err = threadStore(cursor%2).ClaimStatus(ctx, time.Now(), "urgent")
+				cursor++
 				if err != nil {
 					report("claim status", err)
 					return
@@ -145,7 +154,8 @@ func TestConcurrentHybridIntakeStatusAndQueryClaims(t *testing.T) {
 					continue
 				}
 			}
-			if _, err := s.GetStatusContext(ctx, *a); err != nil {
+			owner := s.ForThread(gateway.PhysicalThreadKey{AppID: "A", WorkspaceID: a.WorkspaceID, ChannelID: a.ChannelID, RootTS: a.RootTS})
+			if _, err := owner.GetStatusContext(ctx, *a); err != nil {
 				report("status destination", err)
 				return
 			}
@@ -166,7 +176,7 @@ func TestConcurrentHybridIntakeStatusAndQueryClaims(t *testing.T) {
 					result.State = "settled"
 				}
 			}
-			if err := s.FinishStatus(ctx, *a, result, now); err != nil {
+			if err := owner.FinishStatus(ctx, *a, result, now); err != nil {
 				report("acknowledge status", err)
 				return
 			}

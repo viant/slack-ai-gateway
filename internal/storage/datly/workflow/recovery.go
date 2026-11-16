@@ -62,6 +62,9 @@ func (x *execution) recover(ctx context.Context, _ *Input, _ *Output) error {
 		if err = x.writeJobs(ctx, updates); err != nil {
 			return err
 		}
+		for _, j := range jobs {
+			x.affectJob(j)
+		}
 	}
 	dq := &dr.Input{}
 	dq.SetMode("recover")
@@ -80,6 +83,9 @@ func (x *execution) recover(ctx context.Context, _ *Input, _ *Output) error {
 	if len(dchanges) > 0 {
 		if err = x.writeDeliveries(ctx, dchanges); err != nil {
 			return err
+		}
+		for _, d := range deliveries {
+			x.affectProgress(gateway.PhysicalThreadKey{AppID: d.SlackAppId, WorkspaceID: d.SlackWorkspaceId, ChannelID: d.SlackChannelId, RootTS: d.SlackThreadRootMessageId})
 		}
 	}
 	jq = &jr.Input{}
@@ -114,6 +120,10 @@ func (x *execution) recover(ctx context.Context, _ *Input, _ *Output) error {
 	}
 	schanges := make([]*sw.SlackAgentSessionPublication, 0, len(sessions))
 	for _, s := range sessions {
+		x.affectProgress(gateway.PhysicalThreadKey{AppID: s.SlackAppId, WorkspaceID: s.SlackWorkspaceId, ChannelID: s.SlackChannelId, RootTS: s.SlackThreadRootMessageId})
+		if s.SlackPublicationState != "sending" {
+			continue
+		}
 		r := &sw.SlackAgentSessionPublication{}
 		r.SetId(s.Id)
 		r.SetSlackPublicationState("ready")

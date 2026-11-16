@@ -21,12 +21,14 @@ The source package passed to `datly transcribe` selects the DQL input;
 contracts. Keep application code in separate sidecars or storage workflow files,
 and regenerate rather than modifying generated files directly.
 
-Lock-bearing root SQL reads integration metadata through ordinary scalar
-subqueries. Native row locking places `FOR UPDATE` on the physical root SELECT;
-joining shared assignment rows into that SELECT would also lock those shared
-rows and couple independent threads. Child and operator reads remain ordinary
-non-locking joins. Optional metadata filters retain native predicate groups
-inside `EXISTS`, including explicit empty-value presence.
+Runtime mutation readers apply the physical Slack thread predicate before
+ordering and limits. One process-local owner serializes that thread's short
+native workflows; the gateway does not request `FOR UPDATE`. Integration metadata
+uses ordinary scalar subqueries, and child/operator reads use ordinary joins.
+Startup reconciliation and mutating operator commands run exclusively, before
+thread ownership is active or with the runtime stopped. Optional metadata filters
+retain native predicate groups inside `EXISTS`, including explicit empty-value
+presence.
 
 The existing `integrations` component owns the singular `integration` table,
 numeric assignment snapshots and configuration activity. Global event-existence

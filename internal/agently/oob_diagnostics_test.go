@@ -24,16 +24,16 @@ func TestOOBTokenExchangeDiagnostics(t *testing.T) {
 		status         int
 		permanent      bool
 	}{
-		{"invalid_client", "invalid_client", http.StatusUnauthorized, true},
-		{"invalid_grant", "invalid_grant", http.StatusUnauthorized, true},
-		{"unauthorized_client", "unauthorized_client", http.StatusUnauthorized, true},
-		{"invalid_request", "invalid_request", http.StatusBadRequest, true},
-		{"access_denied", "access_denied", http.StatusForbidden, true},
+		{"invalid_client", "invalid_client", http.StatusUnauthorized, false},
+		{"invalid_grant", "invalid_grant", http.StatusUnauthorized, false},
+		{"unauthorized_client", "unauthorized_client", http.StatusUnauthorized, false},
+		{"invalid_request", "invalid_request", http.StatusBadRequest, false},
+		{"access_denied", "access_denied", http.StatusForbidden, false},
 		{"temporarily_unavailable", "temporarily_unavailable", http.StatusTooManyRequests, false},
 		{"server_error", "server_error", http.StatusServiceUnavailable, false},
-		{"unsupported_grant_type", "unsupported_grant_type", http.StatusBadRequest, true},
-		{"secret-marker-code\ninvalid_grant", "other", http.StatusUnauthorized, true},
-		{"", "", http.StatusUnauthorized, true},
+		{"unsupported_grant_type", "unsupported_grant_type", http.StatusBadRequest, false},
+		{"secret-marker-code\ninvalid_grant", "other", http.StatusUnauthorized, false},
+		{"", "", http.StatusUnauthorized, false},
 	} {
 		name := test.code
 		if name == "" {
@@ -79,8 +79,15 @@ func TestOOBTokenExchangeDiagnostics(t *testing.T) {
 			calls := tokenCalls
 			mu.Unlock()
 			var failure *authFailure
-			if payload != nil || !errors.As(err, &failure) || failure.permanent != test.permanent || failure.retryAfter != 2*time.Second || calls != 1 {
+			if payload != nil || !errors.As(err, &failure) || failure.permanent != test.permanent || calls != 1 {
 				t.Fatalf("diagnostic changed classification or native attempt count: %v", err)
+			}
+			if test.status == http.StatusTooManyRequests || test.status >= 500 {
+				if failure.retryAfter != 2*time.Second {
+					t.Fatal("transient OAuth failure lost Retry-After")
+				}
+			} else if failure.retryAfter < time.Minute || failure.retryAfter > 75*time.Second {
+				t.Fatalf("remote OAuth rejection retry = %s, want 60–75 seconds", failure.retryAfter)
 			}
 			want := fmt.Sprintf("Agently OOB authorization failed (token exchange, HTTP %d) [", test.status)
 			if test.wantCode != "" {

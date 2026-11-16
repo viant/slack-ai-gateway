@@ -15,8 +15,12 @@ import (
 )
 
 type admissionTimingStore struct {
-	storage.Store
+	nativeRuntimeStore
 	claimed chan time.Time
+}
+
+func (s admissionTimingStore) ForThread(key gateway.PhysicalThreadKey) gateway.Store {
+	return admissionTimingStore{nativeRuntimeStore: nativeRuntimeStore{Store: gateway.ForThread(s.Store, key).(storage.Store)}, claimed: s.claimed}
 }
 
 func (s admissionTimingStore) ClaimJob(ctx context.Context) (*gateway.GatewayJob, error) {
@@ -49,7 +53,7 @@ func runtimeCommittedIntakeWakeCase(t *testing.T, store storage.Store) {
 	t.Helper()
 	r, b := runtimeForStore(store)
 	claimed := make(chan time.Time, 16)
-	r.Store = admissionTimingStore{Store: store, claimed: claimed}
+	r.Store = admissionTimingStore{nativeRuntimeStore: nativeRuntimeStore{Store: store}, claimed: claimed}
 	queries := make(chan time.Time, 16)
 	b.query = func(_ context.Context, q gateway.Query) (gateway.Turn, error) {
 		queries <- time.Now()

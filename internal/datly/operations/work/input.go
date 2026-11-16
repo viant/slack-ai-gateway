@@ -8,10 +8,34 @@ import (
 
 // Input is the generated input scaffold for reader.
 type Input struct {
-	Now time.Time `parameter:"Now,kind=query,in=now,dataType=time.Time,required=false"`
-	Has *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
+	Mode                     string    `parameter:"Mode,kind=query,in=mode,dataType=string,value=page,required=false"`
+	IntegrationID            int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
+	Now                      time.Time `parameter:"Now,kind=query,in=now,dataType=time.Time,required=false"`
+	Cutoff                   time.Time `parameter:"Cutoff,kind=query,in=cutoff,dataType=time.Time,required=false"`
+	AfterApp                 string    `parameter:"AfterApp,kind=query,in=afterApp,dataType=string,value=,required=false"`
+	AfterWorkspace           string    `parameter:"AfterWorkspace,kind=query,in=afterWorkspace,dataType=string,value=,required=false"`
+	AfterChannel             string    `parameter:"AfterChannel,kind=query,in=afterChannel,dataType=string,value=,required=false"`
+	AfterRoot                string    `parameter:"AfterRoot,kind=query,in=afterRoot,dataType=string,value=,required=false"`
+	FixedThread              bool      `parameter:"FixedThread,kind=query,in=fixedThread,dataType=bool,value=false,required=false"`
+	AppID                    string    `parameter:"AppID,kind=query,in=AppID,dataType=string,value=,required=false"`
+	WorkspaceID              string    `parameter:"WorkspaceID,kind=query,in=WorkspaceID,dataType=string,value=,required=false"`
+	ChannelID                string    `parameter:"ChannelID,kind=query,in=ChannelID,dataType=string,value=,required=false"`
+	SlackThreadRootMessageID string    `parameter:"SlackThreadRootMessageID,kind=query,in=SlackThreadRootMessageID,dataType=string,value=,required=false"`
+	Has                      *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
 }
 
 type InputHas struct {
-	Now bool
+	Mode                     bool
+	IntegrationID            bool
+	Now                      bool
+	Cutoff                   bool
+	AfterApp                 bool
+	AfterWorkspace           bool
+	AfterChannel             bool
+	AfterRoot                bool
+	FixedThread              bool
+	AppID                    bool
+	WorkspaceID              bool
+	ChannelID                bool
+	SlackThreadRootMessageID bool
 }

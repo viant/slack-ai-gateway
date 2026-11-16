@@ -39,22 +39,22 @@ type SlackAgentSessionPublication struct {
 
 // GatewayJobSessionProjection is generated canonical view metadata for reader.
 type GatewayJobSessionProjection struct {
-	Id                       *int       `json:"id" sqlx:"id,required=true,primaryKey=true,autoincrement=true"`
-	IntegrationId            *int       `json:"integrationId" sqlx:"integration_id,refTable=integration,refColumn=id,required=true"`
+	Id                       *int       `json:"id" sqlx:"id"`
+	IntegrationId            *int       `json:"integrationId" sqlx:"integration_id"`
 	SlackAppId               string     `json:"slackAppId" sqlx:"slack_app_id"`
 	SlackWorkspaceId         string     `json:"slackWorkspaceId" sqlx:"slack_workspace_id"`
 	IntegrationName          string     `json:"integrationName" sqlx:"integration_name"`
 	IntegrationActive        *int       `json:"integrationActive" sqlx:"integration_active"`
 	IntegrationPrincipalId   string     `json:"integrationPrincipalId" sqlx:"integration_principal_id"`
-	SlackChannelId           *string    `json:"slackChannelId" sqlx:"slack_channel_id,required=true"`
-	SlackThreadRootMessageId *string    `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id,required=true"`
-	SlackPromptMessageId     *string    `json:"slackPromptMessageId" sqlx:"slack_prompt_message_id,required=true"`
-	SlackConversationType    *string    `json:"slackConversationType" sqlx:"slack_conversation_type,required=true"`
-	CreatedAt                *time.Time `json:"createdAt" sqlx:"created_at,required=true"`
-	GatewayExecutionState    *string    `json:"gatewayExecutionState" sqlx:"gateway_execution_state,required=true"`
-	GatewayExecutionReason   *string    `json:"gatewayExecutionReason" sqlx:"gateway_execution_reason,required=true"`
-	SlackProgressMode        string     `json:"slackProgressMode" sqlx:"slack_progress_mode,required=true"`
-	BackendObservedState     string     `json:"backendObservedState" sqlx:"backend_observed_state,required=true"`
+	SlackChannelId           *string    `json:"slackChannelId" sqlx:"slack_channel_id"`
+	SlackThreadRootMessageId *string    `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id"`
+	SlackPromptMessageId     *string    `json:"slackPromptMessageId" sqlx:"slack_prompt_message_id"`
+	SlackConversationType    *string    `json:"slackConversationType" sqlx:"slack_conversation_type"`
+	CreatedAt                *time.Time `json:"createdAt" sqlx:"created_at"`
+	GatewayExecutionState    *string    `json:"gatewayExecutionState" sqlx:"gateway_execution_state"`
+	GatewayExecutionReason   *string    `json:"gatewayExecutionReason" sqlx:"gateway_execution_reason"`
+	SlackProgressMode        string     `json:"slackProgressMode" sqlx:"slack_progress_mode"`
+	BackendObservedState     string     `json:"backendObservedState" sqlx:"backend_observed_state"`
 	BindingState             string     `json:"bindingState" sqlx:"binding_state"`
 	Pending                  *int       `json:"pending" sqlx:"pending"`
 	Bad                      *int       `json:"bad" sqlx:"bad"`

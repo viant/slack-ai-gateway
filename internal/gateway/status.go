@@ -119,7 +119,7 @@ func StatusText(s GatewayJobProgress, now time.Time) string {
 }
 
 type StatusWorker struct {
-	Store           StatusStore
+	Store           Store
 	Sender          StatusSender
 	Policy          DeliveryPolicy
 	Backend         BackendAvailability
@@ -136,6 +136,21 @@ func (w *StatusWorker) now() time.Time {
 }
 
 func (w *StatusWorker) Step(ctx context.Context, kind string) (bool, error) {
+	var prepared *PreparedOutbound
+	err := InThread(ctx, w.Store, func(local Store) error {
+		var prepareErr error
+		prepared, prepareErr = w.Prepare(ctx, local, kind)
+		return prepareErr
+	})
+	if err != nil || prepared == nil {
+		return false, err
+	}
+	return true, commitOutbound(ctx, w.Store, prepared.Send(ctx))
+}
+
+// Prepare performs only native claims/context reads. Policy and Slack calls are
+// deferred until Send, after the owner and its DB executor have been released.
+func (w *StatusWorker) Prepare(ctx context.Context, local Store, kind string) (*PreparedOutbound, error) {
 	if w.Backend != nil && kind != "terminal" && kind != "integration_terminal" {
 		switch w.Backend.State() {
 		case BackendStarting, BackendRecovering:
@@ -144,119 +159,123 @@ func (w *StatusWorker) Step(ctx context.Context, kind string) (bool, error) {
 			kind = "backend_blocked"
 		}
 	}
-	s, err := w.Store.ClaimStatus(ctx, w.now(), kind)
-	if err != nil || s == nil {
-		return false, err
+	claimed, err := local.ClaimStatus(ctx, w.now(), kind)
+	if err != nil || claimed == nil {
+		return nil, err
 	}
-	metadata, err := w.Store.GetStatusContext(ctx, *s)
+	s := *claimed
+	metadata, err := local.GetStatusContext(ctx, s)
 	if err != nil {
-		return true, err
+		prepareErr := err
+		return &PreparedOutbound{send: func(context.Context) OutboundResult {
+			return w.statusNotSent(s, prepareErr)
+		}}, nil
 	}
-	// Never substitute the shared execution principal for the original author.
-	// Recheck for every operation, without the final-part verification shortcut.
-	var policyErr error
-	if w.Policy == nil {
-		policyErr = ErrMetadataUnavailable
-	} else {
-		policyErr = w.Policy.AuthorizeDelivery(ctx, *metadata, true)
-	}
-	if err := policyErr; err != nil {
-		result := StatusResult{State: "ready", Reason: "policy_unavailable", RetryAt: w.now().Add(StatusRetry)}
-		if errors.Is(err, ErrDenied) {
-			result.State, result.Reason = "failed", "policy_denied"
+	return &PreparedOutbound{send: func(sendCtx context.Context) OutboundResult {
+		if err := sendCtx.Err(); err != nil {
+			return w.statusNotSent(s, err)
 		}
-		saveErr := w.finish(ctx, *s, result)
-		if saveErr != nil {
-			return true, saveErr
+		var policyErr error
+		if w.Policy == nil {
+			policyErr = ErrMetadataUnavailable
+		} else {
+			// Preserve the original author and verify every status operation.
+			policyErr = w.Policy.AuthorizeDelivery(sendCtx, *metadata, true)
 		}
-		if errors.Is(err, ErrDenied) {
-			return true, nil
+		if policyErr != nil {
+			if sendCtx.Err() != nil {
+				return w.statusNotSent(s, sendCtx.Err())
+			}
+			result := StatusResult{State: "ready", Reason: "policy_unavailable", RetryAt: w.now().Add(StatusRetry)}
+			var cause error = ErrMetadataUnavailable
+			if errors.Is(policyErr, ErrDenied) {
+				result.State, result.Reason, cause = "failed", "policy_denied", nil
+			} else if errors.Is(policyErr, ErrSlackAuth) {
+				cause = ErrSlackAuth
+			}
+			return w.statusResult(s, result, cause)
 		}
-		if errors.Is(err, ErrSlackAuth) {
-			return true, ErrSlackAuth
+		if err := sendCtx.Err(); err != nil {
+			return w.statusNotSent(s, err)
 		}
-		return true, ErrMetadataUnavailable
-	}
-	text := ""
-	visible := *s
-	if w.Backend != nil && s.Submitted && !s.Terminal && s.Phase != "delivering" {
-		switch w.Backend.State() {
-		case BackendStarting, BackendRecovering:
-			visible.Phase = "backend_recovering"
-		case BackendBlocked:
-			visible.Phase = "backend_blocked"
+		text := ""
+		visible := s
+		if w.Backend != nil && s.Submitted && !s.Terminal && s.Phase != "delivering" {
+			switch w.Backend.State() {
+			case BackendStarting, BackendRecovering:
+				visible.Phase = "backend_recovering"
+			case BackendBlocked:
+				visible.Phase = "backend_blocked"
+			}
 		}
-	}
-	if s.Target != StatusTargetAgentSession {
-		text = StatusText(visible, w.now())
-	}
-	receipt, sendErr := w.Sender.SendStatus(ctx, *s, text)
-	result := StatusResult{State: "ready", SlackTS: receipt.SlackTS, Acknowledged: receipt.Acknowledged, AgentStatus: receipt.AgentStatus, SessionStatus: receipt.SessionStatus, Warning: receipt.Warning}
-	ts := receipt.SlackTS
-	var fatal error
-	valid := ts != "" && (s.SlackTS == "" || ts == s.SlackTS)
-	if s.Target == StatusTargetAgentSession {
-		valid = receipt.Acknowledged && ts == ""
-	}
-	if sendErr == nil && valid {
-		if s.Terminal {
-			result.State = "settled"
+		if s.Target != StatusTargetAgentSession {
+			text = StatusText(visible, w.now())
 		}
-	} else {
-		result.SlackTS, result.Acknowledged, result.AgentStatus, result.SessionStatus, result.Warning = "", false, "", "", ""
-		result.Reason = "send_unknown"
-		// Retrying an update to a known timestamp is safe. A first POST is not.
-		result.RetryAt = w.now().Add(StatusRetry)
-		if s.Target != StatusTargetAgentSession && s.SlackTS == "" {
-			result.State = "delivery_unknown"
+		receipt, sendErr := w.Sender.SendStatus(sendCtx, s, text)
+		result := StatusResult{State: "ready", SlackTS: receipt.SlackTS, Acknowledged: receipt.Acknowledged,
+			AgentStatus: receipt.AgentStatus, SessionStatus: receipt.SessionStatus, Warning: receipt.Warning}
+		var fatal error
+		valid := receipt.SlackTS != "" && (s.SlackTS == "" || receipt.SlackTS == s.SlackTS)
+		if s.Target == StatusTargetAgentSession {
+			valid = receipt.Acknowledged && receipt.SlackTS == ""
 		}
-		var classified *SendError
-		if errors.As(sendErr, &classified) {
-			switch classified.Kind {
-			case SendRateLimited:
-				if classified.RetryAfter > 0 {
-					result.State, result.Reason = "ready", "rate_limited"
-					result.RetryAt = w.now().Add(classified.RetryAfter)
-					result.RateLimitedUntil = result.RetryAt
-				}
-			case SendCredentials:
-				result.State, result.Reason = "ready", "slack_auth_rejected"
-				fatal = ErrSlackAuth
-			case SendRejected:
-				result.State, result.Reason = "failed", "slack_rejected"
-				if classified.Code != "" {
-					result.Reason = classified.Code
+		if sendErr == nil && valid {
+			if s.Terminal {
+				result.State = "settled"
+			}
+		} else {
+			result.SlackTS, result.Acknowledged, result.AgentStatus, result.SessionStatus, result.Warning = "", false, "", "", ""
+			result.Reason, result.RetryAt = "send_unknown", w.now().Add(StatusRetry)
+			if s.Target != StatusTargetAgentSession && s.SlackTS == "" {
+				result.State = "delivery_unknown"
+			}
+			var classified *SendError
+			if errors.As(sendErr, &classified) {
+				switch classified.Kind {
+				case SendRateLimited:
+					if classified.RetryAfter > 0 {
+						result.State, result.Reason, result.RetryAt = "ready", "rate_limited", w.now().Add(classified.RetryAfter)
+						result.RateLimitedUntil = result.RetryAt
+					}
+				case SendCredentials:
+					result.State, result.Reason, fatal = "ready", "slack_auth_rejected", ErrSlackAuth
+				case SendRejected:
+					result.State, result.Reason = "failed", "slack_rejected"
+					if classified.Code != "" {
+						result.Reason = classified.Code
+					}
 				}
 			}
 		}
-	}
-	if err := w.finish(ctx, *s, result); err != nil {
-		return true, err
-	}
-	return true, fatal
+		return w.statusResult(s, result, fatal)
+	}}, nil
 }
 
-func (w *StatusWorker) finish(ctx context.Context, s GatewayJobProgress, result StatusResult) error {
-	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-	defer cancel()
-	now := w.now()
-	if result.SlackTS != "" || result.Acknowledged {
-		interval := w.RefreshInterval
-		if interval <= 0 {
-			interval = DefaultStatusRefresh
+func (w *StatusWorker) statusNotSent(s GatewayJobProgress, cause error) OutboundResult {
+	return w.statusResult(s, StatusResult{State: "ready", Reason: "send_not_started", RetryAt: w.now()}, cause)
+}
+
+func (w *StatusWorker) statusResult(s GatewayJobProgress, result StatusResult, cause error) OutboundResult {
+	return OutboundResult{Err: cause, NotBefore: result.RateLimitedUntil, commit: func(ctx context.Context, local Store) error {
+		now := w.now()
+		if result.SlackTS != "" || result.Acknowledged {
+			interval := w.RefreshInterval
+			if interval <= 0 {
+				interval = DefaultStatusRefresh
+			}
+			if s.Target == StatusTargetAgentSession {
+				interval = AgentSessionRefresh
+			}
+			result.NextRefreshAt = now.Add(interval)
 		}
-		if s.Target == StatusTargetAgentSession {
-			interval = AgentSessionRefresh
+		if err := local.FinishStatus(ctx, s, result, now); err != nil {
+			return err
 		}
-		result.NextRefreshAt = now.Add(interval)
-	}
-	if err := w.Store.FinishStatus(saveCtx, s, result, now); err != nil {
-		return err
-	}
-	if w.OnStatus != nil {
-		w.OnStatus(s, result, now)
-	}
-	return nil
+		if w.OnStatus != nil {
+			w.OnStatus(s, result, now)
+		}
+		return nil
+	}}
 }
 
 // OutboundWorker owns every Slack write. Urgent status changes alternate with
@@ -281,37 +300,64 @@ func (w *OutboundWorker) now() time.Time {
 // NextReadyAt is read by the dispatch owner only between Step calls.
 func (w *OutboundWorker) NextReadyAt() time.Time { return w.nextSend }
 
-func (w *OutboundWorker) Step(ctx context.Context) (worked bool, err error) {
+func (w *OutboundWorker) Step(ctx context.Context) (bool, error) {
 	if w.now().Before(w.nextSend) {
 		return false, nil
 	}
-	defer func() {
-		if worked {
-			w.nextSend = w.now().Add(w.Interval)
-		}
-	}()
-	worked, err = w.Status.Step(ctx, "integration_terminal")
-	if worked || err != nil {
-		return
+	store := w.SlackOutgoingMessage.Store
+	var prepared *PreparedOutbound
+	err := InThread(ctx, store, func(local Store) error {
+		var prepareErr error
+		prepared, prepareErr = w.Prepare(ctx, local)
+		return prepareErr
+	})
+	if err != nil || prepared == nil {
+		return false, err
+	}
+	result := prepared.Send(ctx)
+	w.nextSend = result.NotBefore
+	return true, commitOutbound(ctx, store, result)
+}
+
+// Prepare retains existing priorities/fairness using only local native work.
+// The process bot coordinator owns pacing while the returned operation runs.
+func (w *OutboundWorker) Prepare(ctx context.Context, local Store) (*PreparedOutbound, error) {
+	prepared, err := w.Status.Prepare(ctx, local, "integration_terminal")
+	if prepared != nil || err != nil {
+		return w.paced(prepared), err
 	}
 	if w.preferStatus {
-		worked, err = w.Status.Step(ctx, "urgent")
-		if worked || err != nil {
+		prepared, err = w.Status.Prepare(ctx, local, "urgent")
+		if prepared != nil || err != nil {
 			w.preferStatus = false
-			return
+			return w.paced(prepared), err
 		}
 	}
-	worked, err = w.SlackOutgoingMessage.Step(ctx)
-	if worked || err != nil {
+	prepared, err = w.SlackOutgoingMessage.Prepare(ctx, local)
+	if prepared != nil || err != nil {
 		w.preferStatus = true
-		return
+		return w.paced(prepared), err
 	}
-	worked, err = w.Status.Step(ctx, "urgent")
-	if worked || err != nil {
+	prepared, err = w.Status.Prepare(ctx, local, "urgent")
+	if prepared != nil || err != nil {
 		w.preferStatus = false
-		return
+		return w.paced(prepared), err
 	}
-	return w.Status.Step(ctx, "heartbeat")
+	prepared, err = w.Status.Prepare(ctx, local, "heartbeat")
+	return w.paced(prepared), err
+}
+
+func (w *OutboundWorker) paced(prepared *PreparedOutbound) *PreparedOutbound {
+	if prepared == nil {
+		return nil
+	}
+	return &PreparedOutbound{send: func(ctx context.Context) OutboundResult {
+		result := prepared.Send(ctx)
+		if next := w.now().Add(w.Interval); result.NotBefore.Before(next) {
+			result.NotBefore = next
+		}
+		return result
+	}}
 }
 
 // TerminalStep is used only after normal workers have joined during a backend

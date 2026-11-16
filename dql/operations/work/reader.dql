@@ -9,10 +9,23 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 
+#define($_ = $Mode<string>(query/mode).Optional().Value('page'))
+#define($_ = $IntegrationID<int>(query/IntegrationID).Optional().Value(0))
 #define($_ = $Now<time.Time>(query/now).Optional())
+#define($_ = $Cutoff<time.Time>(query/cutoff).Optional())
+#define($_ = $AfterApp<string>(query/afterApp).Optional().Value(''))
+#define($_ = $AfterWorkspace<string>(query/afterWorkspace).Optional().Value(''))
+#define($_ = $AfterChannel<string>(query/afterChannel).Optional().Value(''))
+#define($_ = $AfterRoot<string>(query/afterRoot).Optional().Value(''))
+#define($_ = $FixedThread<bool>(query/fixedThread).Optional().Value(false))
+#define($_ = $AppID<string>(query/AppID).Optional().Value(''))
+#define($_ = $WorkspaceID<string>(query/WorkspaceID).Optional().Value(''))
+#define($_ = $ChannelID<string>(query/ChannelID).Optional().Value(''))
+#define($_ = $SlackThreadRootMessageID<string>(query/SlackThreadRootMessageID).Optional().Value(''))
 #define($_ = $Data<[]*WorkTiming>(output/view))
 
 SELECT work.*, type(work,'WorkTiming'), CAST(work.integration_id AS int64), CAST(work.kind AS string),
        CAST(work.candidate_at AS *time.Time), CAST(work.refresh_at AS *time.Time), CAST(work.observed_at AS *time.Time),
-       required(work.kind), required(work.slack_app_id), required(work.slack_workspace_id), set_limit(work,0)
+       required(work.kind), required(work.slack_app_id), required(work.slack_workspace_id),
+       required(work.slack_channel_id), required(work.slack_thread_root_message_id), set_limit(work,0)
 FROM (${embed:sql/work.sql}) work

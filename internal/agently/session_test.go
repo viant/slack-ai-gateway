@@ -31,17 +31,18 @@ import (
 // Everything in this fixture is synthetic, including credentials and cookies.
 // Only httptest loopback servers and t.TempDir files are used.
 type loginFixture struct {
-	t                    *testing.T
-	server               *httptest.Server
-	secretRef            *scy.Resource
-	configRef            string
-	mode                 atomic.Value
-	sessionStatus        atomic.Int32
-	mu                   sync.Mutex
-	counts               map[string]int
-	challenge, requestID string
-	discovery            oauthDiscovery
-	expectedScopes       string
+	t                       *testing.T
+	server                  *httptest.Server
+	secretRef               *scy.Resource
+	configRef               string
+	mode                    atomic.Value
+	sessionStatus           atomic.Int32
+	authorizationRetryAfter atomic.Int32
+	mu                      sync.Mutex
+	counts                  map[string]int
+	challenge, requestID    string
+	discovery               oauthDiscovery
+	expectedScopes          string
 }
 
 func newLoginFixture(t *testing.T) *loginFixture {
@@ -76,7 +77,7 @@ func (f *loginFixture) count(path string) int {
 func (f *loginFixture) handle(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.counts[r.URL.Path]++
-	discovery, expectedScopes := f.discovery, f.expectedScopes
+	discovery, expectedScopes, configRef := f.discovery, f.expectedScopes, f.configRef
 	f.mu.Unlock()
 	mode := f.mode.Load().(string)
 	w.Header().Set("Content-Type", "application/json")
@@ -95,9 +96,12 @@ func (f *loginFixture) handle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		discovery.ConfigURL = f.configRef
+		discovery.ConfigURL = configRef
 		write(map[string]any{"data": discovery})
 	case "/authorize":
+		if retry := f.authorizationRetryAfter.Load(); retry > 0 {
+			w.Header().Set("Retry-After", fmt.Sprint(retry))
+		}
 		if r.Header.Get("Origin") != "" {
 			f.t.Error("Agently origin leaked to IdP")
 		}
@@ -137,8 +141,14 @@ func (f *loginFixture) handle(w http.ResponseWriter, r *http.Request) {
 		if mode == "redirect" {
 			location = f.server.URL + "/must-not-follow?code=secret-marker-code"
 		}
-		if mode == "oauth_error" {
+		if mode == "oauth_error" || mode == "error_wrong_state" || mode == "error_missing_state" {
 			location = "https://localhost/callback.html?error=secret-marker-error&error_description=secret-marker-description"
+			if mode == "oauth_error" {
+				location += "&state=" + url.QueryEscape(state)
+			}
+			if mode == "error_wrong_state" {
+				location += "&state=incorrect-state"
+			}
 		}
 		if mode == "missing_code" {
 			location = "https://localhost/callback.html?state=" + url.QueryEscape(state)
@@ -212,12 +222,23 @@ func (f *loginFixture) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		switch r.URL.Path {
 		case "/v1/api/auth/me":
+			if mode == "auth_me_unauthorized_retry" {
+				w.Header().Set("Retry-After", "180")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
 			subject, provider := "agently_scheduler", "session"
 			if mode == "wrong_subject" {
 				subject = "another-user"
 			}
 			if mode == "wrong_provider" {
 				provider = "local"
+			}
+			if mode == "missing_subject" {
+				subject = ""
+			}
+			if mode == "missing_provider" {
+				provider = ""
 			}
 			if mode == "refresh" {
 				http.SetCookie(w, &http.Cookie{Name: "agently_session", Value: "secret-marker-cookie-renewed", Path: "/", HttpOnly: true})
@@ -325,6 +346,10 @@ func (f *loginFixture) handle(w http.ResponseWriter, r *http.Request) {
 			f.mu.Lock()
 			id := "native-" + f.requestID
 			f.mu.Unlock()
+			if mode == "run_failed" {
+				fmt.Fprintf(w, `{"conversation":{"conversationId":"c","turns":[{"turnId":%q,"startedByMessageId":"user-message-1","user":{"messageId":"user-message-1"},"status":"failed","errorMessage":"synthetic producer unavailable"}]}}`, id)
+				return
+			}
 			fmt.Fprintf(w, `{"conversation":{"conversationId":"c","turns":[{"turnId":%q,"startedByMessageId":"user-message-1","user":{"messageId":"user-message-1"},"status":"completed","assistant":{"final":{"content":"verified answer"}}}]}}`, id)
 		default:
 			f.t.Errorf("unexpected endpoint %s", r.URL.Path)
@@ -358,15 +383,17 @@ func TestOOBSessionPreflightAndServerCookieRenewal(t *testing.T) {
 
 func TestOOBLoginFailuresAreRedactedAndFailClosed(t *testing.T) {
 	diagnostics := map[string]string{
-		"bad_password":       "Agently OOB authorization failed (authorization endpoint, HTTP 401)",
-		"wrong_state":        "Agently OOB authorization failed (authorization state mismatch, HTTP 302)",
-		"redirect":           "Agently OOB authorization failed (authorization redirect, HTTP 302)",
-		"oauth_error":        "Agently OOB authorization failed (authorization rejected, HTTP 302)",
-		"missing_code":       "Agently OOB authorization failed (authorization code missing, HTTP 302)",
-		"malformed_redirect": "Agently OOB authorization failed (authorization code missing, HTTP 302)",
-		"token_error":        "Agently OOB authorization failed (token exchange, HTTP 400) [configured_auth_style=in_params]",
+		"bad_password":        "Agently OOB authorization failed (authorization endpoint, HTTP 401)",
+		"wrong_state":         "Agently OOB authorization failed (authorization state mismatch, HTTP 302)",
+		"redirect":            "Agently OOB authorization failed (authorization redirect, HTTP 302)",
+		"oauth_error":         "Agently OOB authorization failed (authorization rejected, HTTP 302)",
+		"error_wrong_state":   "Agently OOB authorization failed (authorization state mismatch, HTTP 302)",
+		"error_missing_state": "Agently OOB authorization failed (authorization state mismatch, HTTP 302)",
+		"missing_code":        "Agently OOB authorization failed (authorization code missing, HTTP 302)",
+		"malformed_redirect":  "Agently OOB authorization failed (authorization state mismatch, HTTP 302)",
+		"token_error":         "Agently OOB authorization failed (token exchange, HTTP 400) [configured_auth_style=in_params]",
 	}
-	for _, mode := range []string{"bad_password", "wrong_state", "redirect", "oauth_error", "missing_code", "malformed_redirect", "token_error", "session_error", "no_cookie", "wrong_subject", "wrong_provider", "missing_agent"} {
+	for _, mode := range []string{"bad_password", "wrong_state", "redirect", "oauth_error", "error_wrong_state", "error_missing_state", "missing_code", "malformed_redirect", "token_error", "session_error", "no_cookie", "wrong_subject", "wrong_provider", "missing_agent"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newLoginFixture(t)
 			f.mode.Store(mode)
@@ -376,6 +403,12 @@ func TestOOBLoginFailuresAreRedactedAndFailClosed(t *testing.T) {
 			}
 			if want := diagnostics[mode]; want != "" && err.Error() != want {
 				t.Fatalf("diagnostic = %q, want %q", err.Error(), want)
+			}
+			if mode == "error_wrong_state" || mode == "error_missing_state" {
+				var failure *authFailure
+				if !errors.As(err, &failure) || !failure.permanent {
+					t.Fatal("an OAuth rejection bypassed state verification")
+				}
 			}
 			stage := "/authorize"
 			switch mode {
@@ -529,7 +562,7 @@ func TestInlineOAuthConfigAndMalformedSecrets(t *testing.T) {
 }
 
 func TestSessionRejectionPoisonsAllClients(t *testing.T) {
-	for _, mode := range []string{"forbidden", "wrong_subject", "wrong_provider", "wrong_owner", "wrong_agent", "wrong_principal", "smoke"} {
+	for _, mode := range []string{"wrong_subject", "wrong_provider", "wrong_owner", "wrong_agent", "wrong_principal", "smoke"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newLoginFixture(t)
 			factory, err := f.login()

@@ -2,6 +2,10 @@
 
 package read
 
+import (
+	time "time"
+)
+
 func (input *Input) SetIntegrationID(value int) {
 	if input == nil {
 		return
@@ -11,6 +15,28 @@ func (input *Input) SetIntegrationID(value int) {
 		input.Has = &InputHas{}
 	}
 	input.Has.IntegrationID = true
+}
+
+func (input *Input) SetPhysicalThread(value bool) {
+	if input == nil {
+		return
+	}
+	input.PhysicalThread = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.PhysicalThread = true
+}
+
+func (input *Input) SetNow(value time.Time) {
+	if input == nil {
+		return
+	}
+	input.Now = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.Now = true
 }
 
 func (input *Input) SetAppID(value string) {

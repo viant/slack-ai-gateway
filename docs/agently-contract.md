@@ -154,10 +154,25 @@ generation. A query-specific `403` remains a local access/review error.
 
 Network failures, timeouts, `408`, `429` and server errors retry verification or
 authentication with exponential intervals around 1, 2, 4, 8, 16 and 30 seconds,
-with jitter and any longer `Retry-After` respected. Each attempt is bounded by
-90 seconds. Invalid credentials, identity mismatches and other permanent
-authentication failures enter `blocked`; correct the cause and restart the
-gateway. Offline `validate-config` checks the declared authentication mode and
+with jitter and any longer `Retry-After` respected. Remote login, token/session
+exchange and readiness refusals, including HTTP `401`/`403`, rejected passwords,
+missing remote agents and invalid remote OAuth configuration, retry 60–75 seconds
+after each failed attempt finishes. Longer `Retry-After` values take precedence.
+Each attempt is bounded by 90 seconds; its duration is additional to the retry
+interval. Correcting the remote cause can restore readiness without restarting.
+The existing manager publishes readiness to the existing scheduler; no new work
+queue, shared login session or cross-integration login mutex is introduced.
+
+Invalid local gateway configuration/unreadable secrets, confirmed
+principal/provider/ownership/conversation-agent mismatches, and endpoint,
+redirect/state/PKCE security violations remain hard failures. They enter `blocked`
+or retain their existing local startup rejection; correct the cause and restart.
+A remote HTTP `403` alone is not evidence of a confirmed identity mismatch.
+Remote refusal retries retain every verification; they do not bypass access
+checks or automatically change OAuth AuthStyle. The underlying provider cause of
+an observed token-exchange `401` still requires evidence.
+
+Offline `validate-config` checks the declared authentication mode and
 native resource shape (including a nonempty URL); it does not load credentials
 or verify the referenced location. Runtime setup/login checks the supported
 file/AWS source, decoding and readability. Unreadable backend credentials block

@@ -489,8 +489,13 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 		}
 	})
 	t.Run("concurrent_duplicates_and_claims", func(t *testing.T) {
-		s := open(t).Store
+		fixture := open(t)
+		s := fixture.Store
 		m := Message("a", "one", "alice")
+		s = gateway.ForThread(s, m.PhysicalThread())
+		if owner, ok := fixture.Root().(interface{ StartThreadOwnership() }); ok {
+			owner.StartThreadOwnership()
+		}
 		var inserted atomic.Int32
 		var wg sync.WaitGroup
 		for range 24 {

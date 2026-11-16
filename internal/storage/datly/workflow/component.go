@@ -27,6 +27,8 @@ type execution struct {
 	scope    int64
 	name     string
 	identity *storage.Integration
+	thread   *gateway.PhysicalThreadKey
+	progress map[gateway.PhysicalThreadKey]struct{}
 }
 
 func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, out *Output) error {
@@ -44,7 +46,7 @@ func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, o
 	out.reporter, out.scope = deps.Reporter, in.Scope
 	// MySQL native transient identity allocation uses a spare transaction.
 	// Read-committed avoids holding empty-range locks across that allocation;
-	// explicit record locks still protect every state transition. SQLite's
+	// The runtime's physical-thread owner orders state transitions. SQLite's
 	// configured driver retains its IMMEDIATE transaction locking.
 	if in.Action != "status" {
 		ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationReadCommitted)
@@ -52,13 +54,22 @@ func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, o
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
 	}
-	x := &execution{invoke: deps.Invoker, scope: in.Scope, name: in.IntegrationName}
+	x := &execution{invoke: deps.Invoker, scope: in.Scope, name: in.IntegrationName, thread: in.PhysicalThread}
+	if x.thread != nil && !x.thread.Valid() {
+		return gateway.ErrConflict
+	}
+	if x.thread != nil && in.Action == "get_binding" && (in.Key.WorkspaceID != x.thread.WorkspaceID || in.Key.ChannelID != x.thread.ChannelID || in.Key.RootTS != x.thread.RootTS) {
+		return gateway.ErrConflict
+	}
 	if in.Scope != 0 {
 		identity, err := x.readIdentity(ctx, in.Scope)
 		if err != nil {
 			return err
 		}
 		x.identity = identity
+		if x.thread != nil && (x.thread.AppID != identity.AppID || x.thread.WorkspaceID != identity.WorkspaceID) {
+			return gateway.ErrConflict
+		}
 		out.appID, out.workspaceID = identity.AppID, identity.WorkspaceID
 		if !identity.Active {
 			switch in.Action {
@@ -75,6 +86,24 @@ func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, o
 			return fmt.Errorf("an explicit integration scope is required")
 		}
 	}
+	if err := x.execute(ctx, in, out); err != nil {
+		return err
+	}
+	if err := x.refreshProgress(ctx, in, out); err != nil {
+		return err
+	}
+	for key := range x.progress {
+		out.AffectedThreads = append(out.AffectedThreads, key)
+	}
+	if x.thread != nil {
+		if _, exists := x.progress[*x.thread]; !exists {
+			out.AffectedThreads = append(out.AffectedThreads, *x.thread)
+		}
+	}
+	return nil
+}
+
+func (x *execution) execute(ctx context.Context, in *Input, out *Output) error {
 	switch in.Action {
 	case "reconcile_integrations":
 		return x.reconcileIntegrations(ctx, in.Integrations, out)

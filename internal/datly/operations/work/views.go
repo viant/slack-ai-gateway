@@ -8,11 +8,13 @@ import (
 
 // WorkTiming is generated canonical view metadata for reader.
 type WorkTiming struct {
-	IntegrationId    int64      `json:"integrationId" sqlx:"integration_id"`
-	SlackAppId       string     `json:"slackAppId" sqlx:"slack_app_id"`
-	SlackWorkspaceId string     `json:"slackWorkspaceId" sqlx:"slack_workspace_id"`
-	Kind             string     `json:"kind" sqlx:"kind"`
-	CandidateAt      *time.Time `json:"candidateAt" sqlx:"candidate_at"`
-	RefreshAt        *time.Time `json:"refreshAt" sqlx:"refresh_at"`
-	ObservedAt       *time.Time `json:"observedAt" sqlx:"observed_at"`
+	IntegrationId            int64      `json:"integrationId" sqlx:"integration_id"`
+	SlackAppId               string     `json:"slackAppId" sqlx:"slack_app_id"`
+	SlackWorkspaceId         string     `json:"slackWorkspaceId" sqlx:"slack_workspace_id"`
+	SlackChannelId           string     `json:"slackChannelId" sqlx:"slack_channel_id"`
+	SlackThreadRootMessageId string     `json:"slackThreadRootMessageId" sqlx:"slack_thread_root_message_id"`
+	Kind                     string     `json:"kind" sqlx:"kind"`
+	CandidateAt              *time.Time `json:"candidateAt" sqlx:"candidate_at"`
+	RefreshAt                *time.Time `json:"refreshAt" sqlx:"refresh_at"`
+	ObservedAt               *time.Time `json:"observedAt" sqlx:"observed_at"`
 }

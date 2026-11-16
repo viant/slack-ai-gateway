@@ -203,12 +203,12 @@ func TestShutdownFinishesQueryButDoesNotDrainQueue(t *testing.T) {
 	if b.queries.Load() != 1 {
 		t.Fatalf("shutdown drained next query: got %d backend queries, want 1", b.queries.Load())
 	}
-	d, err := s.ClaimDelivery(context.Background())
+	d, err := fixtureThread(s, "one").ClaimDelivery(context.Background())
 	storetest.Must(t, err)
 	if d == nil || d.Text != "saved during shutdown" {
 		t.Fatal("in-flight result lost")
 	}
-	j, err := s.ClaimJob(context.Background())
+	j, err := fixtureThread(s, "one").ClaimJob(context.Background())
 	storetest.Must(t, err)
 	if j == nil || j.EventID != "second" {
 		t.Fatal("unstarted query not left pending")
@@ -220,6 +220,8 @@ func TestShutdownPersistsInFlightDelivery(t *testing.T) {
 	seedReply(t, s, "first", "one")
 	seedReply(t, s, "second", "two")
 	started := make(chan struct{})
+	var startedRoot string
+	var attempts atomic.Int32
 	release := make(chan struct{})
 	stopped := make(chan struct{})
 	r.Source = sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error {
@@ -228,8 +230,11 @@ func TestShutdownPersistsInFlightDelivery(t *testing.T) {
 		close(stopped)
 		return nil
 	})
-	r.Sender = senderFunc(func(ctx context.Context, _ gateway.SlackOutgoingMessage) (string, error) {
-		close(started)
+	r.Sender = senderFunc(func(ctx context.Context, delivery gateway.SlackOutgoingMessage) (string, error) {
+		if attempts.Add(1) == 1 {
+			startedRoot = delivery.RootTS
+			close(started)
+		}
 		select {
 		case <-release:
 			return "slack-ts", nil
@@ -246,12 +251,37 @@ func TestShutdownPersistsInFlightDelivery(t *testing.T) {
 	await(t, stopped)
 	close(release)
 	storetest.Must(t, finished(t, done))
-	if r.Delivered() != 1 {
-		t.Fatal("in-flight send not persisted")
+	if r.Delivered() != 1 || attempts.Load() != 1 {
+		t.Fatalf("in-flight send counts: delivered=%d attempts=%d", r.Delivered(), attempts.Load())
 	}
-	d, err := s.ClaimDelivery(context.Background())
+	otherRoot := "two"
+	if startedRoot == "two" {
+		otherRoot = "one"
+	} else if startedRoot != "one" {
+		t.Fatalf("unexpected started thread %q", startedRoot)
+	}
+	status, err := s.Status(context.Background(), 10)
 	storetest.Must(t, err)
-	if d == nil || d.RootTS != "two" {
+	if len(status.SlackOutgoingMessages) != 2 {
+		t.Fatalf("unexpected durable deliveries: %+v", status.SlackOutgoingMessages)
+	}
+	for _, delivery := range status.SlackOutgoingMessages {
+		if delivery.ThreadTS == startedRoot {
+			if delivery.State != "delivered" || delivery.SlackTS != "slack-ts" || delivery.Attempts != 1 {
+				t.Fatalf("in-flight success was not durably preserved: %+v", delivery)
+			}
+		} else if delivery.ThreadTS != otherRoot || delivery.State != "pending" || delivery.SlackTS != "" || delivery.Attempts != 0 {
+			t.Fatalf("shutdown changed unstarted delivery: %+v", delivery)
+		}
+	}
+	d, err := fixtureThread(s, startedRoot).ClaimDelivery(context.Background())
+	storetest.Must(t, err)
+	if d != nil {
+		t.Fatal("completed in-flight delivery was claimable again")
+	}
+	d, err = fixtureThread(s, otherRoot).ClaimDelivery(context.Background())
+	storetest.Must(t, err)
+	if d == nil || d.RootTS != otherRoot {
 		t.Fatal("shutdown drained pending delivery")
 	}
 }
@@ -268,7 +298,7 @@ func TestCredentialRejectionStopsRuntimeWithoutLosingReply(t *testing.T) {
 		if err := r.Run(ctx); err == nil || !strings.Contains(err.Error(), "credentials rejected") {
 			t.Fatalf("runtime did not surface credential failure: %v", err)
 		}
-		d, err := s.ClaimDelivery(context.Background())
+		d, err := fixtureThread(s, "one").ClaimDelivery(context.Background())
 		storetest.Must(t, err)
 		if d == nil || d.Attempts != 2 {
 			t.Fatal("definitely rejected reply not preserved")
@@ -362,32 +392,60 @@ func TestUncertainDeliveryDoesNotBlockOtherThreads(t *testing.T) {
 		seedReply(t, s, "second", "two")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		sent := make(chan struct{}, 1)
+		uncertainAttempt, sent := make(chan struct{}), make(chan struct{})
+		var firstAttempts, secondAttempts atomic.Int32
 		r.Sender = senderFunc(func(_ context.Context, d gateway.SlackOutgoingMessage) (string, error) {
 			if d.RootTS == "one" {
+				if firstAttempts.Add(1) == 1 {
+					close(uncertainAttempt)
+				}
 				return "", &gateway.SendError{Kind: gateway.SendUnknown}
 			}
-			sent <- struct{}{}
+			if secondAttempts.Add(1) == 1 {
+				close(sent)
+			}
 			return "2", nil
 		})
 		done := make(chan error, 1)
 		go func() { done <- r.Run(ctx) }()
+		// Physical threads are scheduled fairly; either one may reach Slack
+		// first. Exercise both outcomes before stopping admission.
+		await(t, uncertainAttempt)
 		await(t, sent)
 		cancel()
 		storetest.Must(t, finished(t, done))
-		if r.Delivered() != 1 {
-			t.Fatal("other thread did not progress")
+		if r.Delivered() != 1 || firstAttempts.Load() != 1 || secondAttempts.Load() != 1 {
+			t.Fatalf("delivery counts: confirmed=%d uncertain_attempts=%d other_attempts=%d", r.Delivered(), firstAttempts.Load(), secondAttempts.Load())
 		}
-		storetest.Must(t, s.Recover(context.Background()))
-		if d, err := s.ClaimDelivery(context.Background()); err != nil || d != nil {
-			t.Fatal("unknown delivery automatically retried")
+		status, err := s.Status(context.Background(), 10)
+		storetest.Must(t, err)
+		if len(status.SlackOutgoingMessages) != 2 {
+			t.Fatalf("unexpected persisted deliveries: %+v", status.SlackOutgoingMessages)
+		}
+		for _, delivery := range status.SlackOutgoingMessages {
+			want := "delivered"
+			if delivery.ThreadTS == "one" {
+				want = "delivery_unknown"
+			}
+			if delivery.State != want || delivery.Attempts != 1 {
+				t.Fatalf("unexpected persisted delivery outcome: %+v", delivery)
+			}
+		}
+		// The uncertain result is already durable; this still-open runtime Store
+		// must not run global startup recovery after ownership was activated.
+		if d, err := fixtureThread(s, "one").ClaimDelivery(context.Background()); err != nil || d != nil {
+			t.Fatalf("unknown delivery automatically retried: delivery=%+v error=%v", d, err)
 		}
 	})
 }
 
 type brokenStore struct {
-	storage.Store
+	nativeRuntimeStore
 	recoverErr bool
+}
+
+func (s brokenStore) ForThread(key gateway.PhysicalThreadKey) gateway.Store {
+	return brokenStore{nativeRuntimeStore: nativeRuntimeStore{Store: gateway.ForThread(s.Store, key).(storage.Store)}, recoverErr: s.recoverErr}
 }
 
 func (s brokenStore) Recover(ctx context.Context) error {
@@ -406,9 +464,9 @@ func TestFatalErrorsAreVisibleAndRedacted(t *testing.T) {
 			r, s, _ := setup(t)
 			switch kind {
 			case "recovery":
-				r.Store = brokenStore{Store: s, recoverErr: true}
+				r.Store = brokenStore{nativeRuntimeStore: nativeRuntimeStore{Store: s}, recoverErr: true}
 			case "worker":
-				r.Store = brokenStore{Store: s}
+				r.Store = brokenStore{nativeRuntimeStore: nativeRuntimeStore{Store: s}}
 				_, err := s.Enqueue(context.Background(), storetest.Message("worker-failure", "failure", "alice"))
 				storetest.Must(t, err)
 			case "source":

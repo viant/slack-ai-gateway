@@ -147,7 +147,9 @@ func genericFactory(ctx context.Context, backend config.Backend) (gateway.Agentl
 	return agui.NewFactory(backend.Endpoint, nil, tokens)
 }
 
-func runTopology(ctx context.Context, c config.Config, root storage.Store, out io.Writer, deps dependencies) error {
+func runTopology(ctx context.Context, c config.Config, root storage.Store, out io.Writer, deps dependencies) (runErr error) {
+	log := slog.New(slog.NewTextHandler(out, nil))
+	defer func() { gateway.LogStorageError(log, runErr) }()
 	topology, err := c.Topology()
 	if err != nil {
 		return err
@@ -168,7 +170,6 @@ func runTopology(ctx context.Context, c config.Config, root storage.Store, out i
 	for _, identity := range recorded {
 		byName[identity.Name] = identity
 	}
-	log := slog.New(slog.NewTextHandler(out, nil))
 	group := runner.Group{Store: root, Log: log}
 	for _, integration := range topology {
 		identity, ok := byName[integration.Name]
@@ -217,6 +218,8 @@ func runTopology(ctx context.Context, c config.Config, root storage.Store, out i
 			}
 		}
 		backend := agently.NewManager(login, func(ctx context.Context, state gateway.BackendState) error {
+			// The shared Store fans out to physical-thread owners. Manager has
+			// already closed readiness and releases its lock before this call.
 			return scope.FailUnstarted(ctx, gateway.BackendReason(state))
 		}, integrationLog)
 		source, sender, err := deps.connect(ctx, tokens, route, integrationLog)

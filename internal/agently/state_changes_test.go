@@ -22,8 +22,12 @@ func TestManagerStateChangesFollowPersistedOutageAndReady(t *testing.T) {
 		return nil
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	m.mu.Lock()
-	err := m.unavailableLocked(context.Background(), gateway.BackendBlocked)
+	err := m.unavailableLocked(context.Background(), gateway.BackendBlocked, nil)
+	cleanup := m.cleanup
 	m.mu.Unlock()
+	if err == nil {
+		err = m.finishCleanup(context.Background(), cleanup)
+	}
 	if err != nil || !persisted {
 		t.Fatalf("outage persistence: persisted=%v err=%v", persisted, err)
 	}

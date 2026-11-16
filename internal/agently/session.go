@@ -61,15 +61,15 @@ func normalizeScopes(scopes []string) []string {
 	return result
 }
 
-func (f *Factory) rejectIdentity() error {
+func (f *Factory) rejectIdentity(stage string) error {
 	f.session.invalid.Store(true)
-	return gateway.ErrBackendAuth
+	return &authFailure{message: gateway.ErrBackendAuth.Error(), permanent: true, identity: true, stage: stage, category: "identity_mismatch"}
 }
 
 func (c *Client) verifyIdentity(ctx context.Context) error {
 	f := c.factory
 	if f.session.invalid.Load() {
-		return gateway.ErrBackendAuth
+		return f.rejectIdentity("session_identity")
 	}
 	u, _ := url.Parse(f.base + "/v1/api/auth/me")
 	if len(f.http.Jar.Cookies(u)) == 0 {
@@ -82,15 +82,15 @@ func (c *Client) verifyIdentity(ctx context.Context) error {
 	if err := c.do(ctx, http.MethodGet, "/v1/api/auth/me", nil, &me); err != nil {
 		var api *APIError
 		if errors.As(err, &api) && api.Status == http.StatusUnauthorized {
-			return &missingSession{}
+			return &missingSession{status: api.Status, retryAfter: api.RetryAfter}
 		}
-		if errors.As(err, &api) && api.Status == http.StatusForbidden {
-			return f.rejectIdentity()
-		}
-		return err
+		return loginFailure("session_identity", "Agently session identity request failed", err, f)
+	}
+	if me.Subject == "" || me.Provider == "" {
+		return loginFailure("session_identity", "Agently session identity response is incomplete", gateway.ErrBackendProtocol, f)
 	}
 	if me.Subject != f.session.principal || me.Provider != "session" {
-		return f.rejectIdentity()
+		return f.rejectIdentity("session_identity")
 	}
 	return nil
 }
@@ -98,7 +98,7 @@ func (c *Client) verifyIdentity(ctx context.Context) error {
 func (c *Client) conversationThread(ctx context.Context, id string) (string, error) {
 	if c.factory.session != nil {
 		if strings.HasPrefix(id, "slack-smoke-") {
-			return "", c.factory.rejectIdentity()
+			return "", c.factory.rejectIdentity("conversation_identity")
 		}
 		if err := c.verifyIdentity(ctx); err != nil {
 			return "", err
@@ -114,7 +114,7 @@ func (c *Client) conversationThread(ctx context.Context, id string) (string, err
 		return "", err
 	}
 	if c.factory.session != nil && (out.ID != id || out.Owner != c.principal || out.Agent != c.factory.session.agent) {
-		return "", c.factory.rejectIdentity()
+		return "", c.factory.rejectIdentity("conversation_identity")
 	}
 	if out.ID != id {
 		return "", gateway.ErrBackendProtocol
@@ -160,28 +160,30 @@ func (f *Factory) Verify(ctx context.Context) error {
 			copy := *api
 			copy.Permanent = false
 			copy.RetryAfter = max(copy.RetryAfter, 30*time.Second)
-			return &copy
+			return loginFailure("workspace_metadata", "Agently workspace metadata request failed", &copy, f)
 		}
-		return err
+		return loginFailure("workspace_metadata", "Agently workspace metadata request failed", err, f)
 	}
 	for _, info := range metadata.AgentInfos {
 		if info.ID == f.session.agent {
 			return nil
 		}
 	}
-	return &authFailure{message: "configured Agently agent is not available in workspace metadata", permanent: true}
+	failure := loginFailure("workspace_metadata", "configured Agently agent is not available in workspace metadata", gateway.ErrBackendProtocol, f)
+	failure.category = "agent_unavailable"
+	return failure
 }
 
 func loginOOB(ctx context.Context, base, principal, agent string, ref *scy.Resource, loadConfig oauthConfigLoader, loadSecret basicSecretLoader, httpClient *http.Client) (*Factory, error) {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	if strings.TrimSpace(principal) == "" || strings.TrimSpace(agent) == "" {
-		return nil, &authFailure{message: "Agently identity configuration is incomplete", permanent: true}
+		return nil, &authFailure{message: "Agently identity configuration is incomplete", permanent: true, stage: "local_configuration", category: "configuration_invalid"}
 	}
 	// Reuse URL/TLS/redirect validation, but explicitly select session mode.
 	f, err := NewFactory(base, httpClient, unusedCredentials{})
 	if err != nil {
-		return nil, &authFailure{message: err.Error(), permanent: true}
+		return nil, &authFailure{message: err.Error(), permanent: true, stage: "local_configuration", category: "configuration_invalid"}
 	}
 	f.tokens = nil
 	f.http.Timeout = min(f.http.Timeout, 30*time.Second)
@@ -189,20 +191,20 @@ func loginOOB(ctx context.Context, base, principal, agent string, ref *scy.Resou
 	c := &Client{factory: f, principal: principal}
 	var config oauthDiscovery
 	if err = c.do(ctx, http.MethodGet, "/v1/api/auth/oauth/config", nil, &config); err != nil {
-		return nil, loginFailure("Agently OAuth configuration request failed", err, nil)
+		return nil, loginFailure("oauth_discovery", "Agently OAuth configuration request failed", err, nil)
 	}
 	if config.ConfigURL == "" {
-		return nil, &authFailure{message: "Agently OAuth configuration is missing", permanent: true}
+		return nil, loginFailure("oauth_discovery", "Agently OAuth configuration is missing", gateway.ErrBackendProtocol, nil)
 	}
 	oauthConfig, err := loadConfig(ctx, config.ConfigURL)
 	if err != nil || oauthConfig == nil {
-		return nil, &authFailure{message: "cannot load Agently OAuth configuration", permanent: true}
+		return nil, loginFailure("oauth_configuration", "cannot load Agently OAuth configuration", err, nil)
 	}
 	clone := *oauthConfig
 	clone.Scopes = config.headlessScopes()
 	secret, err := loadSecret(ctx, ref)
 	if err != nil || secret == nil || secret.Username == "" || secret.Password == "" {
-		return nil, &authFailure{message: "cannot load Agently OOB credentials", permanent: true}
+		return nil, &authFailure{message: "cannot load Agently OOB credentials", permanent: true, stage: "local_configuration", category: "credentials_invalid"}
 	}
 	// IdP requests use a separate client, never the Agently cookie jar.
 	idpClient := *f.http
@@ -216,13 +218,20 @@ func loginOOB(ctx context.Context, base, principal, agent string, ref *scy.Resou
 		// credentials, headers or raw transport error. Do not retry this POST.
 		var apiErr *APIError
 		if errors.As(err, &apiErr) && apiErr.Status != 0 {
-			return nil, loginFailure(fmt.Sprintf("Agently session creation failed (POST /v1/api/auth/session, HTTP %d)", apiErr.Status), err, nil)
+			return nil, loginFailure("session_creation", fmt.Sprintf("Agently session creation failed (POST /v1/api/auth/session, HTTP %d)", apiErr.Status), err, nil)
 		}
-		return nil, loginFailure("Agently session creation failed (POST /v1/api/auth/session, HTTP status unavailable)", err, nil)
+		return nil, loginFailure("session_creation", "Agently session creation failed (POST /v1/api/auth/session, HTTP status unavailable)", err, nil)
 	}
 	f.session = &sessionIdentity{principal: principal, agent: agent}
 	if err = f.Verify(ctx); err != nil {
-		return nil, loginFailure(err.Error(), err, f)
+		failure := loginFailure("readiness", err.Error(), err, f)
+		var missing *missingSession
+		if errors.As(err, &missing) {
+			// A fresh session that is immediately absent is a failed remote
+			// login, not a reason to submit the password again immediately.
+			failure.retryAfter = max(failure.retryAfter, authRetryDelay())
+		}
+		return nil, failure
 	}
 	f.http.Timeout = 120 * time.Second
 	return f, nil

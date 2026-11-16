@@ -103,11 +103,19 @@ with revisions, acknowledgments and retry facts. Both are included in the
 initial schema. Progress observes the existing
 execution; it never creates another conversation, binding or backend query.
 
-One serialized outbound worker handles final parts, status messages and native
-setters. First acknowledgments and changed states have priority over periodic
-refreshes. All writes share one-second pacing and a durable workspace cooldown
-for valid `429 Retry-After`. Hybrid targets retain independent publication and
-retry states; one failing target does not disable the other.
+One physical Slack thread owns its short state transitions, including progress
+claims and receipts. Preparation reads the durable destination and original
+author inside that owner; policy checks and Slack HTTP run outside it. A bot's
+send permit remains reserved until its receipt is persisted, so valid
+`429 Retry-After` also gates other threads and historical assignments of that
+bot. First acknowledgments and changed states retain priority over periodic
+refreshes, with one-second bot pacing. Hybrid targets retain independent
+publication and retry states; one failing target does not disable the other.
+
+Cancellation before Slack HTTP restores the claimed work to `pending`/`ready`;
+it does not invent an uncertain send. Once HTTP starts, the existing uncertain
+delivery rules apply. No native store borrowed during preparation is retained
+by a network operation or receipt callback.
 
 Every publication rechecks the original persisted author's policy and binding,
 with fresh channel metadata. Denial stops publication. Unavailable metadata or
@@ -126,7 +134,8 @@ never bypasses authorization. See [access policy](access-policy.md).
 | Valid `429` | Persist retry/cooldown across restart |
 | Slack authentication/metadata unavailable | Preserve work and stop safely |
 | Temporary Viant Steward/IdP failure | Keep Slack connected, recover authentication and observe started requests without replay |
-| Permanent Viant Steward authentication/identity failure | Keep Slack connected in `blocked`; administrator fixes the cause and restarts |
+| Remote authentication/readiness refusal | Keep Slack connected; retry after 60–75 seconds or longer `Retry-After`, without replay |
+| Invalid local backend configuration/credential resource, confirmed identity mismatch or security failure | Keep Slack connected in `blocked`; administrator fixes the cause and restarts |
 | New/unstarted question while backend unavailable | Persist a not-submitted reply; never run it automatically later |
 
 Status failure or ambiguity does not block the final outbox. Restart reprojects

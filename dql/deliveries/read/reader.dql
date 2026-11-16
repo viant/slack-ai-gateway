@@ -10,6 +10,11 @@
 
 #define($_ = $IntegrationID<int>(query/IntegrationID).Optional().Value(0))
 #define($_ = $IntegrationName<string>(query/IntegrationName).Optional().Value(''))
+#define($_ = $PhysicalThread<bool>(query/PhysicalThread).Optional().Value(false))
+#define($_ = $AppID<string>(query/AppID).Optional())
+#define($_ = $WorkspaceID<string>(query/WorkspaceID).Optional())
+#define($_ = $ChannelID<string>(query/ChannelID).Optional())
+#define($_ = $SlackThreadRootMessageID<string>(query/SlackThreadRootMessageID).Optional())
 #define($_ = $ID<int64>(query/ID).Optional())
 #define($_ = $Mode<string>(query/mode).Optional().Value('key'))
 #define($_ = $Now<time.Time>(query/now).Optional())

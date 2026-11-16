@@ -109,7 +109,11 @@ func (e *execution) recordObservation(ctx context.Context, in *Input, _ *Output)
 			status.SetGatewayExecutionOutcome(in.Text)
 		}
 	}
-	return e.writeJobs(ctx, []*graphwrite.GatewayJob{status})
+	if err := e.writeJobs(ctx, []*graphwrite.GatewayJob{status}); err != nil {
+		return err
+	}
+	e.affectJob(rows[0])
+	return nil
 }
 
 func (e *execution) claimStatus(ctx context.Context, in *Input, out *Output) error {
@@ -316,11 +320,27 @@ func (e *execution) finishStatus(ctx context.Context, in *Input, out *Output) er
 		status.SetSlackProgressLastSentAt(timePointer(now))
 	}
 	if !r.NextRefreshAt.IsZero() {
-		status.SetSlackProgressRefreshAt(timePointer(r.NextRefreshAt))
+		refreshAt := r.NextRefreshAt
+		if observed := j.BackendObservedAt; observed != nil && s.Phase != "checking" && !s.Terminal {
+			staleAt := observed.Add(gateway.ObservationMaxAge + time.Millisecond)
+			if staleAt.After(now) && staleAt.Before(refreshAt) {
+				refreshAt = staleAt
+			}
+		}
+		status.SetSlackProgressRefreshAt(timePointer(refreshAt))
 	}
 	status.SetSlackProgressNextAttemptAt(timePointer(r.RetryAt))
 	status.SetSlackProgressRateLimitedUntil(timePointer(r.RateLimitedUntil))
 	status.SetSlackProgressReason(r.Reason)
 	status.SetGatewayStatusUpdatedAt(timestamp(now))
+	p := projectMessageStatus(j, now)
+	if backendStatusKind(s.Phase) && !p.Terminal && j.SlackProgressPhase == s.Phase {
+		p.Phase = s.Phase
+	}
+	if p.Phase != s.Phase && (r.SlackTS != "" || r.State == "ready") {
+		status.SetSlackProgressPhase(p.Phase)
+		status.SetSlackProgressRevision(j.SlackProgressRevision + 1)
+		status.SetSlackProgressState("ready")
+	}
 	return e.writeJobs(ctx, []*graphwrite.GatewayJob{status})
 }

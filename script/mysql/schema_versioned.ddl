@@ -31,10 +31,10 @@ END $$
 DROP PROCEDURE IF EXISTS schema_upgrade_1 $$
 CREATE PROCEDURE schema_upgrade_1()
 BEGIN
-    IF get_schema_version() > 1 THEN
+    IF get_schema_version() > 2 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Installed gateway schema is newer than this DDL';
     END IF;
-    IF get_schema_version() = 1 AND (
+    IF get_schema_version() >= 1 AND (
         (SELECT COUNT(*) FROM information_schema.columns
          WHERE table_schema=DATABASE() AND table_name='integration'
            AND column_name IN ('name','active','slack_app_id','slack_workspace_id','backend_endpoint')) <> 5
@@ -218,6 +218,28 @@ CREATE TABLE IF NOT EXISTS slack_agent_session_publication (
         CALL set_schema_version(1);
     END IF;
 END $$
+-- Add only measured runtime indexes. Existing rows and version-1 definitions
+-- are preserved; applying the file again does not rebuild installed indexes.
+DROP PROCEDURE IF EXISTS schema_upgrade_2 $$
+CREATE PROCEDURE schema_upgrade_2()
+BEGIN
+    IF get_schema_version() = 1 THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.statistics
+                       WHERE table_schema=DATABASE() AND table_name='gateway_job'
+                         AND index_name='gateway_job_state') THEN
+            CREATE INDEX gateway_job_state ON gateway_job(gateway_execution_state,integration_id,id);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.statistics
+                       WHERE table_schema=DATABASE() AND table_name='slack_agent_session_publication'
+                         AND index_name='slack_agent_session_publication_cooldown') THEN
+            CREATE INDEX slack_agent_session_publication_cooldown
+                ON slack_agent_session_publication(slack_publication_rate_limited_until,initial_integration_id,id);
+        END IF;
+        CALL set_schema_version(2);
+    END IF;
+END $$
 CALL schema_upgrade_1() $$
+CALL schema_upgrade_2() $$
 DROP PROCEDURE schema_upgrade_1 $$
+DROP PROCEDURE schema_upgrade_2 $$
 DELIMITER ;

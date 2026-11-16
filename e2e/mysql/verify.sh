@@ -39,9 +39,20 @@ reject() {
     exit 1
   fi
 }
+assert_runtime_indexes() {
+  [ "$(sql "SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='gateway_job' AND index_name='gateway_job_state'")" = gateway_execution_state,integration_id,id ]
+  [ "$(sql "SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='slack_agent_session_publication' AND index_name='slack_agent_session_publication_cooldown'")" = slack_publication_rate_limited_until,initial_integration_id,id ]
+}
+business_checksum() {
+  sql 'CHECKSUM TABLE integration,conversation_binding,gateway_job,slack_outgoing_message,slack_delivery_resolution,slack_agent_session_publication EXTENDED'
+}
+auto_increment_values() {
+  sql "SELECT table_name,auto_increment FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name!='schema_version' ORDER BY table_name"
+}
 
 load_schema
-[ "$(sql 'SELECT get_schema_version()')" = 1 ]
+[ "$(sql 'SELECT get_schema_version()')" = 2 ]
+assert_runtime_indexes
 [ "$(sql "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()")" = 7 ]
 [ "$(sql "SELECT COUNT(*) FROM information_schema.table_constraints WHERE table_schema=DATABASE() AND constraint_type='CHECK'")" = 0 ]
 [ "$(sql "SELECT GROUP_CONCAT(table_name ORDER BY table_name) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name!='schema_version'")" = conversation_binding,gateway_job,integration,slack_agent_session_publication,slack_delivery_resolution,slack_outgoing_message ]
@@ -103,6 +114,27 @@ sql "UPDATE slack_agent_session_publication SET status_source_job_id=2 WHERE ini
 sql "UPDATE slack_agent_session_publication SET status_source_job_id=1 WHERE initial_integration_id=1"
 [ "$(sql 'SELECT COUNT(DISTINCT id)=COUNT(*) AND MIN(id)>0 FROM slack_agent_session_publication')" = 1 ]
 reject "INSERT INTO slack_agent_session_publication(initial_integration_id,slack_channel_id,slack_thread_root_message_id,latest_status_job_id,status_source_job_id,slack_initiator_user_id,updated_at,created_at) VALUES (1,'C','123.456',1,1,'U','1970-01-01 00:00:00.001','1970-01-01 00:00:00.001')" 'one publication per original assignment thread'
+
+# Reconstruct version 1 only inside this script's owned disposable container.
+# Version 2 adds indexes; it must preserve rows, explicit IDs and UTF-8 content.
+[ "$(docker inspect --format '{{ index .Config.Labels "com.viant.slack-ai-gateway.e2e" }}' "$container")" = schema-test ]
+before_upgrade=$(business_checksum)
+before_auto_increment=$(auto_increment_values)
+sql 'DROP INDEX gateway_job_state ON gateway_job; DROP INDEX slack_agent_session_publication_cooldown ON slack_agent_session_publication; CALL set_schema_version(1)'
+[ "$(sql 'SELECT get_schema_version()')" = 1 ]
+[ "$(sql "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND index_name IN ('gateway_job_state','slack_agent_session_publication_cooldown')")" = 0 ]
+load_schema
+[ "$(sql 'SELECT get_schema_version()')" = 2 ]
+assert_runtime_indexes
+[ "$(business_checksum)" = "$before_upgrade" ]
+[ "$(auto_increment_values)" = "$before_auto_increment" ]
+[ "$(sql "SELECT id=1 AND prompt_text=REPEAT('Unicode 😀 ',10000) AND gateway_request_id=REPEAT('r',255) FROM gateway_job WHERE slack_event_id='E1'")" = 1 ]
+[ "$(sql "SELECT id=1 AND slack_message_text=REPEAT('😀',12000) FROM slack_outgoing_message WHERE job_id=1 AND slack_message_index=0")" = 1 ]
+load_schema
+[ "$(sql 'SELECT get_schema_version()')" = 2 ]
+assert_runtime_indexes
+[ "$(business_checksum)" = "$before_upgrade" ]
+[ "$(auto_increment_values)" = "$before_auto_increment" ]
 
 # Old developer baseline must fail explicitly; never auto-migrate or reset it.
 sql "CREATE DATABASE slack_ai_gateway_old_baseline; CREATE TABLE slack_ai_gateway_old_baseline.schema_version(version_number INT UNSIGNED PRIMARY KEY); INSERT INTO slack_ai_gateway_old_baseline.schema_version VALUES(1); CREATE TABLE slack_ai_gateway_old_baseline.integrations(id VARCHAR(128) PRIMARY KEY,installation_id VARCHAR(128),agent_id VARCHAR(128))"

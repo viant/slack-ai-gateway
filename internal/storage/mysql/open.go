@@ -26,6 +26,6 @@ func Open(ctx context.Context, dsn string, secret *scy.Resource) (store *Store, 
 	}()
 	return datly.Open(ctx, connector.Config{
 		Name: "slack", Driver: "mysql", DSN: dsn, Secret: secret,
-		MaxIdleConns: 4, ConnMaxLifetimeMs: 300000,
+		MaxOpenConns: 10, MaxIdleConns: 4, ConnMaxLifetimeMs: 300000,
 	})
 }

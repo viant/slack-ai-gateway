@@ -8,18 +8,28 @@ import (
 
 // Input is the generated input scaffold for reader.
 type Input struct {
-	IntegrationID   int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
-	IntegrationName string    `parameter:"IntegrationName,kind=query,in=IntegrationName,dataType=string,value=,required=false"`
-	ID              int64     `parameter:"ID,kind=query,in=ID,dataType=int64,required=false"`
-	Mode            string    `parameter:"Mode,kind=query,in=mode,dataType=string,value=key,required=false"`
-	Now             time.Time `parameter:"Now,kind=query,in=now,dataType=time.Time,required=false"`
-	Has             *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
+	IntegrationID            int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
+	IntegrationName          string    `parameter:"IntegrationName,kind=query,in=IntegrationName,dataType=string,value=,required=false"`
+	PhysicalThread           bool      `parameter:"PhysicalThread,kind=query,in=PhysicalThread,dataType=bool,value=false,required=false"`
+	AppID                    string    `parameter:"AppID,kind=query,in=AppID,dataType=string,required=false"`
+	WorkspaceID              string    `parameter:"WorkspaceID,kind=query,in=WorkspaceID,dataType=string,required=false"`
+	ChannelID                string    `parameter:"ChannelID,kind=query,in=ChannelID,dataType=string,required=false"`
+	SlackThreadRootMessageID string    `parameter:"SlackThreadRootMessageID,kind=query,in=SlackThreadRootMessageID,dataType=string,required=false"`
+	ID                       int64     `parameter:"ID,kind=query,in=ID,dataType=int64,required=false"`
+	Mode                     string    `parameter:"Mode,kind=query,in=mode,dataType=string,value=key,required=false"`
+	Now                      time.Time `parameter:"Now,kind=query,in=now,dataType=time.Time,required=false"`
+	Has                      *InputHas `json:"-" setMarker:"true" sqlx:"-" typeName:"InputHas"`
 }
 
 type InputHas struct {
-	IntegrationID   bool
-	IntegrationName bool
-	ID              bool
-	Mode            bool
-	Now             bool
+	IntegrationID            bool
+	IntegrationName          bool
+	PhysicalThread           bool
+	AppID                    bool
+	WorkspaceID              bool
+	ChannelID                bool
+	SlackThreadRootMessageID bool
+	ID                       bool
+	Mode                     bool
+	Now                      bool
 }

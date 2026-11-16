@@ -177,7 +177,10 @@ session identity and protected agent listing without Slack or a conversation.
 
 After rotating Slack tokens or MySQL credentials, restart the gateway to rebuild
 its clients and connection pool. Each OOB login reads its configured resource
-again, while the existing session recovery rules remain unchanged. Restart
-after changing the YAML or correcting a blocked authentication setup. Preserve
+again. Correcting a remote password/account/permission refusal can recover on the
+next authentication attempt without restart. Restart after changing YAML or
+correcting a hard local configuration or unreadable credential-resource problem,
+confirmed identity or security failure; see [connection recovery](operations.md#viant-steward-connection-recovery).
+Preserve
 existing sources until the replacement has been verified; no automatic
 configuration or credential hot reload is provided.

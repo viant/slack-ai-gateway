@@ -16,7 +16,7 @@ import (
 )
 
 type recoveryOwner struct {
-	storage.Store
+	nativeRuntimeStore
 	recoveries atomic.Int32
 }
 
@@ -40,9 +40,9 @@ func (s *recoveryOwner) Recover(ctx context.Context) error {
 
 func TestGroupUsesPreparedRootAndIsolatesSlackSourceFailure(t *testing.T) {
 	first, firstStore, second, secondStore := setupGroup(t)
-	owner := &recoveryOwner{Store: firstStore.Scope(0)}
-	firstScope := &recoveryOwner{Store: firstStore}
-	secondScope := &recoveryOwner{Store: secondStore}
+	owner := &recoveryOwner{nativeRuntimeStore: nativeRuntimeStore{Store: firstStore.Scope(0)}}
+	firstScope := &recoveryOwner{nativeRuntimeStore: nativeRuntimeStore{Store: firstStore}}
+	secondScope := &recoveryOwner{nativeRuntimeStore: nativeRuntimeStore{Store: secondStore}}
 	first.Store, second.Store = firstScope, secondScope
 	first.Source = sourceFunc(func(context.Context, gateway.EventSink, func()) error {
 		return gateway.ErrSlackAuth
@@ -66,7 +66,11 @@ func TestGroupUsesPreparedRootAndIsolatesSlackSourceFailure(t *testing.T) {
 	}
 }
 
-type failedClaims struct{ storage.Store }
+type failedClaims struct{ nativeRuntimeStore }
+
+func (s failedClaims) ForThread(key gateway.PhysicalThreadKey) gateway.Store {
+	return failedClaims{nativeRuntimeStore{Store: gateway.ForThread(s.Store, key).(storage.Store)}}
+}
 
 func (s failedClaims) ClaimJob(context.Context) (*gateway.GatewayJob, error) {
 	return nil, errors.New("synthetic storage failure")
@@ -74,7 +78,7 @@ func (s failedClaims) ClaimJob(context.Context) (*gateway.GatewayJob, error) {
 
 func TestGroupStorageFailureStopsOtherIntegrations(t *testing.T) {
 	first, firstStore, second, _ := setupGroup(t)
-	first.Store = failedClaims{Store: firstStore}
+	first.Store = failedClaims{nativeRuntimeStore{Store: firstStore}}
 	_, err := firstStore.Enqueue(context.Background(), storetest.Message("failure", "failure", "alice"))
 	storetest.Must(t, err)
 	secondStopped := make(chan struct{})
@@ -97,6 +101,13 @@ type failureAfterSourceStop struct {
 	runtimeTestStore
 	claimed chan struct{}
 	once    sync.Once
+}
+
+func (s *failureAfterSourceStop) ForThread(key gateway.PhysicalThreadKey) gateway.Store {
+	if scoped, ok := s.runtimeTestStore.(gateway.ThreadScopedStore); ok && key.Valid() {
+		return failedQueryThread{nativeRuntimeStore: nativeRuntimeStore{Store: scoped.ForThread(key).(storage.Store)}, claim: s.ClaimJob}
+	}
+	return s
 }
 
 func (s *failureAfterSourceStop) ClaimJob(ctx context.Context) (*gateway.GatewayJob, error) {

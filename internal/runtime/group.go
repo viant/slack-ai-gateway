@@ -60,6 +60,16 @@ func (g *Group) Run(ctx context.Context) (runErr error) {
 		}
 		scopes[id] = true
 	}
+	// Every startup sweep precedes the first live source. Per-runtime cleanup
+	// after goroutines start could otherwise close another runtime's new work.
+	for _, integration := range g.Integrations {
+		if err := integration.Runtime.prepareUnavailable(ctx); err != nil {
+			return fmt.Errorf("integration %s: %w", integration.ID, err)
+		}
+	}
+	if owner, ok := g.Store.(interface{ StartThreadOwnership() }); ok {
+		owner.StartThreadOwnership()
+	}
 	log := g.Log
 	if log == nil {
 		log = slog.Default()

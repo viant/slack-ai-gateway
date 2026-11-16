@@ -2,9 +2,15 @@
 
 package read
 
+import (
+	time "time"
+)
+
 // Input is the generated input scaffold for reader.
 type Input struct {
 	IntegrationID            int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
+	PhysicalThread           bool      `parameter:"PhysicalThread,kind=query,in=PhysicalThread,dataType=bool,value=false,required=false"`
+	Now                      time.Time `parameter:"Now,kind=query,in=now,dataType=time.Time,required=false"`
 	AppID                    string    `parameter:"AppID,kind=query,in=AppID,dataType=string,required=false"`
 	WorkspaceID              string    `parameter:"WorkspaceID,kind=query,in=WorkspaceID,dataType=string,required=false"`
 	ChannelID                string    `parameter:"ChannelID,kind=query,in=ChannelID,dataType=string,required=false"`
@@ -15,6 +21,8 @@ type Input struct {
 
 type InputHas struct {
 	IntegrationID            bool
+	PhysicalThread           bool
+	Now                      bool
 	AppID                    bool
 	WorkspaceID              bool
 	ChannelID                bool

@@ -192,6 +192,10 @@ access:
 
 		runStarted := time.Now()
 		if err := execute(ctx, []string{"run", "--config", path}, out, deps); err != nil {
+			var issue *gateway.StorageError
+			if errors.As(err, &issue) {
+				t.Logf("storage diagnostic: operation=%s transaction_state=%s completion_observed=%t native_type=%T", issue.Operation, issue.TransactionState, issue.CompletionObserved, issue.Cause)
+			}
 			t.Fatalf("runtime failed after %s: %v\nruntime logs:\n%s", time.Since(runStarted), err, out.String())
 		}
 		if backend.queries.Load() != 2 || sender.calls.Load() != 2 || directory.fresh.Load() != 2+sender.statuses.Load() {

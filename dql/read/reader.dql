@@ -10,6 +10,7 @@
 
 #define($_ = $IntegrationID<int>(query/IntegrationID).Optional().Value(0))
 #define($_ = $IntegrationName<string>(query/IntegrationName).Optional().Value(''))
+#define($_ = $PhysicalThread<bool>(query/PhysicalThread).Optional().Value(false))
 #define($_ = $Mode<string>(query/mode).Optional().Value('key'))
 #define($_ = $Now<time.Time>(query/now).Optional())
 #define($_ = $ID<int64>(query/ID).Optional().WithPredicate(0,'equal','j','id'))

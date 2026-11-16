@@ -28,6 +28,17 @@ func (input *Input) SetIntegrationName(value string) {
 	input.Has.IntegrationName = true
 }
 
+func (input *Input) SetPhysicalThread(value bool) {
+	if input == nil {
+		return
+	}
+	input.PhysicalThread = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.PhysicalThread = true
+}
+
 func (input *Input) SetMode(value string) {
 	if input == nil {
 		return

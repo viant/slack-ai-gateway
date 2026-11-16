@@ -156,7 +156,7 @@ func (s *Store) checkSchema(ctx context.Context) error {
 			return err
 		}
 	}
-	for _, name := range []string{"integration_name_active", "integration_slack", "gateway_job_pending", "gateway_job_thread", "slack_outgoing_message_pending", "slack_outgoing_message_job_state", "slack_outgoing_message_cooldown", "gateway_job_progress_due", "gateway_job_progress_cooldown", "slack_agent_session_publication_due", "gateway_job_retention_content", "gateway_job_binding_finished", "conversation_binding_last_activity", "slack_delivery_resolution_outgoing", "slack_agent_session_publication_latest_status_job", "slack_agent_session_publication_status_source_job"} {
+	for _, name := range []string{"gateway_job_state", "slack_agent_session_publication_cooldown", "integration_name_active", "integration_slack", "gateway_job_pending", "gateway_job_thread", "slack_outgoing_message_pending", "slack_outgoing_message_job_state", "slack_outgoing_message_cooldown", "gateway_job_progress_due", "gateway_job_progress_cooldown", "slack_agent_session_publication_due", "gateway_job_retention_content", "gateway_job_binding_finished", "conversation_binding_last_activity", "slack_delivery_resolution_outgoing", "slack_agent_session_publication_latest_status_job", "slack_agent_session_publication_status_source_job"} {
 		var count int
 		if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?", name).Scan(&count); err != nil {
 			return err

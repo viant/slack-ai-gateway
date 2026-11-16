@@ -14,6 +14,13 @@ AND (j.integration_id=$IntegrationID OR (
  AND (j.slack_progress_state='ready' OR (j.slack_progress_state='settled' AND j.slack_progress_phase='delivery_uncertain'
  AND NOT EXISTS (SELECT 1 FROM slack_outgoing_message o WHERE o.job_id=j.id AND o.slack_delivery_state IN ('failed','delivery_unknown'))))
  AND (j.slack_progress_next_attempt_at IS NULL OR j.slack_progress_next_attempt_at <= $Now)
+ #if($Mode != "backend_status")
+ AND (j.slack_progress_message_id='' OR j.slack_progress_revision>j.slack_progress_sent_revision
+  OR j.slack_progress_phase IN ('backend_recovering','backend_blocked')
+  OR j.slack_progress_refresh_at IS NULL OR j.slack_progress_refresh_at <= $Now
+  OR (j.slack_progress_phase='delivery_uncertain' AND NOT EXISTS (SELECT 1 FROM slack_outgoing_message settled_part
+   WHERE settled_part.job_id=j.id AND settled_part.slack_delivery_state IN ('failed','delivery_unknown'))))
+ #end
 AND NOT EXISTS (SELECT 1 FROM slack_outgoing_message o JOIN gateway_job cdj ON cdj.id=o.job_id
  JOIN integration cd_integration ON cd_integration.id=cdj.integration_id
  JOIN integration own_integration ON own_integration.id=j.integration_id
@@ -25,5 +32,6 @@ AND NOT EXISTS (SELECT 1 FROM gateway_job sj
 AND NOT EXISTS (SELECT 1 FROM slack_agent_session_publication a JOIN integration ai ON ai.id=a.initial_integration_id
  JOIN integration oi ON oi.id=j.integration_id WHERE ai.slack_app_id=oi.slack_app_id AND ai.slack_workspace_id=oi.slack_workspace_id
  AND a.slack_publication_rate_limited_until>$Now)
+${embed:thread_scope.sql}
 ORDER BY CASE WHEN j.gateway_execution_reason IN ('integration_changed','integration_removed') OR j.slack_progress_phase IN ('integration_changed','integration_removed') THEN 0 ELSE 1 END,
  j.slack_progress_last_sent_at,j.id

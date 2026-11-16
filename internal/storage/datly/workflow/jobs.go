@@ -10,6 +10,7 @@ import (
 
 	br "github.com/viant/slack-ai-gateway/internal/datly/bindings/read"
 	bw "github.com/viant/slack-ai-gateway/internal/datly/bindings/write"
+	workread "github.com/viant/slack-ai-gateway/internal/datly/operations/work"
 	jr "github.com/viant/slack-ai-gateway/internal/datly/read"
 	er "github.com/viant/slack-ai-gateway/internal/datly/read/event"
 	sr "github.com/viant/slack-ai-gateway/internal/datly/sessions/read"
@@ -23,6 +24,9 @@ func (x *execution) enqueue(ctx context.Context, in *Input, out *Output) error {
 	if x.identity == nil || m.AppID != x.identity.AppID || m.WorkspaceID != x.identity.WorkspaceID {
 		return gateway.ErrConflict
 	}
+	if x.thread != nil && m.PhysicalThread() != *x.thread {
+		return gateway.ErrConflict
+	}
 	if m.AppID == "" || m.EventID == "" || m.WorkspaceID == "" || m.ChannelID == "" || m.RootTS == "" || m.AuthorID == "" || m.MessageTS == "" {
 		return fmt.Errorf("incomplete event")
 	}
@@ -34,16 +38,20 @@ func (x *execution) enqueue(ctx context.Context, in *Input, out *Output) error {
 		out.Duplicate = true
 		return nil
 	}
-	var token [16]byte
-	if _, err = rand.Read(token[:]); err != nil {
-		return err
+	requestID := in.GatewayRequestID
+	if requestID == "" {
+		var token [16]byte
+		if _, err = rand.Read(token[:]); err != nil {
+			return err
+		}
+		requestID = hex.EncodeToString(token[:])
 	}
 	now := timestamp(time.Now())
 	mode := m.StatusMode
 	if mode == "" {
 		mode = gateway.StatusMessage
 	}
-	row := &jw.GatewayJob{IntegrationId: int(x.scope), SlackChannelId: m.ChannelID, SlackThreadRootMessageId: m.RootTS, SlackEventId: m.EventID, SlackPromptAuthorId: m.AuthorID, SlackPromptMessageId: m.MessageTS, PromptText: &m.Text, PromptHasAttachments: boolInt(m.HasAttachments), GatewayRequestId: hex.EncodeToString(token[:]), GatewayExecutionState: "pending", CreatedAt: now, GatewayExecutionUpdatedAt: now, SlackConversationType: string(m.MessageSurface()), SlackProgressState: "ready", SlackProgressMode: string(mode), GatewayStatusUpdatedAt: now}
+	row := &jw.GatewayJob{IntegrationId: int(x.scope), SlackChannelId: m.ChannelID, SlackThreadRootMessageId: m.RootTS, SlackEventId: m.EventID, SlackPromptAuthorId: m.AuthorID, SlackPromptMessageId: m.MessageTS, PromptText: &m.Text, PromptHasAttachments: boolInt(m.HasAttachments), GatewayRequestId: requestID, GatewayExecutionState: "pending", CreatedAt: now, GatewayExecutionUpdatedAt: now, SlackConversationType: string(m.MessageSurface()), SlackProgressState: "ready", SlackProgressMode: string(mode), GatewayStatusUpdatedAt: now}
 	stale, err := x.staleThread(ctx, m)
 	if err != nil {
 		return err
@@ -87,8 +95,10 @@ func (x *execution) enqueue(ctx context.Context, in *Input, out *Output) error {
 			publication = &sw.SlackAgentSessionPublication{}
 			publication.SetId(p.Id)
 			publication.SetLatestStatusJobId(row.Id)
+			publication.SetSlackAgentDesiredStatus("processing")
 			publication.SetSlackPublicationRevision(p.SlackPublicationRevision + 1)
 			if p.SlackPublicationState != "sending" {
+				publication.SetStatusSourceJobId(row.Id)
 				publication.SetSlackPublicationState("ready")
 			}
 			publication.SetSlackPublicationReason("")
@@ -114,6 +124,7 @@ func (x *execution) enqueue(ctx context.Context, in *Input, out *Output) error {
 		}
 	}
 	out.Inserted = true
+	x.affectProgress(gateway.PhysicalThreadKey{AppID: m.AppID, WorkspaceID: m.WorkspaceID, ChannelID: m.ChannelID, RootTS: m.RootTS})
 	return nil
 }
 
@@ -137,6 +148,7 @@ func (x *execution) jobs(ctx context.Context, in *Input, out *Output) error {
 		if e = x.writeJobs(ctx, []*jw.GatewayJob{row}); e != nil {
 			return e
 		}
+		x.affectJob(j)
 		out.GatewayJob = jobValue(j)
 		out.GatewayJob.State = "processing"
 		return nil
@@ -226,6 +238,7 @@ func (x *execution) jobs(ctx context.Context, in *Input, out *Output) error {
 	if err := x.writeJobs(ctx, []*jw.GatewayJob{row}); err != nil {
 		return err
 	}
+	x.affectJob(j)
 	if in.Action == "complete" || in.Action == "reject" {
 		return x.touchBinding(ctx, deref(j.ConversationBindingId), time.Now())
 	}
@@ -382,33 +395,16 @@ func (x *execution) eventExists(ctx context.Context, id string) (bool, error) {
 }
 
 func (x *execution) staleThread(ctx context.Context, m gateway.Message) (bool, error) {
-	q := &jr.Input{}
-	q.SetMode("stale_thread")
-	q.SetAppID(m.AppID)
-	q.SetWorkspaceID(m.WorkspaceID)
-	q.SetChannelID(m.ChannelID)
-	q.SetSlackThreadRootMessageID(m.RootTS)
-	rows, err := x.readJobs(ctx, q, false)
+	input := &workread.Input{}
+	input.SetMode("stale_thread")
+	input.SetFixedThread(true)
+	input.SetAppID(m.AppID)
+	input.SetWorkspaceID(m.WorkspaceID)
+	input.SetChannelID(m.ChannelID)
+	input.SetSlackThreadRootMessageID(m.RootTS)
+	out, err := readGraph[workread.Output](ctx, x.invoke, graphTarget[workread.ReaderComponent]("reader", "GET", "operations/work"), input, false)
 	if err != nil {
 		return false, err
 	}
-	if len(rows) > 0 {
-		return true, nil
-	}
-	bq := &br.Input{}
-	bq.SetMode("physical_thread")
-	bq.SetAppID(m.AppID)
-	bq.SetWorkspaceID(m.WorkspaceID)
-	bq.SetChannelID(m.ChannelID)
-	bq.SetSlackThreadRootMessageID(m.RootTS)
-	bindings, err := x.readBindings(ctx, bq, false)
-	if err != nil {
-		return false, err
-	}
-	for _, b := range bindings {
-		if b.GatewayBindingState == "closed" {
-			return true, nil
-		}
-	}
-	return false, nil
+	return len(out.Data) > 0, nil
 }

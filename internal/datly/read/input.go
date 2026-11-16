@@ -10,6 +10,7 @@ import (
 type Input struct {
 	IntegrationID            int       `parameter:"IntegrationID,kind=query,in=IntegrationID,dataType=int,value=0,required=false"`
 	IntegrationName          string    `parameter:"IntegrationName,kind=query,in=IntegrationName,dataType=string,value=,required=false"`
+	PhysicalThread           bool      `parameter:"PhysicalThread,kind=query,in=PhysicalThread,dataType=bool,value=false,required=false"`
 	Mode                     string    `parameter:"Mode,kind=query,in=mode,dataType=string,value=key,required=false"`
 	Now                      time.Time `parameter:"Now,kind=query,in=now,dataType=time.Time,required=false"`
 	ID                       int64     `parameter:"ID,kind=query,in=ID,dataType=int64,required=false" predicate:"equal,j,id"`
@@ -26,6 +27,7 @@ type Input struct {
 type InputHas struct {
 	IntegrationID            bool
 	IntegrationName          bool
+	PhysicalThread           bool
 	Mode                     bool
 	Now                      bool
 	ID                       bool

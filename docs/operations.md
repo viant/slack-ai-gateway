@@ -216,12 +216,14 @@ No configuration switch or schema migration is needed for this behavior.
 | `starting` | Initial authentication/verification is in progress; transient failures retry |
 | `ready` | Expected session identity, protected metadata and configured agent verified |
 | `recovering` | A previously ready connection failed; the existing session is checked first |
-| `blocked` | Permanent authentication/identity problem; correct the cause and restart |
+| `blocked` | Invalid local configuration or unreadable credential resource, confirmed identity mismatch or security violation; correct the cause and restart |
 
 Wait for both `slack_connection state=ready` and `agently_backend state=ready`
-before sending a new question. `agently_backend_retry` logs the fixed error
-category and `retry_after_ms`; `agently_backend_blocked` records a redacted
-permanent failure. Raw server bodies, credentials and question text are excluded.
+before sending a new question. `agently_backend_retry` records `stage`, `category`,
+`http_status` when available, and `retry_after_ms`/`retry_at`.
+`agently_backend_blocked` records a hard local, identity or security failure.
+State changes also carry a safe reason/category. Raw server bodies, credentials
+and question text are excluded.
 For a failed OOB token exchange, the redacted reason can additionally include
 `oauth_error` and `configured_auth_style`. OAuth error codes are restricted to
 known protocol values, with unknown values shown as `other`. The style is the
@@ -232,10 +234,24 @@ styles with the same authorization code and return the last error; an
 Use the provider's client configuration and available IdP diagnostics to establish
 the cause before changing authentication. The existing OAuth resource supports
 [native client authentication style selection](secrets.md#oauth-client-authentication-style).
-Retry intervals grow to approximately 30 seconds, with jitter and longer
-`Retry-After` delays respected. Native session/token refresh is reused. A missing
-session can trigger a new OOB login; a query-specific access rejection does not
-invalidate everyone else's connection.
+Remote login/session/readiness refusals, including HTTP `401`/`403`, a rejected
+password and a missing configured agent in remote metadata, are retried without
+restarting the gateway. The next attempt starts 60–75 seconds after the failed
+attempt finishes; a longer `Retry-After` takes precedence. A login attempt can
+itself take up to 90 seconds, so this is not a fixed interval between attempt
+start times. Correct the remote account, permissions or service configuration,
+then wait for verified readiness. A refusal without an OAuth error code is still
+a remote refusal; automatic recovery does not establish what caused the refusal.
+
+Network failures, timeouts, `408`, `429` and server errors retain the existing
+exponential backoff of approximately 1–30 seconds, with jitter and longer
+`Retry-After` respected. Native session/token refresh is reused. A protected
+`401` with a valid cookie keeps the existing cooldown of at least 30 seconds;
+it does not immediately start another OOB login. A missing session can trigger a
+new OOB login. Authentication is serialized per integration, not across the
+process; other integrations can keep working while one recovers. A verified
+ready transition wakes the existing scheduler. A query-specific access rejection
+does not invalidate everyone else's connection.
 
 During `starting`, `recovering` or `blocked`, accepted Slack questions finish
 locally with reason `backend_unavailable` or `backend_blocked`, plus an ordinary
@@ -245,6 +261,18 @@ These questions **never execute automatically after recovery**; the user may
 submit a new question after readiness returns. A locally completed notice is not
 a successful Viant Steward execution. Deduplication, access checks, ordering and
 uncertain-delivery rules still apply in every status mode, including `agent_session`.
+
+A readiness transition closes admission before dispatching cleanup to thread
+owners. Cleanup runs without holding the readiness lock, and a successful login
+cannot publish `ready` until cleanup for that generation finishes. Its work is
+bounded per storage command, rather than by a five-second limit for an entire
+integration.
+
+Conversation creation retains its readiness epoch. If the backend becomes
+unavailable at any point during Create, even if it recovers before the response
+arrives, a confirmed conversation ID is saved but that question is closed as
+not submitted. The gateway obtains a fresh client and checks the epoch again
+before the first query marker. An unknown Create is never repeated automatically.
 
 Started requests retain their stored conversation/run/turn identifiers. Recovery
 attaches/reads the existing request without repeating a create or query POST;
@@ -256,10 +284,15 @@ Already prepared final replies continue through the outbox while the backend is
 unavailable. Existing `needs_review` rows, including older
 `backend_auth_or_identity_rejected` records, are not automatically released.
 
-For `blocked`, check the configured identity, account credentials, IdP and agent
-permissions, correct the cause, then restart. There is no credential hot reload.
-Invalid configured secrets, invalid static configuration, unusable storage and Slack
-authentication failures retain their startup/stop behavior. `check-agently` is
+For `blocked`, correct the local configuration or unreadable credential resource,
+confirmed identity mismatch or endpoint/redirect/state/PKCE security problem,
+then restart. A remote `403`
+alone does not prove an identity mismatch. Every recovery attempt still verifies
+the configured principal/provider and protected agent metadata; ownership and
+conversation-agent checks remain mandatory. Unusable storage and Slack
+authentication failures retain their startup/stop behavior. Each new OOB login
+rereads its resource, but this is not general configuration hot reload.
+`check-agently` is
 a bounded one-shot diagnostic and exits on a failed check; it does not start the
 runtime's recovery loop. It is optional before `run`.
 
@@ -318,6 +351,20 @@ The one-second sender pacing and durable 429 cooldown apply across all channels.
 
 ## Current execution boundary
 
+The process multiplexes physical-thread owners over four short database
+executors. A physical key includes Slack app, workspace, channel and root
+message; integration assignment history does not create a second owner for the
+same thread. Policy and Create use four separate preparation slots, Slack HTTP
+uses four outbound slots, and running Query/ReadTurn observations have independent
+tracked lifetimes. Slow HTTP therefore does not hold a database executor or
+prevent another thread from persisting intake and receipts.
+
+Each active thread has an ordered mailbox with 64 queued commands. Backpressure
+honors the caller's context: intake retains its one-second budget, including
+queueing. Canceling a queued command does not release an already running native
+transaction early. Owners with no queued/executing work or external continuation
+references are removed without per-thread polling loops or timers.
+
 Idle work discovery uses a read-only Datly component shared by the process.
 It does not claim a job, begin the mutation workflow, or load prompt/result
 bodies. Candidate hints are checked by the existing scoped transactional workers.
@@ -326,6 +373,21 @@ five-second reconciliation instead of polling every 100 milliseconds.
 Committed changes wake the affected scoped workers directly, including while a
 discovery query is in flight. Discovery supplies future deadlines and missed-work
 reconciliation; its database cost still depends on retained history and indexes.
+
+Datly owns bounded transaction replay. The workflow opts into one retry after a
+proven rollback of its own composed transaction; HTTP is never part of that
+replay. Unknown/partial completion, caller-owned transactions and cleanup
+failures remain ineligible. A storage failure after the native retry still stops
+the process. `storage_operation_failed` records the operation, completion state,
+safe driver code and timing without SQL, prompt text or credentials.
+
+The concurrency update requires Datly's custom capability forwarding, composed
+transaction ownership proof and preservation of unannotated typed input facts.
+The actual-workflow regression
+`TestWorkflow022NativeRetryKeepsIntakeAndPublicationAtomic` is the dependency
+release gate. Publish and pin the framework fix before a standalone gateway
+release; a local workspace is suitable for cross-repository verification and
+must not become a permanent module replacement.
 
 `slack.status.refresh_interval_sec` continues to control visible message status
 refreshes. It is independent of the reconciliation interval and does not control

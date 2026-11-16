@@ -6,6 +6,28 @@ import (
 	time "time"
 )
 
+func (input *Input) SetMode(value string) {
+	if input == nil {
+		return
+	}
+	input.Mode = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.Mode = true
+}
+
+func (input *Input) SetIntegrationID(value int) {
+	if input == nil {
+		return
+	}
+	input.IntegrationID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.IntegrationID = true
+}
+
 func (input *Input) SetNow(value time.Time) {
 	if input == nil {
 		return
@@ -15,4 +37,114 @@ func (input *Input) SetNow(value time.Time) {
 		input.Has = &InputHas{}
 	}
 	input.Has.Now = true
+}
+
+func (input *Input) SetCutoff(value time.Time) {
+	if input == nil {
+		return
+	}
+	input.Cutoff = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.Cutoff = true
+}
+
+func (input *Input) SetAfterApp(value string) {
+	if input == nil {
+		return
+	}
+	input.AfterApp = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.AfterApp = true
+}
+
+func (input *Input) SetAfterWorkspace(value string) {
+	if input == nil {
+		return
+	}
+	input.AfterWorkspace = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.AfterWorkspace = true
+}
+
+func (input *Input) SetAfterChannel(value string) {
+	if input == nil {
+		return
+	}
+	input.AfterChannel = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.AfterChannel = true
+}
+
+func (input *Input) SetAfterRoot(value string) {
+	if input == nil {
+		return
+	}
+	input.AfterRoot = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.AfterRoot = true
+}
+
+func (input *Input) SetFixedThread(value bool) {
+	if input == nil {
+		return
+	}
+	input.FixedThread = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.FixedThread = true
+}
+
+func (input *Input) SetAppID(value string) {
+	if input == nil {
+		return
+	}
+	input.AppID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.AppID = true
+}
+
+func (input *Input) SetWorkspaceID(value string) {
+	if input == nil {
+		return
+	}
+	input.WorkspaceID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.WorkspaceID = true
+}
+
+func (input *Input) SetChannelID(value string) {
+	if input == nil {
+		return
+	}
+	input.ChannelID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.ChannelID = true
+}
+
+func (input *Input) SetSlackThreadRootMessageID(value string) {
+	if input == nil {
+		return
+	}
+	input.SlackThreadRootMessageID = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.SlackThreadRootMessageID = true
 }

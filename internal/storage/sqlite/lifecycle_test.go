@@ -67,7 +67,7 @@ func TestSQLitePoolHandoffKeepsLifetimeLockAndRejectsFailedSchema(t *testing.T) 
 	db := fixtureDB(t, s)
 	list, err := migrationList()
 	storetest.Must(t, err)
-	_, err = db.Exec("UPDATE schema_migrations SET checksum='invalid'")
+	_, err = db.Exec("UPDATE schema_migrations SET checksum='invalid' WHERE version=1")
 	storetest.Must(t, err)
 	if err = s.CheckSchema(ctx); err == nil {
 		t.Fatal("invalid schema accepted")
@@ -87,7 +87,7 @@ func TestSQLitePoolHandoffKeepsLifetimeLockAndRejectsFailedSchema(t *testing.T) 
 		second.Close()
 		t.Fatal("failed verification released the lifetime lock")
 	}
-	_, err = db.Exec("UPDATE schema_migrations SET checksum=?", list[0].checksum)
+	_, err = db.Exec("UPDATE schema_migrations SET checksum=? WHERE version=1", list[0].checksum)
 	storetest.Must(t, err)
 	storetest.Must(t, s.CheckSchema(ctx))
 	if s.db != nil || s.Store == nil {
@@ -152,7 +152,10 @@ func TestExistingSQLiteFileContinuesThroughDatly(t *testing.T) {
 	storetest.Must(t, err)
 	registration, err := Open(ctx, path, false)
 	storetest.Must(t, err)
-	storetest.Must(t, registration.CheckSchema(ctx))
+	if err := registration.CheckSchema(ctx); err == nil {
+		t.Fatal("version 1 must request explicit additive migration")
+	}
+	storetest.Must(t, registration.Migrate(ctx))
 	storetest.RegisterDefault(t, registration)
 	storetest.Must(t, registration.Close())
 	_, err = db.ExecContext(ctx, `INSERT INTO gateway_job(integration_id,id,slack_channel_id,slack_thread_root_message_id,slack_event_id,slack_prompt_author_id,slack_prompt_message_id,prompt_text,prompt_has_attachments,gateway_request_id,gateway_execution_state,created_at,gateway_execution_updated_at,gateway_status_updated_at)

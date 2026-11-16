@@ -102,6 +102,7 @@ func (e *execution) claimAgentSession(ctx context.Context, now time.Time, kind s
 	now = timestamp(now)
 	input := &sessionsread.Input{}
 	input.SetMode("due")
+	input.SetNow(now)
 	rows, err := e.readSessions(ctx, input, true)
 	if err != nil {
 		return nil, err

@@ -102,6 +102,7 @@ func (s *Source) handle(ctx context.Context, req socketmode.Request, sink gatewa
 			acceptErr := acceptCtx.Err()
 			cancel()
 			if err != nil {
+				gateway.LogStorageError(s.log, err)
 				if errors.Is(err, context.DeadlineExceeded) && acceptErr == context.DeadlineExceeded && ctx.Err() == nil {
 					// The attempt remains unacknowledged and may have an unknown
 					// commit outcome. Only durable jobs and existing event deduplication

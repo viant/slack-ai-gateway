@@ -71,7 +71,7 @@ Replace the entire `storage` section in the existing runtime configuration:
 ```yaml
 storage:
   driver: mysql
-  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true&loc=UTC'
+  dsn: '${Username}:${Password}@tcp(127.0.0.1:3309)/slack_ai_gateway?parseTime=true&loc=UTC&timeout=5s&readTimeout=5s&writeTimeout=5s'
   secret:
     URL: file:///absolute/path/mysql.json
     Key: blowfish://default
@@ -81,6 +81,17 @@ The DSN retains the address, database and options; Scy loads the username/passwo
 from the resource, and Datly performs native substitution when opening storage.
 Do not set `storage.path` with MySQL. `storage.secret` is optional when using a
 complete DSN for local development. There is no environment-variable fallback.
+
+The process shares one Datly connection pool across all integrations: at most
+10 open connections, with up to 4 retained idle. Native identity allocation uses
+this same pool; its additional transaction is included in the budget. Independent
+operator processes and schema tools have their own connections and must be
+accounted for separately when setting a database-user connection limit.
+
+The driver `timeout`, `readTimeout` and `writeTimeout` options bound transport
+operations. A canceled context alone does not prove that COMMIT or ROLLBACK has
+finished. Thread executors remain occupied until native completion; shutdown
+joins them before closing storage.
 
 Create the runtime credential file with `scy secure --target basic`, following
 [secret setup](secrets.md). Use the actual credentials of an existing volume.
@@ -101,6 +112,13 @@ go run ./cmd/slack-ai-gateway run --config /absolute/path/gateway.local.yaml
 Validation checks configuration without loading credentials or connecting.
 Commands that open MySQL load its credential resource at that point. Missing or
 unavailable storage causes an error; the gateway never switches to SQLite.
+
+Schema version 2 adds only `gateway_job_state` and
+`slack_agent_session_publication_cooldown`. Reapply the versioned DDL explicitly
+with the runtime stopped to add them to a compatible version-1 database; existing
+rows are preserved. The gateway does not apply this upgrade during startup.
+SQLite uses the separate additive migration `002_runtime_indexes.sql`, applied
+by the existing explicit `migrate` command.
 
 The assignment schema requires a fresh database. This development change does
 not migrate the earlier four-table registry or other prerelease initial schemas.

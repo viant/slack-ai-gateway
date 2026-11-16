@@ -4,10 +4,12 @@ package datly
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/viant/datly/bootstrap/connector"
@@ -40,13 +42,20 @@ import (
 )
 
 type Store struct {
-	server        *standalone.Server
-	scope         int64
-	scopeName     string
-	root          *Store
-	statusMu      sync.Mutex
-	preferMessage bool
-	work          *workState
+	server          *standalone.Server
+	scope           int64
+	scopeName       string
+	root            *Store
+	preferMessage   bool
+	work            *workState
+	owners          *threadOwners
+	thread          *gateway.PhysicalThreadKey
+	local           bool
+	owner           *threadOwner
+	commandDeadline time.Time
+	queueWait       time.Duration
+	active          atomic.Bool
+	readLane        chan struct{}
 }
 
 var _ storage.Store = (*Store)(nil)
@@ -66,7 +75,7 @@ func Open(ctx context.Context, connection connector.Config) (*Store, error) {
 		_ = server.Shutdown(context.Background())
 		return nil, fmt.Errorf("cannot initialize gateway storage runtime")
 	}
-	return &Store{server: server, work: newWorkState()}, nil
+	return &Store{server: server, work: newWorkState(), owners: newThreadOwners(), readLane: make(chan struct{}, 1)}, nil
 }
 func (s *Store) Close() error {
 	if s != nil && s.root != nil {
@@ -74,6 +83,9 @@ func (s *Store) Close() error {
 	}
 	if s == nil || s.server == nil {
 		return nil
+	}
+	if s.owners != nil {
+		s.owners.close()
 	}
 	return s.server.Shutdown(context.Background())
 }
@@ -84,12 +96,31 @@ func (s *Store) call(ctx context.Context, in *workflow.Input) (*workflow.Output,
 	if s == nil || s.server == nil {
 		return nil, fmt.Errorf("gateway storage is not initialized")
 	}
+	if s.thread != nil && !s.local {
+		var out *workflow.Output
+		err := s.InThread(ctx, func(local gateway.Store) error {
+			var err error
+			out, err = local.(*Store).call(ctx, in)
+			return err
+		})
+		return out, err
+	}
+	ctx, cancel := s.commandContext(ctx)
+	defer cancel()
 	if !in.At.IsZero() {
 		in.At = in.At.UTC().Truncate(time.Millisecond)
 	}
 	in.Scope = s.scope
 	in.IntegrationName = s.scopeName
-	value, err := s.server.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: in})
+	in.PhysicalThread = s.thread
+	if s.thread == nil && s.workOwner().active.Load() {
+		switch in.Action {
+		case "status", "check_bindings", "not_before", "existing_event", "get_binding":
+		default:
+			return nil, fmt.Errorf("runtime mutation requires physical thread ownership")
+		}
+	}
+	value, _, err := s.invokeNative(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +128,7 @@ func (s *Store) call(ctx context.Context, in *workflow.Input) (*workflow.Output,
 	if !ok || out == nil {
 		return nil, fmt.Errorf("unexpected storage workflow output %T", value)
 	}
-	s.workChanged(out)
+	s.workChanged(out, in.Action)
 	return out, nil
 }
 func (s *Store) apply(ctx context.Context, in *workflow.Input) error {
@@ -108,19 +139,34 @@ func (s *Store) Enqueue(ctx context.Context, m gateway.Message) (bool, error) {
 	if s == nil || s.server == nil {
 		return false, fmt.Errorf("gateway storage is not initialized")
 	}
+	if !s.local {
+		bound := s
+		if bound.thread == nil {
+			bound = s.ForThread(m.PhysicalThread()).(*Store)
+		}
+		var inserted bool
+		err := bound.InThread(ctx, func(local gateway.Store) error {
+			var err error
+			inserted, err = local.Enqueue(ctx, m)
+			return err
+		})
+		return inserted, err
+	}
+	ctx, cancel := s.commandContext(ctx)
+	defer cancel()
 	// Observe the native root's actual completion before adopting a concurrent
 	// duplicate. This never replays a mutation or accepts an uncertain outcome.
-	var outcome handler.Outcome
-	value, err := s.server.InvokeComponent(ctx, dexec.ComponentRequest{Target: target,
-		Input:      &workflow.Input{Action: "enqueue", Message: m, Scope: s.scope},
-		Completion: func(report handler.Outcome) { outcome = report },
-	})
+	var token [16]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return false, err
+	}
+	value, outcome, err := s.invokeNative(ctx, &workflow.Input{Action: "enqueue", Message: m, Scope: s.scope, PhysicalThread: s.thread, GatewayRequestID: hex.EncodeToString(token[:])})
 	if err == nil {
 		output, ok := value.(*workflow.Output)
 		if !ok || output == nil {
 			return false, fmt.Errorf("unexpected storage intake output %T", value)
 		}
-		s.workChanged(output)
+		s.workChanged(output, "enqueue")
 		return output.Inserted, nil
 	}
 	if outcome.State() != handler.TransactionRolledBack {
@@ -194,8 +240,25 @@ func (s *Store) ClaimStatus(ctx context.Context, at time.Time, kind string) (*ga
 	if s == nil || s.server == nil {
 		return nil, fmt.Errorf("gateway storage is not initialized")
 	}
-	s.statusMu.Lock()
-	defer s.statusMu.Unlock()
+	if s.thread != nil && !s.local {
+		var result *gateway.GatewayJobProgress
+		err := s.InThread(ctx, func(local gateway.Store) error {
+			var err error
+			result, err = local.ClaimStatus(ctx, at, kind)
+			return err
+		})
+		return result, err
+	}
+	if s.owner != nil {
+		o, err := s.call(ctx, &workflow.Input{Action: "claim_status", At: at, Kind: kind, PreferMessage: s.owner.preferMessage})
+		if err != nil {
+			return nil, err
+		}
+		if o.Status != nil {
+			s.owner.preferMessage = o.Status.Target == gateway.StatusTargetAgentSession
+		}
+		return o.Status, nil
+	}
 	o, e := s.call(ctx, &workflow.Input{Action: "claim_status", At: at, Kind: kind, PreferMessage: s.preferMessage})
 	if e != nil {
 		return nil, e
@@ -220,7 +283,11 @@ func (s *Store) Status(ctx context.Context, limit int) (*storage.Status, error) 
 	return o.Snapshot, nil
 }
 func (s *Store) CheckRunBindings(ctx context.Context, r gateway.Route, p string) error {
-	return s.apply(ctx, &workflow.Input{Action: "check_bindings", Route: r, Principal: p})
+	// Channel policy belongs to authorization, not this persisted identity check.
+	// Pass only the facts consumed by the native reader; a resolver is a runtime
+	// capability and must not enter the replayable storage command.
+	route := gateway.Route{AppID: r.AppID, WorkspaceID: r.WorkspaceID}
+	return s.apply(ctx, &workflow.Input{Action: "check_bindings", Route: route, Principal: p})
 }
 func (s *Store) ResolveDelivery(ctx context.Context, id int64, action, ts string, risk bool) error {
 	return s.apply(ctx, &workflow.Input{Action: "resolve_delivery", ID: id, Kind: action, Text: ts, AcceptDuplicateRisk: risk})
@@ -229,6 +296,9 @@ func (s *Store) Complete(ctx context.Context, id int64, requestID, result string
 	return s.apply(ctx, &workflow.Input{Action: "complete", ID: id, GatewayRequestID: requestID, Text: result, Parts: parts, Protocol: protocol})
 }
 func (s *Store) FailUnstarted(ctx context.Context, reason string) error {
+	if s.thread == nil && s.workOwner().active.Load() {
+		return s.failUnstartedThreads(ctx, reason)
+	}
 	return s.apply(ctx, &workflow.Input{Action: "fail_unstarted", Text: reason})
 }
 func (s *Store) FailCleanup(ctx context.Context, reason string) error {

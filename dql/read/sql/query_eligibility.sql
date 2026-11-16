@@ -1,3 +1,4 @@
+AND candidate.gateway_execution_state IN ('pending','querying')
 AND (
    (candidate.gateway_execution_state='querying' AND candidate.backend_poll_ready=1)
    OR (candidate.gateway_execution_state='pending'

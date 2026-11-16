@@ -117,6 +117,9 @@ func (x *execution) deliveries(ctx context.Context, in *Input, out *Output) erro
 	if err = x.writeDeliveries(ctx, []*dw.SlackOutgoingMessage{row}); err != nil {
 		return err
 	}
+	if in.Action != "claim_delivery" && in.Action != "retry_delivery" {
+		x.affectProgress(gateway.PhysicalThreadKey{AppID: d.SlackAppId, WorkspaceID: d.SlackWorkspaceId, ChannelID: d.SlackChannelId, RootTS: d.SlackThreadRootMessageId})
+	}
 	if in.Action == "delivered" || in.Action == "resolve_delivery" && in.Kind == "delivered" {
 		if d.GatewayJob == nil {
 			return gateway.ErrConflict

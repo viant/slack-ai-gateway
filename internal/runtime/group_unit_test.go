@@ -1,6 +1,7 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -162,21 +163,33 @@ func TestGroupLifecycleTreatsSourcePersistenceFailureAsShared(t *testing.T) {
 	}
 }
 
-type backendShutdownFailure struct{ backend }
+type backendShutdownFailure struct {
+	backend
+	issue error
+}
 
 func (*backendShutdownFailure) State() gateway.BackendState { return gateway.BackendReady }
 func (*backendShutdownFailure) WithReady(fn func() error) error {
 	return fn()
 }
-func (*backendShutdownFailure) Run(ctx context.Context) error {
+func (b *backendShutdownFailure) Run(ctx context.Context) error {
 	<-ctx.Done()
+	if b.issue != nil {
+		return b.issue
+	}
 	return errors.New("synthetic backend storage callback failure")
 }
 
 func TestGroupLifecycleJoinsBackendBeforeClassifyingShutdown(t *testing.T) {
 	root := &lifecycleStore{}
 	first, second := lifecycleRuntime(&lifecycleStore{}), lifecycleRuntime(&lifecycleStore{})
-	first.Backend = &backendShutdownFailure{}
+	first.Backend = &backendShutdownFailure{issue: &gateway.StorageError{
+		Operation: "fail_unstarted", IntegrationID: first.Store.(interface{ IntegrationID() int64 }).IntegrationID(),
+		TransactionState: "rolled_back", CompletionObserved: true, MySQLCode: 1213, SQLState: "40001",
+		Cause: errors.New("private SQL credential prompt detail"),
+	}}
+	var logs bytes.Buffer
+	first.Log = slog.New(slog.NewJSONHandler(&logs, nil))
 	first.Source = sourceFunc(func(context.Context, gateway.EventSink, func()) error { return gateway.ErrSlackAuth })
 	group := &runner.Group{Store: root, Integrations: []runner.Integration{{ID: "first", Runtime: first}, {ID: "second", Runtime: second}}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -186,6 +199,14 @@ func TestGroupLifecycleJoinsBackendBeforeClassifyingShutdown(t *testing.T) {
 	if err := finished(t, done); err == nil || !strings.Contains(err.Error(), "backend connection recovery or storage failed") {
 		t.Fatalf("shared backend storage callback failure was hidden during shutdown: %v", err)
 	}
+	for _, required := range []string{`"msg":"storage_operation_failed"`, `"operation":"fail_unstarted"`, `"mysql_code":1213`, `"sqlstate":"40001"`} {
+		if !strings.Contains(logs.String(), required) {
+			t.Fatalf("backend cleanup lost safe storage diagnostics: %s", logs.String())
+		}
+	}
+	if strings.Contains(logs.String(), "private") {
+		t.Fatal("backend cleanup exposed the private storage cause")
+	}
 }
 
 type canceledClaims struct {
@@ -193,6 +214,8 @@ type canceledClaims struct {
 	canceled     chan struct{}
 	canceledOnce sync.Once
 }
+
+func (s *canceledClaims) ForThread(gateway.PhysicalThreadKey) gateway.Store { return s }
 
 func (s *canceledClaims) ClaimJob(ctx context.Context) (*gateway.GatewayJob, error) {
 	s.once.Do(func() { close(s.claimed) })
