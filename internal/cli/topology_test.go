@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/viant/scy"
+	"github.com/viant/slack-ai-gateway/internal/agently"
 	"github.com/viant/slack-ai-gateway/internal/config"
 	"github.com/viant/slack-ai-gateway/internal/gateway"
 	runner "github.com/viant/slack-ai-gateway/internal/runtime"
@@ -152,6 +153,7 @@ func TestRunUsesOneDatabaseAndKeepsDifferentIntegrationsSeparate(t *testing.T) {
 		var document map[string]any
 		storetest.Must(t, yaml.Unmarshal(body, &document))
 		integrations := document["integrations"].([]any)
+		document["oob_login_mode"] = "serial_per_user"
 		integrations[1].(map[string]any)["backend"] = map[string]any{"type": "agently", "base_url": "http://127.0.0.1:9192", "principal_id": "second-principal", "agent_id": "support-agent", "auth": map[string]any{"mode": "oob_session", "secret": map[string]any{"URL": "/unused/synthetic-oob", "Key": "blowfish://default"}}}
 		for _, value := range integrations {
 			installation := value.(map[string]any)["slack"].(map[string]any)
@@ -167,7 +169,10 @@ func TestRunUsesOneDatabaseAndKeepsDifferentIntegrationsSeparate(t *testing.T) {
 		states := &integrationStateWriter{ready: map[string]chan struct{}{"steward": make(chan struct{}), "support": make(chan struct{})}}
 		var sent atomic.Int32
 		deps := dependencies{
-			login: func(_ context.Context, _, _, agent string, _ *scy.Resource) (gateway.AgentlyClientFactory, error) {
+			login: func(_ context.Context, _, _, agent string, _ *scy.Resource, mode agently.OOBLoginMode) (gateway.AgentlyClientFactory, error) {
+				if mode != agently.OOBLoginSerialPerUser {
+					t.Error("runtime did not pass the process OOB login mode to the backend")
+				}
 				return integrationBackend{agent: agent}, nil
 			},
 			directory: func(config.SlackTokens, gateway.Route) gateway.SlackDirectory { return &routedDirectory{} },

@@ -87,6 +87,9 @@ type APIError struct {
 	Status     int
 	Permanent  bool
 	RetryAfter time.Duration
+	// Local readiness cooldowns must not be reported as a server Retry-After.
+	localRetryFloor   time.Duration
+	retryAfterPresent bool
 }
 
 func (e *APIError) Error() string { return "Agently API request failed" }
@@ -188,7 +191,8 @@ func (t classifiedTransport) RoundTrip(req *http.Request) (*http.Response, error
 		code := response.StatusCode
 		response.Body.Close()
 		transient := code >= 500 || code == 408 || code == 429 || (code == 404 && req.Method == http.MethodGet)
-		return nil, &APIError{Status: code, Permanent: !transient, RetryAfter: retryAfter(response.Header.Get("Retry-After"), time.Now())}
+		return nil, &APIError{Status: code, Permanent: !transient,
+			RetryAfter: retryAfter(response.Header.Get("Retry-After"), time.Now()), retryAfterPresent: len(response.Header.Values("Retry-After")) > 0}
 	}
 	// Content type belongs to the existing HTTP boundary; the SDK handles framing.
 	if req.Header.Get("Accept") == "text/event-stream" {

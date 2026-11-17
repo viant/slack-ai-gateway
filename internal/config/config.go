@@ -16,16 +16,18 @@ import (
 	slackpresentation "github.com/viant/agently-core/sdk/slack"
 	"github.com/viant/scy"
 	_ "github.com/viant/scy/kms/blowfish"
+	"github.com/viant/slack-ai-gateway/internal/agently"
 	"github.com/viant/slack-ai-gateway/internal/gateway"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Storage   Storage         `yaml:"storage"`
-	Transport string          `yaml:"-"`
-	Access    *Access         `yaml:"-"`
-	Slack     SlackSettings   `yaml:"-"`
-	Agently   AgentlySettings `yaml:"-"`
+	OOBLoginMode agently.OOBLoginMode `yaml:"oob_login_mode"`
+	Storage      Storage              `yaml:"storage"`
+	Transport    string               `yaml:"-"`
+	Access       *Access              `yaml:"-"`
+	Slack        SlackSettings        `yaml:"-"`
+	Agently      AgentlySettings      `yaml:"-"`
 
 	Integrations []Integration `yaml:"integrations"`
 }

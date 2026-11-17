@@ -20,7 +20,7 @@ import (
 )
 
 type dependencies struct {
-	login          func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error)
+	login          func(context.Context, string, string, string, *scy.Resource, agently.OOBLoginMode) (gateway.AgentlyClientFactory, error)
 	validateSecret func(context.Context, *scy.Resource) error
 	connect        func(context.Context, config.SlackTokens, gateway.Route, *slog.Logger) (runner.Source, gateway.SlackSender, error)
 	directory      func(config.SlackTokens, gateway.Route) gateway.SlackDirectory
@@ -30,8 +30,8 @@ type dependencies struct {
 func Execute(ctx context.Context, args []string, out io.Writer) error {
 	return execute(ctx, args, out, dependencies{
 		validateSecret: agently.ValidateOOBReference,
-		login: func(ctx context.Context, base, principal, agent string, ref *scy.Resource) (gateway.AgentlyClientFactory, error) {
-			return agently.LoginOOB(ctx, base, principal, agent, ref)
+		login: func(ctx context.Context, base, principal, agent string, ref *scy.Resource, mode agently.OOBLoginMode) (gateway.AgentlyClientFactory, error) {
+			return agently.LoginOOB(ctx, base, principal, agent, ref, mode)
 		},
 		connect: func(ctx context.Context, tokens config.SlackTokens, route gateway.Route, log *slog.Logger) (runner.Source, gateway.SlackSender, error) {
 			return slack.Connect(ctx, tokens, route, log)

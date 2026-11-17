@@ -250,7 +250,15 @@ No configuration switch or schema migration is needed for this behavior.
 
 Wait for both `slack_connection state=ready` and `agently_backend state=ready`
 before sending a new question. `agently_backend_retry` records `stage`, `category`,
-`http_status` when available, and `retry_after_ms`/`retry_at`.
+`http_status` when available, `attempt` (the failed attempt), `next_attempt`,
+`local_delay_ms`, `server_retry_after_present`, `server_retry_after_ms`, and
+`delay_source`. `retry_after_ms`/`retry_at` remain the final wait and scheduled
+retry time. A zero server delay means no effective positive floor; the presence
+flag distinguishes a missing header from an empty, invalid or expired value.
+`delay_source` is `local_policy`, `server_retry_after` or
+`local_policy_and_server_retry_after` when both positive floors are equal.
+Server and local delays are kept separate until scheduling, so the record
+explains which one determined the wait. Raw header values are never logged.
 `agently_backend_blocked` records a hard local, identity or security failure.
 State changes also carry a safe reason/category. Raw server bodies, credentials
 and question text are excluded.
@@ -266,22 +274,44 @@ the cause before changing authentication. The existing OAuth resource supports
 [native client authentication style selection](secrets.md#oauth-client-authentication-style).
 Remote login/session/readiness refusals, including HTTP `401`/`403`, a rejected
 password and a missing configured agent in remote metadata, are retried without
-restarting the gateway. The next attempt starts 60–75 seconds after the failed
-attempt finishes; a longer `Retry-After` takes precedence. A login attempt can
-itself take up to 90 seconds, so this is not a fixed interval between attempt
-start times. Correct the remote account, permissions or service configuration,
-then wait for verified readiness. A refusal without an OAuth error code is still
-a remote refusal; automatic recovery does not establish what caused the refusal.
+restarting the gateway. The first retry after an OOB token-exchange HTTP `401`
+waits a random 3–7 seconds. Further token-exchange `401` retries in that integration's
+same period of unavailability wait 60–75 seconds. Verified `ready` resets that
+first-retry allowance; another Slack question or a scheduler wake does not.
+Other remote refusals retain the 60–75-second delay. A longer server `Retry-After`
+takes precedence over either interval. Delays begin when the failed attempt
+finishes; a login attempt can itself take up to 90 seconds. Correct the remote
+account, permissions or service configuration, then wait for verified readiness.
+A refusal without an OAuth error code is still a remote refusal; automatic
+recovery does not establish what caused the refusal.
 
 Network failures, timeouts, `408`, `429` and server errors retain the existing
 exponential backoff of approximately 1–30 seconds, with jitter and longer
 `Retry-After` respected. Native session/token refresh is reused. A protected
 `401` with a valid cookie keeps the existing cooldown of at least 30 seconds;
 it does not immediately start another OOB login. A missing session can trigger a
-new OOB login. Authentication is serialized per integration, not across the
-process; other integrations can keep working while one recovers. A verified
-ready transition wakes the existing scheduler. A query-specific access rejection
-does not invalidate everyone else's connection.
+new OOB login. Each integration has one authentication attempt at a time. By
+default, different integrations can log in concurrently. The optional root
+`oob_login_mode: serial_per_user` prevents overlapping OOB flows for the same OAuth
+token endpoint and credential username within one gateway process. Its default
+is `parallel`, including when the setting is omitted. Different users or token
+endpoints remain independent, and authenticated sessions are never shared between
+integrations. Waiting for an OOB slot is cancellable and counts toward the existing
+90-second login budget. There is no added fixed pause between logins, and the slot
+is released after the OOB flow, before Agently session creation or verification.
+The policy does not coordinate independent gateway or CLI processes. See
+[OOB login concurrency](secrets.md#oob-login-concurrency) for configuration.
+
+A diagnostic run with one account, OAuth client and IdP deployment produced one
+HTTP `401` in every one of eight overlapping token-exchange pairs; all 18 attempts
+without overlapping exchanges succeeded. This supports the optional serialization
+policy for that scenario. The IdP's internal cause and behavior for other accounts
+or clients were not established. Serialization preserves native PKCE, OAuth state,
+client authentication style and separate cookie jars.
+
+Other integrations can keep working while one recovers. A verified ready
+transition wakes the existing scheduler. A query-specific access rejection does
+not invalidate everyone else's connection.
 
 During `starting`, `recovering` or `blocked`, accepted Slack questions finish
 locally with reason `backend_unavailable` or `backend_blocked`, plus an ordinary

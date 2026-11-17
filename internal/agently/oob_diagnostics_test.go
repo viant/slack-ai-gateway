@@ -82,12 +82,11 @@ func TestOOBTokenExchangeDiagnostics(t *testing.T) {
 			if payload != nil || !errors.As(err, &failure) || failure.permanent != test.permanent || calls != 1 {
 				t.Fatalf("diagnostic changed classification or native attempt count: %v", err)
 			}
-			if test.status == http.StatusTooManyRequests || test.status >= 500 {
-				if failure.retryAfter != 2*time.Second {
-					t.Fatal("transient OAuth failure lost Retry-After")
-				}
-			} else if failure.retryAfter < time.Minute || failure.retryAfter > 75*time.Second {
-				t.Fatalf("remote OAuth rejection retry = %s, want 60–75 seconds", failure.retryAfter)
+			if failure.retryAfter != 2*time.Second {
+				t.Fatal("OAuth failure lost the server Retry-After floor")
+			}
+			if failure.rejectionCooldown != (test.status != http.StatusTooManyRequests && test.status < 500) {
+				t.Fatal("OAuth failure changed local retry policy classification")
 			}
 			want := fmt.Sprintf("Agently OOB authorization failed (token exchange, HTTP %d) [", test.status)
 			if test.wantCode != "" {

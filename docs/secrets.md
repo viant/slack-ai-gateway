@@ -163,6 +163,39 @@ Choose an explicit style only from provider/client evidence. The diagnostic
 attempt or a confirmed explanation of HTTP401. Keep a private backup and use the
 existing restart procedure after a verified configuration correction.
 
+## OOB login concurrency
+
+The optional root setting `oob_login_mode` controls initial OOB login concurrency
+for all Agently integrations in one gateway process. It belongs beside `storage`
+and `integrations`, rather than inside an integration's `backend.auth` block:
+
+```yaml
+# Default; omitting this field has the same behavior.
+oob_login_mode: parallel
+```
+
+Set `oob_login_mode: serial_per_user` to prevent simultaneous OOB flows for the
+same OAuth token endpoint and actual username loaded from the credential resource.
+All integrations use the same process policy, so a parallel integration cannot
+bypass a peer's serialization. Different usernames or token endpoints can still
+log in concurrently. Slack app IDs, agent IDs, `principal_id` and secret file paths
+do not define this grouping. The grouping identity stays in memory and is not
+written to logs or the gateway database.
+
+Serialization covers the existing OOB authorization and token exchange. Waiting
+is cancellable and shares the existing 90-second login budget; cancellation while
+waiting sends no login credentials. The slot is released on success, failure or
+cancellation, before Agently session creation and verification. Each integration
+retains its own session and cookie jar. OAuth scopes, PKCE, state validation, TLS
+and the native authentication style remain unchanged. No fixed pause is inserted.
+
+This setting does not coordinate separate gateway or CLI processes and does not
+serialize conversations, queries or existing session refreshes. Restart after
+changing it. The default examples leave serialization disabled. See
+[connection recovery](operations.md#viant-steward-connection-recovery) for the
+first token-exchange `401` retry after 3–7 seconds, later retries after 60–75 seconds,
+and the server `Retry-After` floor.
+
 ## Migration and rotation
 
 The former `app_token_env`, `bot_token_env`, `secrets_url_env` and `dsn_env`

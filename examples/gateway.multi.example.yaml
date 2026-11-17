@@ -1,4 +1,9 @@
 # Independent integrations require distinct Slack app IDs.
+# Default is parallel, also when omitted. Opt in to serial_per_user to prevent
+# overlapping OOB logins for the same OAuth token endpoint/credential username.
+# This process-wide setting does not share sessions or coordinate other processes.
+oob_login_mode: parallel
+
 storage:
   driver: sqlite
   path: gateway-multi.sqlite

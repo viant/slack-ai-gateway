@@ -103,7 +103,7 @@ func checkTopologyAgently(ctx context.Context, c config.Config, selected string,
 	}
 	for _, integration := range candidates {
 		backend := integration.Backend
-		if _, err := deps.login(ctx, backend.BaseURL, backend.PrincipalID, backend.AgentID, backend.Auth.Secret); err != nil {
+		if _, err := deps.login(ctx, backend.BaseURL, backend.PrincipalID, backend.AgentID, backend.Auth.Secret, c.OOBLoginMode); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintf(out, "Integration %s: Agently session identity and configured agent verified. No conversation, query or Slack call was made. Tool permissions are not verified.\n", integration.Name); err != nil {
@@ -206,7 +206,7 @@ func runTopology(ctx context.Context, c config.Config, root storage.Store, out i
 					return nil, gateway.ErrBackendAuth
 				}
 				a := local.Agently
-				return deps.login(ctx, a.BaseURL, a.PrincipalID, a.AgentID, a.Auth.Secret)
+				return deps.login(ctx, a.BaseURL, a.PrincipalID, a.AgentID, a.Auth.Secret, local.OOBLoginMode)
 			}
 		} else {
 			factory, err := genericFactory(ctx, integration.Backend)

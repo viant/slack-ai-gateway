@@ -82,7 +82,7 @@ func (c *Client) verifyIdentity(ctx context.Context) error {
 	if err := c.do(ctx, http.MethodGet, "/v1/api/auth/me", nil, &me); err != nil {
 		var api *APIError
 		if errors.As(err, &api) && api.Status == http.StatusUnauthorized {
-			return &missingSession{status: api.Status, retryAfter: api.RetryAfter}
+			return &missingSession{status: api.Status, retryAfter: api.RetryAfter, retryAfterPresent: api.retryAfterPresent}
 		}
 		return loginFailure("session_identity", "Agently session identity request failed", err, f)
 	}
@@ -132,8 +132,8 @@ func (c *Client) conversationThread(ctx context.Context, id string) (string, err
 // LoginOOB creates an in-memory BFF session and verifies the effective subject
 // and agent listing. It does not create a conversation or invoke an agent.
 // The server may persist authentication/session data in its own database.
-func LoginOOB(ctx context.Context, base, principal, agent string, secretsRef *scy.Resource) (*Factory, error) {
-	return loginOOB(ctx, base, principal, agent, secretsRef, loadOAuthConfig, loadBasicSecret, nil)
+func LoginOOB(ctx context.Context, base, principal, agent string, secretsRef *scy.Resource, mode ...OOBLoginMode) (*Factory, error) {
+	return loginOOB(ctx, base, principal, agent, secretsRef, loadOAuthConfig, loadBasicSecret, nil, mode...)
 }
 
 // Verify reuses the current cookie session and checks a protected endpoint.
@@ -159,7 +159,7 @@ func (f *Factory) Verify(ctx context.Context) error {
 		if errors.As(err, &api) && api.Status == http.StatusUnauthorized {
 			copy := *api
 			copy.Permanent = false
-			copy.RetryAfter = max(copy.RetryAfter, 30*time.Second)
+			copy.localRetryFloor = max(copy.localRetryFloor, 30*time.Second)
 			return loginFailure("workspace_metadata", "Agently workspace metadata request failed", &copy, f)
 		}
 		return loginFailure("workspace_metadata", "Agently workspace metadata request failed", err, f)
@@ -174,9 +174,19 @@ func (f *Factory) Verify(ctx context.Context) error {
 	return failure
 }
 
-func loginOOB(ctx context.Context, base, principal, agent string, ref *scy.Resource, loadConfig oauthConfigLoader, loadSecret basicSecretLoader, httpClient *http.Client) (*Factory, error) {
+func loginOOB(ctx context.Context, base, principal, agent string, ref *scy.Resource, loadConfig oauthConfigLoader, loadSecret basicSecretLoader, httpClient *http.Client, modes ...OOBLoginMode) (*Factory, error) {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	mode := OOBLoginParallel
+	if len(modes) > 1 {
+		return nil, &authFailure{message: "only one OOB login mode is supported", permanent: true, stage: "local_configuration", category: "configuration_invalid"}
+	}
+	if len(modes) == 1 {
+		mode = modes[0]
+	}
+	if err := mode.Validate(); err != nil {
+		return nil, &authFailure{message: err.Error(), permanent: true, stage: "local_configuration", category: "configuration_invalid"}
+	}
 	if strings.TrimSpace(principal) == "" || strings.TrimSpace(agent) == "" {
 		return nil, &authFailure{message: "Agently identity configuration is incomplete", permanent: true, stage: "local_configuration", category: "configuration_invalid"}
 	}
@@ -209,7 +219,16 @@ func loginOOB(ctx context.Context, base, principal, agent string, ref *scy.Resou
 	// IdP requests use a separate client, never the Agently cookie jar.
 	idpClient := *f.http
 	idpClient.Jar = nil
-	payload, err := authorizeOOB(ctx, &clone, secret, &idpClient)
+	payload, err := func() (*sessionPayload, error) {
+		if mode == OOBLoginSerialPerUser {
+			release, waitErr := processOOBLogins.acquire(ctx, loginKey(clone.Endpoint.TokenURL, secret.Username))
+			if waitErr != nil {
+				return nil, loginFailure("oob_login_wait", "OOB login coordination interrupted", waitErr, nil)
+			}
+			defer release()
+		}
+		return authorizeOOB(ctx, &clone, secret, &idpClient)
+	}()
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +248,7 @@ func loginOOB(ctx context.Context, base, principal, agent string, ref *scy.Resou
 		if errors.As(err, &missing) {
 			// A fresh session that is immediately absent is a failed remote
 			// login, not a reason to submit the password again immediately.
-			failure.retryAfter = max(failure.retryAfter, authRetryDelay())
+			failure.rejectionCooldown = true
 		}
 		return nil, failure
 	}

@@ -20,8 +20,9 @@ import (
 // missingSession is distinct from an identity mismatch: a missing/expired
 // cookie can be replaced, whereas a verified wrong identity must be blocked.
 type missingSession struct {
-	status     int
-	retryAfter time.Duration
+	status            int
+	retryAfter        time.Duration
+	retryAfterPresent bool
 }
 
 func (*missingSession) Error() string { return "Viant Steward session is unavailable" }
@@ -30,16 +31,21 @@ func (*missingSession) Unwrap() error { return gateway.ErrBackendAuth }
 // Only redacted diagnostics leave the authentication boundary. candidate is a
 // successfully created cookie session whose protected metadata probe failed.
 type authFailure struct {
-	message    string
-	permanent  bool
-	retryAfter time.Duration
-	candidate  *Factory
-	stage      string
-	category   string
-	status     int
-	oauthError string
-	authStyle  string
-	identity   bool
+	message   string
+	permanent bool
+	// retryAfter is only the parsed server Retry-After floor. Local retry
+	// policy is selected by Manager, where the attempt history is available.
+	retryAfter        time.Duration
+	retryAfterPresent bool
+	localRetryFloor   time.Duration
+	rejectionCooldown bool
+	candidate         *Factory
+	stage             string
+	category          string
+	status            int
+	oauthError        string
+	authStyle         string
+	identity          bool
 }
 
 func (e *authFailure) Error() string    { return e.message }
@@ -57,9 +63,54 @@ func (e *authFailure) Unwrap() error {
 
 const authRetryMin = time.Minute
 const authRetryJitter = 15 * time.Second
+const authFirstRetryMin = 3 * time.Second
+const authFirstRetryJitter = 4 * time.Second
 
 func authRetryDelay() time.Duration {
 	return authRetryMin + time.Duration(rand.Int64N(int64(authRetryJitter)+1))
+}
+
+// authRetryPlan contains only bounded timing and count metadata. It never
+// retains a credential, token, request URL or raw response header.
+type authRetryPlan struct {
+	attempt, nextAttempt          int
+	localDelay, serverDelay, wait time.Duration
+	source                        string
+	serverPresent                 bool
+}
+
+func (p authRetryPlan) logAttrs(at time.Time) []any {
+	return []any{"attempt", p.attempt, "next_attempt", p.nextAttempt,
+		"local_delay_ms", p.localDelay.Milliseconds(), "server_retry_after_present", p.serverPresent,
+		"server_retry_after_ms", p.serverDelay.Milliseconds(),
+		"retry_after_ms", p.wait.Milliseconds(), "retry_at", at, "delay_source", p.source}
+}
+
+// planRetryLocked is the one place that combines the local retry policy with
+// the server floor. A healthy, verified generation resets the outage counters.
+func (m *Manager) planRetryLocked(failure *authFailure, base time.Duration) authRetryPlan {
+	m.retryAttempts++
+	local := max(base, failure.localRetryFloor)
+	if failure.rejectionCooldown {
+		policy := authRetryDelay()
+		if failure.stage == "token exchange" && failure.status == http.StatusUnauthorized {
+			if m.token401Retries == 0 {
+				policy = authFirstRetryMin + time.Duration(rand.Int64N(int64(authFirstRetryJitter)+1))
+			}
+			m.token401Retries++
+		}
+		local = max(policy, failure.localRetryFloor)
+	}
+	server := max(time.Duration(0), failure.retryAfter)
+	source := "local_policy"
+	if server > local {
+		source = "server_retry_after"
+	} else if server > 0 && server == local {
+		source = "local_policy_and_server_retry_after"
+	}
+	return authRetryPlan{attempt: m.retryAttempts, nextAttempt: m.retryAttempts + 1,
+		localDelay: local, serverDelay: server, wait: max(local, server), source: source,
+		serverPresent: failure.retryAfterPresent || server > 0}
 }
 
 func (e *authFailure) logAttrs() []any {
@@ -104,28 +155,29 @@ func loginFailure(stage, message string, cause error, candidate *Factory) *authF
 		}
 	case errors.As(cause, &missing):
 		failure.stage, failure.category, failure.status = "session_identity", "session_missing", missing.status
-		failure.retryAfter = missing.retryAfter
+		failure.retryAfter, failure.retryAfterPresent = missing.retryAfter, missing.retryAfterPresent
 	case errors.As(cause, &api):
 		failure.status = api.Status
-		failure.retryAfter = api.RetryAfter
+		failure.retryAfter, failure.retryAfterPresent = api.RetryAfter, api.retryAfterPresent
+		failure.localRetryFloor = api.localRetryFloor
 		switch {
 		case api.Status == 0 && api.Permanent:
 			failure.category = "remote_response_invalid"
-			failure.retryAfter = max(failure.retryAfter, authRetryDelay())
+			failure.rejectionCooldown = true
 		case transientAPI(api):
 			failure.category = "remote_unavailable"
 		case stage == "workspace_metadata" && api.Status == http.StatusUnauthorized && !api.Permanent:
 			failure.category = "token_refresh_pending"
 		default:
 			failure.category = "remote_authentication_rejected"
-			failure.retryAfter = max(failure.retryAfter, authRetryDelay())
+			failure.rejectionCooldown = true
 		}
 	case errors.Is(cause, gateway.ErrBackendAuth):
 		failure.permanent, failure.identity, failure.category = true, true, "identity_mismatch"
 	case errors.As(cause, &network), errors.Is(cause, context.DeadlineExceeded), errors.Is(cause, context.Canceled):
 		failure.category = "remote_unavailable"
 	default:
-		failure.category, failure.retryAfter = "remote_response_invalid", authRetryDelay()
+		failure.category, failure.rejectionCooldown = "remote_response_invalid", true
 	}
 	if failure.permanent {
 		failure.candidate = nil
@@ -168,6 +220,8 @@ type Manager struct {
 	runContext                         context.Context
 	current                            gateway.AgentlyClientFactory
 	notBefore                          time.Time
+	retryPlan                          authRetryPlan
+	retryAttempts, token401Retries     int
 	login                              func(context.Context) (gateway.AgentlyClientFactory, error)
 	onUnavailable                      func(context.Context, gateway.BackendState) error
 	log                                *slog.Logger
@@ -267,7 +321,7 @@ func (m *Manager) unavailableLocked(_ context.Context, state gateway.BackendStat
 	if failure != nil {
 		attrs = append(attrs, failure.logAttrs()...)
 		if !failure.permanent {
-			attrs = append(attrs, "retry_after_ms", max(int64(0), time.Until(m.notBefore).Milliseconds()), "retry_at", m.notBefore)
+			attrs = append(attrs, m.retryPlan.logAttrs(m.notBefore)...)
 		}
 	} else {
 		attrs = append(attrs, "reason", "Backend authentication is starting", "stage", "readiness", "category", "connection_starting")
@@ -354,10 +408,6 @@ func (m *Manager) failed(generation uint64, err error) {
 		m.mu.Unlock()
 		return
 	}
-	var cooldown time.Duration
-	if api != nil {
-		cooldown = api.RetryAfter
-	}
 	if auth == nil {
 		switch {
 		case missing != nil:
@@ -365,13 +415,16 @@ func (m *Manager) failed(generation uint64, err error) {
 		case api != nil:
 			// This API failure came from a conversation operation, not an auth
 			// endpoint. Keep its existing recovery delay and request semantics.
-			auth = &authFailure{message: "Viant Steward API request failed", stage: "backend_request", category: "remote_unavailable", status: api.Status}
+			auth = &authFailure{message: "Viant Steward API request failed", stage: "backend_request", category: "remote_unavailable", status: api.Status,
+				retryAfter: api.RetryAfter, retryAfterPresent: api.retryAfterPresent, localRetryFloor: api.localRetryFloor}
 		default:
 			auth = loginFailure("identity", gateway.ErrBackendAuth.Error(), gateway.ErrBackendAuth, nil)
 		}
 	}
-	cooldown = max(cooldown, auth.retryAfter)
-	m.notBefore = time.Now().Add(cooldown)
+	if !auth.permanent {
+		m.retryPlan = m.planRetryLocked(auth, 0)
+		m.notBefore = time.Now().Add(m.retryPlan.wait)
+	}
 	ctx := m.runContext
 	if ctx == nil {
 		ctx = context.Background()
@@ -424,6 +477,7 @@ func (m *Manager) readyGeneration(factory gateway.AgentlyClientFactory, expected
 		factory = &copy
 	}
 	m.current, m.state, m.notBefore = factory, gateway.BackendReady, time.Time{}
+	m.retryAttempts, m.token401Retries, m.retryPlan = 0, 0, authRetryPlan{}
 	m.log.Info("agently_backend", "state", gateway.BackendReady, "reason", "Backend session and configured agent verified", "stage", "readiness", "category", "connection_verified")
 	m.notifyStateChange()
 	return true
@@ -569,11 +623,17 @@ func (m *Manager) Run(ctx context.Context) error {
 		if failure.candidate != nil {
 			m.current = failure.candidate
 		}
+		var plan authRetryPlan
+		var retryAt time.Time
 		if failure.permanent {
 			err = m.unavailableLocked(ctx, gateway.BackendBlocked, failure)
 			cleanup = m.cleanup
 		} else {
 			err = nil
+			base := time.Duration(float64(delay) * (0.8 + rand.Float64()*0.4))
+			plan = m.planRetryLocked(failure, base)
+			retryAt = time.Now().Add(plan.wait)
+			m.retryPlan, m.notBefore = plan, retryAt
 		}
 		m.mu.Unlock()
 		if failure.permanent {
@@ -585,20 +645,8 @@ func (m *Manager) Run(ctx context.Context) error {
 		if failure.permanent {
 			continue
 		}
-		// Jitter only the exponential interval; never shorten Retry-After.
-		wait := max(time.Duration(float64(delay)*(0.8+rand.Float64()*0.4)), failure.retryAfter)
-		attrs := []any{"state", m.State(), "retry_after_ms", wait.Milliseconds(), "retry_at", time.Now().Add(wait)}
+		attrs := append([]any{"state", m.State()}, plan.logAttrs(retryAt)...)
 		m.log.Info("agently_backend_retry", append(attrs, failure.logAttrs()...)...)
-		timer := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil
-		case err := <-m.fatal:
-			timer.Stop()
-			return err
-		case <-timer.C:
-		}
 		delay = min(delay*2, m.retryMax)
 	}
 	return nil

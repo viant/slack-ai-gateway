@@ -48,6 +48,9 @@ func identifier(value string) bool {
 // ValidateIntegrationNames checks the logical identities before any runtime or
 // backend-only operation can open storage or authenticate a backend.
 func (c Config) ValidateIntegrationNames() error {
+	if err := c.OOBLoginMode.Validate(); err != nil {
+		return err
+	}
 	if !c.hasTopology() {
 		return fmt.Errorf("integrations must be explicitly configured")
 	}
@@ -77,7 +80,7 @@ func (c Config) Topology() ([]ResolvedIntegration, error) {
 	apps := map[string]bool{}
 	for _, integration := range c.Integrations {
 		backend := integration.Backend
-		local := Config{Storage: c.Storage, Transport: integration.Transport, Access: integration.Access, Slack: integration.Slack,
+		local := Config{OOBLoginMode: c.OOBLoginMode, Storage: c.Storage, Transport: integration.Transport, Access: integration.Access, Slack: integration.Slack,
 			Agently: AgentlySettings{BaseURL: backend.BaseURL, AgentID: backend.AgentID, PrincipalID: backend.PrincipalID, Auth: backend.Auth}}
 		if err := local.ValidateSlack(); err != nil {
 			return nil, fmt.Errorf("integration %s: %w", integration.Name, err)

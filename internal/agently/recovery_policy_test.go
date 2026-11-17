@@ -199,7 +199,7 @@ func TestReadinessClassificationPreservesCookieAndRemoteRepair(t *testing.T) {
 			f.mode.Store(mode)
 			err = factory.Verify(context.Background())
 			var failure *authFailure
-			if !errors.As(err, &failure) || failure.permanent || failure.retryAfter < time.Minute || failure.retryAfter > 75*time.Second || factory.session.invalid.Load() || errors.Is(err, gateway.ErrBackendAuth) {
+			if !errors.As(err, &failure) || failure.permanent || !failure.rejectionCooldown || failure.retryAfter != 0 || factory.session.invalid.Load() || errors.Is(err, gateway.ErrBackendAuth) {
 				t.Fatalf("remote readiness rejection became a hard identity failure: %v", err)
 			}
 			manager := NewManager(nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -234,7 +234,7 @@ func TestOOBRemoteConfigurationRepairDoesNotRequireRestart(t *testing.T) {
 			}
 			_, err = f.login()
 			var failure *authFailure
-			if !errors.As(err, &failure) || failure.permanent || failure.retryAfter < time.Minute || failure.retryAfter > 75*time.Second || strings.Contains(err.Error(), "secret-marker") {
+			if !errors.As(err, &failure) || failure.permanent || !failure.rejectionCooldown || failure.retryAfter != 0 || strings.Contains(err.Error(), "secret-marker") {
 				t.Fatalf("remote OAuth configuration failure was permanent or unsafe: %v", err)
 			}
 			if f.count("/authorize") != 0 || f.count("/v1/api/auth/session") != 0 {
@@ -267,8 +267,8 @@ func TestFreshSessionMissingCookieReceivesAuthenticationCooldown(t *testing.T) {
 				if failure.retryAfter != 3*time.Minute || failure.candidate == nil || failure.candidate.session.invalid.Load() {
 					t.Fatal("fresh session refusal lost Retry-After or poisoned its candidate")
 				}
-			} else if failure.retryAfter < time.Minute || failure.retryAfter > 75*time.Second {
-				t.Fatalf("fresh session rejection retry = %s, want 60–75 seconds", failure.retryAfter)
+			} else if !failure.rejectionCooldown || failure.retryAfter != 0 {
+				t.Fatalf("fresh session rejection lost its local cooldown classification: %+v", failure)
 			}
 			if f.count("/authorize") != 1 || f.count("/v1/api/auth/session") != 1 || f.count("/v1/ag-ui/run") != 0 {
 				t.Fatal("fresh session rejection retried inside the login call")

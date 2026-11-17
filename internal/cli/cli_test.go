@@ -159,7 +159,7 @@ access:
 		directory := &routedDirectory{}
 		sender := &routedSender{cancel: cancel, wantResponse: "[View full response in Agently](http://127.0.0.1:9191/conversation/offline-conversation)\n\noffline reply"}
 		deps := dependencies{
-			login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
+			login: func(context.Context, string, string, string, *scy.Resource, agently.OOBLoginMode) (gateway.AgentlyClientFactory, error) {
 				return backend, nil
 			},
 			directory: func(config.SlackTokens, gateway.Route) gateway.SlackDirectory { return directory },
@@ -218,7 +218,7 @@ func TestCheckAgentlyNeedsNoStorageOrSlack(t *testing.T) {
 	path := writeConfig(t, agentlyTestConfig)
 	var out bytes.Buffer
 	called := 0
-	deps := dependencies{login: func(_ context.Context, base, principal, agent string, ref *scy.Resource) (gateway.AgentlyClientFactory, error) {
+	deps := dependencies{login: func(_ context.Context, base, principal, agent string, ref *scy.Resource, mode agently.OOBLoginMode) (gateway.AgentlyClientFactory, error) {
 		called++
 		if base != "http://127.0.0.1:9191" || principal != "agently_steward" || agent != "steward" || (ref == nil || ref.URL != "/unused/synthetic-secret-reference" || ref.Key != "blowfish://default") {
 			t.Fatal("incorrect login selection")
@@ -326,7 +326,7 @@ slack:
 			reached := make(chan struct{})
 			out := &backendStateWriter{state: state, reached: reached}
 			deps := dependencies{
-				login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
+				login: func(context.Context, string, string, string, *scy.Resource, agently.OOBLoginMode) (gateway.AgentlyClientFactory, error) {
 					attemptedOnce.Do(func() { close(attempted) })
 					if blocked {
 						return nil, gateway.ErrBackendAuth
@@ -837,7 +837,7 @@ slack: {app_id: A, workspace_id: T}
 		validateSecret: func(context.Context, *scy.Resource) error {
 			return errors.New("synthetic sensitive credential failure")
 		},
-		login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
+		login: func(context.Context, string, string, string, *scy.Resource, agently.OOBLoginMode) (gateway.AgentlyClientFactory, error) {
 			t.Fatal("invalid credentials reached backend login")
 			return nil, nil
 		},
@@ -922,7 +922,7 @@ func TestCheckAgentlyValidatesSelectedBackendAndNamesBeforeLogin(t *testing.T) {
 			if tc.selected != "" {
 				args = append(args, "--integration", tc.selected)
 			}
-			deps := dependencies{login: func(context.Context, string, string, string, *scy.Resource) (gateway.AgentlyClientFactory, error) {
+			deps := dependencies{login: func(context.Context, string, string, string, *scy.Resource, agently.OOBLoginMode) (gateway.AgentlyClientFactory, error) {
 				t.Fatal("invalid configuration reached backend login")
 				return nil, nil
 			}}

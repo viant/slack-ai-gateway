@@ -185,7 +185,7 @@ func TestManagerProtected401UsesNativeRefreshCooldown(t *testing.T) {
 	f.mode.Store("metadata_unauthorized")
 	factory, err := f.login()
 	var failure *authFailure
-	if factory != nil || !errors.As(err, &failure) || failure.permanent || failure.candidate == nil || failure.retryAfter < 30*time.Second {
+	if factory != nil || !errors.As(err, &failure) || failure.permanent || failure.candidate == nil || failure.localRetryFloor < 30*time.Second || failure.retryAfter != 0 {
 		t.Fatalf("protected 401 lost candidate/cooldown: %v", err)
 	}
 	if failure.candidate.session.invalid.Load() {
@@ -300,7 +300,7 @@ func TestManagerRemotePasswordRejectionSchedulesRecovery(t *testing.T) {
 	f.mode.Store("bad_password")
 	_, err := f.login()
 	var failure *authFailure
-	if !errors.As(err, &failure) || failure.permanent || failure.retryAfter < time.Minute || failure.retryAfter > 75*time.Second {
+	if !errors.As(err, &failure) || failure.permanent || !failure.rejectionCooldown || failure.retryAfter != 0 {
 		t.Fatalf("remote password rejection did not receive a bounded recovery delay: %v", err)
 	}
 	if f.count("/authorize") != 1 || f.count("/token") != 0 || f.count("/v1/api/auth/session") != 0 {

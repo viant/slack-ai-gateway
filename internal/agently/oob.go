@@ -219,7 +219,7 @@ func oobFailure(stage string, status int) error {
 		if status >= 500 || status == 408 || status == 429 || status == 0 && (stage == "authorization request, HTTP status unavailable" || stage == "token exchange, HTTP status unavailable") {
 			failure.category = "remote_unavailable"
 		} else {
-			failure.category, failure.retryAfter = "remote_authentication_rejected", authRetryDelay()
+			failure.category, failure.rejectionCooldown = "remote_authentication_rejected", true
 		}
 	}
 	if status != 0 {
@@ -232,7 +232,8 @@ func oobFailure(stage string, status int) error {
 
 func oobResponseFailure(stage string, response *http.Response) error {
 	failure := oobFailure(stage, response.StatusCode).(*authFailure)
-	failure.retryAfter = max(failure.retryAfter, retryAfter(response.Header.Get("Retry-After"), time.Now()))
+	failure.retryAfter = retryAfter(response.Header.Get("Retry-After"), time.Now())
+	failure.retryAfterPresent = len(response.Header.Values("Retry-After")) > 0
 	return failure
 }
 
@@ -243,7 +244,7 @@ func oobTokenExchangeFailure(cause error, configured oauth2.AuthStyle) error {
 	failure := oobFailure("token exchange, HTTP status unavailable", 0).(*authFailure)
 	var network net.Error
 	if !errors.As(cause, &network) && !errors.Is(cause, context.DeadlineExceeded) && !errors.Is(cause, context.Canceled) {
-		failure.category, failure.retryAfter = "remote_response_invalid", authRetryDelay()
+		failure.category, failure.rejectionCooldown = "remote_response_invalid", true
 	}
 	var responseErr *oauth2.RetrieveError
 	code := ""
