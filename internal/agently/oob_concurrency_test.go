@@ -251,52 +251,55 @@ func assertCoordinatedSessions(t *testing.T, ctx context.Context, first, second 
 }
 
 func TestOOBLoginParallelModePreservesIndependentNativeFlows(t *testing.T) {
-	for _, explicit := range []bool{false, true} {
-		t.Run(map[bool]string{false: "default", true: "explicit"}[explicit], func(t *testing.T) {
-			idp := newCoordinatedIDP(t)
-			first := newCoordinatedBackend(t, idp, "same-account", "principal-a", "agent-a")
-			second := newCoordinatedBackend(t, idp, "same-account", "principal-b", "agent-b")
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			var modes []OOBLoginMode
-			if explicit {
-				modes = []OOBLoginMode{OOBLoginParallel}
-			}
-			a, b := first.start(ctx, modes...), second.start(ctx, modes...)
-			awaitCoordinatedToken(t, ctx, idp)
-			awaitCoordinatedToken(t, ctx, idp) // Both are inside HTTP before either completes.
-			idp.tokenRelease <- struct{}{}
-			idp.tokenRelease <- struct{}{}
-			assertCoordinatedSessions(t, ctx, awaitCoordinatedResult(t, ctx, a), awaitCoordinatedResult(t, ctx, b))
-			if idp.authorizeCall.Load() != 2 || idp.tokenCall.Load() != 2 {
-				t.Fatal("parallel policy retried or combined native logins")
-			}
-			assertCoordinatedKeyReleased(t, idp, "same-account")
-		})
-	}
-}
-
-func TestOOBLoginSerialPerUserCoordinatesActualAccountAcrossIntegrations(t *testing.T) {
 	idp := newCoordinatedIDP(t)
 	first := newCoordinatedBackend(t, idp, "same-account", "principal-a", "agent-a")
 	second := newCoordinatedBackend(t, idp, "same-account", "principal-b", "agent-b")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	a := first.start(ctx, OOBLoginSerialPerUser)
+	a, b := first.start(ctx, OOBLoginParallel), second.start(ctx, OOBLoginParallel)
 	awaitCoordinatedToken(t, ctx, idp)
-	b := second.start(ctx, OOBLoginSerialPerUser)
-	awaitCoordinatedWaiter(t, ctx, idp, "same-account")
-	if idp.authorizeCall.Load() != 1 || idp.tokenCall.Load() != 1 || second.sessionCalls.Load() != 0 {
-		t.Fatal("same actual account overlapped despite different backend identities and secret resources")
-	}
+	awaitCoordinatedToken(t, ctx, idp) // Both are inside HTTP before either completes.
 	idp.tokenRelease <- struct{}{}
-	awaitCoordinatedToken(t, ctx, idp)
 	idp.tokenRelease <- struct{}{}
 	assertCoordinatedSessions(t, ctx, awaitCoordinatedResult(t, ctx, a), awaitCoordinatedResult(t, ctx, b))
 	if idp.authorizeCall.Load() != 2 || idp.tokenCall.Load() != 2 {
-		t.Fatal("serialized logins did not perform two independent native grants")
+		t.Fatal("parallel policy retried or combined native logins")
 	}
 	assertCoordinatedKeyReleased(t, idp, "same-account")
+}
+
+func TestOOBLoginSerialPerUserCoordinatesActualAccountAcrossIntegrations(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		modes []OOBLoginMode
+	}{
+		{name: "omitted"},
+		{name: "empty_config_value", modes: []OOBLoginMode{""}},
+		{name: "explicit", modes: []OOBLoginMode{OOBLoginSerialPerUser}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			idp := newCoordinatedIDP(t)
+			first := newCoordinatedBackend(t, idp, "same-account", "principal-a", "agent-a")
+			second := newCoordinatedBackend(t, idp, "same-account", "principal-b", "agent-b")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			a := first.start(ctx, tc.modes...)
+			awaitCoordinatedToken(t, ctx, idp)
+			b := second.start(ctx, tc.modes...)
+			awaitCoordinatedWaiter(t, ctx, idp, "same-account")
+			if idp.authorizeCall.Load() != 1 || idp.tokenCall.Load() != 1 || second.sessionCalls.Load() != 0 {
+				t.Fatal("same actual account overlapped despite different backend identities and secret resources")
+			}
+			idp.tokenRelease <- struct{}{}
+			awaitCoordinatedToken(t, ctx, idp)
+			idp.tokenRelease <- struct{}{}
+			assertCoordinatedSessions(t, ctx, awaitCoordinatedResult(t, ctx, a), awaitCoordinatedResult(t, ctx, b))
+			if idp.authorizeCall.Load() != 2 || idp.tokenCall.Load() != 2 {
+				t.Fatal("serialized logins did not perform two independent native grants")
+			}
+			assertCoordinatedKeyReleased(t, idp, "same-account")
+		})
+	}
 }
 
 func TestOOBLoginSerialPerUserLeavesOtherAccountsAndEndpointsIndependent(t *testing.T) {
@@ -311,9 +314,9 @@ func TestOOBLoginSerialPerUserLeavesOtherAccountsAndEndpointsIndependent(t *test
 			second := newCoordinatedBackend(t, idpB, secondUser, "principal-b", "agent-b")
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			a := first.start(ctx, OOBLoginSerialPerUser)
+			a := first.start(ctx)
 			awaitCoordinatedToken(t, ctx, idpA)
-			b := second.start(ctx, OOBLoginSerialPerUser)
+			b := second.start(ctx)
 			awaitCoordinatedToken(t, ctx, idpB) // The first account is still blocked in its token HTTP.
 			idpA.tokenRelease <- struct{}{}
 			idpB.tokenRelease <- struct{}{}

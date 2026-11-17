@@ -1,9 +1,9 @@
 # Copy to ~/.slack-ai-gateway/config/gateway.local.yaml and replace placeholders.
 # Create the config and database directories first; see ../README.md.
 # Both user scopes require users:read. Reinstall the Slack app after adding scopes.
-# Applies to all Agently integrations in this process; omitted also means parallel.
-# Use serial_per_user to serialize OOB flows for the same token endpoint/username.
-oob_login_mode: parallel
+# Applies to all Agently integrations; omitted also means serial_per_user.
+# Set parallel to allow overlapping OOB flows for the same endpoint/username.
+oob_login_mode: serial_per_user
 
 storage:
   driver: sqlite

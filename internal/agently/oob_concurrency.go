@@ -10,6 +10,7 @@ import (
 
 // OOBLoginMode controls initial OAuth logins within one gateway process. Each
 // integration retains its own authenticated session regardless of this policy.
+// The zero value selects serial_per_user.
 type OOBLoginMode string
 
 const (

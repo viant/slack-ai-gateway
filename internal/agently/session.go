@@ -132,6 +132,7 @@ func (c *Client) conversationThread(ctx context.Context, id string) (string, err
 // LoginOOB creates an in-memory BFF session and verifies the effective subject
 // and agent listing. It does not create a conversation or invoke an agent.
 // The server may persist authentication/session data in its own database.
+// An omitted or empty mode serializes OOB flows for the same IdP account.
 func LoginOOB(ctx context.Context, base, principal, agent string, secretsRef *scy.Resource, mode ...OOBLoginMode) (*Factory, error) {
 	return loginOOB(ctx, base, principal, agent, secretsRef, loadOAuthConfig, loadBasicSecret, nil, mode...)
 }
@@ -177,11 +178,11 @@ func (f *Factory) Verify(ctx context.Context) error {
 func loginOOB(ctx context.Context, base, principal, agent string, ref *scy.Resource, loadConfig oauthConfigLoader, loadSecret basicSecretLoader, httpClient *http.Client, modes ...OOBLoginMode) (*Factory, error) {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	mode := OOBLoginParallel
+	mode := OOBLoginSerialPerUser
 	if len(modes) > 1 {
 		return nil, &authFailure{message: "only one OOB login mode is supported", permanent: true, stage: "local_configuration", category: "configuration_invalid"}
 	}
-	if len(modes) == 1 {
+	if len(modes) == 1 && modes[0] != "" {
 		mode = modes[0]
 	}
 	if err := mode.Validate(); err != nil {

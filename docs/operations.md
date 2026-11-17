@@ -290,11 +290,11 @@ exponential backoff of approximately 1–30 seconds, with jitter and longer
 `Retry-After` respected. Native session/token refresh is reused. A protected
 `401` with a valid cookie keeps the existing cooldown of at least 30 seconds;
 it does not immediately start another OOB login. A missing session can trigger a
-new OOB login. Each integration has one authentication attempt at a time. By
-default, different integrations can log in concurrently. The optional root
-`oob_login_mode: serial_per_user` prevents overlapping OOB flows for the same OAuth
-token endpoint and credential username within one gateway process. Its default
-is `parallel`, including when the setting is omitted. Different users or token
+new OOB login. Each integration has one authentication attempt at a time. The
+default `oob_login_mode: serial_per_user` prevents overlapping OOB flows for the
+same OAuth token endpoint and credential username within one gateway process,
+including when the setting is omitted. Set the optional root field to `parallel`
+to allow those integrations to log in concurrently. Different users or token
 endpoints remain independent, and authenticated sessions are never shared between
 integrations. Waiting for an OOB slot is cancellable and counts toward the existing
 90-second login budget. There is no added fixed pause between logins, and the slot
@@ -304,7 +304,7 @@ The policy does not coordinate independent gateway or CLI processes. See
 
 A diagnostic run with one account, OAuth client and IdP deployment produced one
 HTTP `401` in every one of eight overlapping token-exchange pairs; all 18 attempts
-without overlapping exchanges succeeded. This supports the optional serialization
+without overlapping exchanges succeeded. This supports the default serialization
 policy for that scenario. The IdP's internal cause and behavior for other accounts
 or clients were not established. Serialization preserves native PKCE, OAuth state,
 client authentication style and separate cookie jars.
