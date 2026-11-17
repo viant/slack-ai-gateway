@@ -33,5 +33,7 @@ AND NOT EXISTS (SELECT 1 FROM slack_agent_session_publication a JOIN integration
  JOIN integration oi ON oi.id=j.integration_id WHERE ai.slack_app_id=oi.slack_app_id AND ai.slack_workspace_id=oi.slack_workspace_id
  AND a.slack_publication_rate_limited_until>$Now)
 ${embed:thread_scope.sql}
-ORDER BY CASE WHEN j.gateway_execution_reason IN ('integration_changed','integration_removed') OR j.slack_progress_phase IN ('integration_changed','integration_removed') THEN 0 ELSE 1 END,
+ORDER BY CASE WHEN j.gateway_execution_reason IN ('conversation_closed','integration_changed','integration_removed')
+ OR SUBSTR(j.gateway_execution_reason,1,20)='conversation_closed:'
+ OR j.slack_progress_phase IN ('conversation_closed','integration_changed','integration_removed') THEN 0 ELSE 1 END,
  j.slack_progress_last_sent_at,j.id

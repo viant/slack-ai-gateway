@@ -172,10 +172,11 @@ func TestStatusQueueBlockAndOriginalIdentity(t *testing.T) {
 	confirmStatus(t, s, b, now)
 	j, err := s.ClaimJob(ctx)
 	storetest.Must(t, err)
-	storetest.Must(t, s.Review(ctx, j.ID, "test_review"))
-	a = claimStatus(t, s, now, "urgent", "needs_review")
+	_, err = s.CloseThread(ctx, j.ID, "test_review")
+	storetest.Must(t, err)
+	a = claimStatus(t, s, now, "urgent", "conversation_closed")
 	confirmStatus(t, s, a, now)
-	b = claimStatus(t, s, now, "urgent", "blocked")
+	b = claimStatus(t, s, now, "urgent", "conversation_closed")
 	confirmStatus(t, s, b, now)
 	if j, err := s.ClaimJob(ctx); err != nil || j != nil {
 		t.Fatal("blocked job was claimed")
@@ -239,8 +240,9 @@ func TestStatusRecoveryCoalescesKnownUpdatesAndQuarantinesFirstPost(t *testing.T
 			}
 			j, err := s.ClaimJob(ctx)
 			storetest.Must(t, err)
-			storetest.Must(t, s.Review(ctx, j.ID, "test"))
-			a = claimStatus(t, s, now, "urgent", "needs_review")
+			_, err = s.CloseThread(ctx, j.ID, "test")
+			storetest.Must(t, err)
+			a = claimStatus(t, s, now, "urgent", "conversation_closed")
 			if a.SlackTS != "2.000001" {
 				t.Fatal("known status lost on restart")
 			}

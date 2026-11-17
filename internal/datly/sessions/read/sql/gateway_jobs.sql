@@ -10,6 +10,7 @@ FROM (
  WHERE source.gateway_execution_state IN ('pending','processing','querying','needs_review')
   AND origin.active=1 AND COALESCE(binding.gateway_binding_state,'')<>'closed'
  AND source.gateway_execution_reason NOT IN ('conversation_closed','integration_changed','integration_removed')
+ AND SUBSTR(source.gateway_execution_reason,1,20)<>'conversation_closed:'
 #if($PhysicalThread)
  AND origin.slack_app_id=$AppID AND origin.slack_workspace_id=$WorkspaceID
  AND source.slack_channel_id=$ChannelID AND source.slack_thread_root_message_id=$SlackThreadRootMessageID
@@ -25,6 +26,7 @@ FROM (
  WHERE binding.gateway_binding_state='needs_review' AND source.gateway_execution_state IN ('completed','rejected')
   AND origin.active=1 AND COALESCE(binding.gateway_binding_state,'')<>'closed'
  AND source.gateway_execution_reason NOT IN ('conversation_closed','integration_changed','integration_removed')
+ AND SUBSTR(source.gateway_execution_reason,1,20)<>'conversation_closed:'
 #if($PhysicalThread)
  AND origin.slack_app_id=$AppID AND origin.slack_workspace_id=$WorkspaceID
  AND source.slack_channel_id=$ChannelID AND source.slack_thread_root_message_id=$SlackThreadRootMessageID
@@ -41,6 +43,7 @@ FROM (
  WHERE live_part.slack_message_kind='response' AND live_part.slack_delivery_state IN ('pending','sending','failed','delivery_unknown')
   AND origin.active=1 AND COALESCE(binding.gateway_binding_state,'')<>'closed'
  AND source.gateway_execution_reason NOT IN ('conversation_closed','integration_changed','integration_removed')
+ AND SUBSTR(source.gateway_execution_reason,1,20)<>'conversation_closed:'
 #if($PhysicalThread)
  AND origin.slack_app_id=$AppID AND origin.slack_workspace_id=$WorkspaceID
  AND source.slack_channel_id=$ChannelID AND source.slack_thread_root_message_id=$SlackThreadRootMessageID

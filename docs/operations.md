@@ -129,36 +129,66 @@ fields retain Unix-millisecond numbers with `_ms` suffixes; absent dates are `0`
 | Job `processing` | Claimed local work or an in-flight transcript read |
 | Job `querying` | Query in flight or durable read reconciliation scheduled |
 | Job `completed` | Result or local not-submitted notice persisted; not proof of Slack delivery or backend execution |
-| Job `needs_review` | Automation stopped for this query; later queries in its thread are blocked |
-| Job `rejected` | Policy denied execution, or an assignment change closed local work; inspect `gateway_execution_reason` |
+| Job `needs_review` | Historical execution state; startup closes its local thread handling automatically |
+| Job `rejected` | Policy denied execution, an assignment changed, or local thread handling closed; inspect `gateway_execution_reason` |
 | Delivery `pending` | Stored reply awaiting sending or a known-safe retry |
 | Delivery `sending` | Attempt started; crash recovery makes this `delivery_unknown` |
 | Delivery `delivery_unknown` | Slack may have received it; manual resolution required |
 | Delivery `failed` | Known permanent rejection; no automatic retry |
 | Delivery `delivered` | Confirmed send, or operator assertion with a Slack timestamp |
 
-Examples of review reasons are `creation_unknown`, `reconciliation_deadline`,
-`backend_protocol_or_access_error`, `turn_identity_mismatch` and
-`interaction_requires_review`. A query timeout/deadline does not cancel backend
-execution. Do not send the same question again as an attempted recovery.
-Other reasons include `policy_denied`/`policy_unavailable` and `slack_auth_rejected`.
-A denied queued query is rejected without execution; an already submitted turn
-is quarantined without polling or replay when its policy no longer permits it.
-Slack auth rejection also stops the runtime. A missing scope/metadata failure
-before a query requires review; adding the scope does not automatically release it.
-There is no CLI to resolve `needs_review` or permanent `failed` deliveries yet.
-Investigate the recorded IDs and backend state before designing a recovery action;
-do not delete rows, alter IDs or issue ad-hoc SQL to unblock the thread.
+## Automatic closure of unresolved conversations
 
-When a query worker successfully persists `needs_review`, the runtime emits a
-`WARN` record named `query_needs_review` with `job_id`, `gateway_request_id` and the fixed
-`reason` code. It does not log question/answer text, credentials or raw backend
-errors. A failure to persist the transition is surfaced as a worker error, not
-logged as a successful transition. The log callback itself does not send a reply
-or automatically resolve the job. Status publications independently project durable review
-state into the question's status message, subject to current policy and Slack
-availability. Startup recovery can also quarantine jobs;
-inspect `status` for the complete persisted state.
+No operator action is required to end local handling of an unresolved execution.
+The gateway closes that physical Slack thread locally instead of retaining an
+indefinite execution blocker. The initiating job is `rejected`, its reason is
+`conversation_closed:<cause>`, and its local finish date is recorded. Examples
+are `conversation_closed:creation_unknown`,
+`conversation_closed:reconciliation_deadline`,
+`conversation_closed:backend_protocol_or_access_error`,
+`conversation_closed:turn_identity_mismatch` and
+`conversation_closed:interaction_requires_review`. Unsubmitted queued questions
+are finished with `conversation_closed`. An unknown backend outcome is not
+rewritten as `failed` or `canceled`.
+
+The binding, when present, becomes `closed` with a stable `closed_at`. The job
+marker also preserves closure when no binding was ever created. Startup closes
+historical `needs_review`, interrupted uncertain creation and already-expired
+execution records before ordinary unsubmitted-work cleanup. It does not need a
+working backend session for this repair. Repeated startup does not repeat the
+notice or change the original finish dates.
+
+The 15-minute observation budget starts at the durable submission marker, includes
+downtime and is never reset by restart. At expiry local handling ends immediately:
+there is no extra final read, prompt replay or automatic backend cancellation.
+One collective durable notice distinguishes a possibly executed question from a
+definitely unsubmitted one and directs the user to start a new Slack thread.
+Queued questions do not run later and are not moved to the new conversation.
+Late backend results cannot reopen the closed thread or add a late answer.
+
+Further permitted messages in the closed thread receive a short local
+not-submitted reply, without backend execution or a new native processing
+indicator. A new top-level DM message or a new channel thread remains independent.
+Existing progress messages receive final updates without `Elapsed`; an existing
+native indicator is cleared through terminal `active` cleanup. The original
+author's current policy still governs every publication. Slack failure cannot
+prevent local closure, and an ambiguous first message delivery remains unknown
+without automatic retry.
+
+After a newly committed runtime closure, the gateway emits `WARN` `thread_closed`
+with `job_id`, `gateway_request_id` and the fixed cause. The storage confirmation
+`thread_closure_persisted` also records `integration_id`, the persisted reason,
+`closed_jobs` and `unsubmitted_jobs`; `thread_closures_recovered` records startup
+counts. No prompt, answer, credential or raw backend error is logged. A failed
+persistence operation is not reported as a successful closure. The existing
+submission timestamp in `status` distinguishes possible submission from a queued
+question that was never sent.
+Ordinary denied questions are still rejected without execution; a normal policy
+denial before submission does not close an otherwise valid conversation. A
+missing scope or invalid identity is never bypassed, and unsupported user
+interaction is never automatically approved. Slack authentication rejection still
+stops the runtime. Permanent delivery failures retain their separate recovery
+contract; do not delete rows or use ad-hoc SQL to reopen closed threads.
 
 An assignment replaced or removed at startup closes its bindings and unfinished
 work with `integration_changed` or `integration_removed`. This does not cancel a
@@ -278,11 +308,12 @@ Started requests retain their stored conversation/run/turn identifiers. Recovery
 attaches/reads the existing request without repeating a create or query POST;
 the original 15-minute reconciliation deadline is retained across outages and
 restarts. Status messages explain that the connection is unavailable without
-claiming that remote work stopped. Unknown conversation creation remains
-`creation_unknown`; expired or otherwise uncertain execution requires review.
-Already prepared final replies continue through the outbox while the backend is
-unavailable. Existing `needs_review` rows, including older
-`backend_auth_or_identity_rejected` records, are not automatically released.
+claiming that remote work stopped. Unknown conversation creation and expired or
+otherwise unsafe execution close local handling with a `conversation_closed:`
+reason. Already prepared final replies continue through the outbox while the
+backend is unavailable. Historical `needs_review` rows, including older
+`backend_auth_or_identity_rejected` records, are finalized at startup; this does
+not resubmit their questions or reopen their backend conversation.
 
 For `blocked`, correct the local configuration or unreadable credential resource,
 confirmed identity mismatch or endpoint/redirect/state/PKCE security problem,
@@ -341,7 +372,7 @@ runtime, not `delivery_unknown`. Resolve the configuration/scope issue before
 restarting; no uncertain-delivery resolution is needed when no send happened.
 Channel facts are refreshed per reply job; roles may be cached for 60 seconds.
 Changing policy does not rewrite old bindings, un-fail denied deliveries, or
-recover a `needs_review` turn. There is still no CLI for those state transitions.
+reopen a closed conversation. There is no CLI to reopen those execution states.
 
 To change routing, stop normally, preserve/backup the database, edit YAML and
 validate offline, then restart. Removed-channel

@@ -74,7 +74,7 @@ func TestUncorrelatedQueryRecoveryDoesNotReplay(t *testing.T) {
 	storetest.Must(t, s.Recover(ctx))
 	var text, state string
 	storetest.Must(t, db.QueryRow("SELECT prompt_text,gateway_execution_state FROM gateway_job").Scan(&text, &state))
-	if text != "preserve question" || state != "needs_review" {
+	if text != "preserve question" || state != "rejected" {
 		t.Fatal("question lost or uncertain query replayed")
 	}
 }

@@ -45,6 +45,9 @@ type Input struct {
 type Output struct {
 	Inserted             bool
 	Duplicate            bool
+	ThreadClosed         bool
+	ClosedJobs           int
+	UnsubmittedJobs      int
 	Integrations         []storage.Integration
 	GatewayJob           *gateway.GatewayJob
 	ConversationBinding  *gateway.ConversationBinding

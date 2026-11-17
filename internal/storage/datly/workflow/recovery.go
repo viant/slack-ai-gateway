@@ -5,7 +5,6 @@ import (
 	"time"
 
 	br "github.com/viant/slack-ai-gateway/internal/datly/bindings/read"
-	bw "github.com/viant/slack-ai-gateway/internal/datly/bindings/write"
 	dr "github.com/viant/slack-ai-gateway/internal/datly/deliveries/read"
 	dw "github.com/viant/slack-ai-gateway/internal/datly/deliveries/write"
 	jr "github.com/viant/slack-ai-gateway/internal/datly/read"
@@ -17,24 +16,16 @@ import (
 
 // Recover is invoked once before workers/intake start, with exclusive database
 // ownership. External operations are reconciled or quarantined, never replayed.
-func (x *execution) recover(ctx context.Context, _ *Input, _ *Output) error {
+func (x *execution) recover(ctx context.Context, _ *Input, out *Output) error {
 	now := timestamp(time.Now())
-	bq := &br.Input{}
-	bq.SetState("creating")
-	bindings, err := x.readBindings(ctx, bq, true)
-	if err != nil {
-		return err
-	}
-	changes := make([]*bw.ConversationBinding, 0, len(bindings))
-	for _, b := range bindings {
-		r := &bw.ConversationBinding{}
-		r.SetId(b.Id)
-		r.SetGatewayBindingState("needs_review")
-		r.SetUpdatedAt(now)
-		changes = append(changes, r)
-	}
-	if len(changes) > 0 {
-		if err = x.writeBindings(ctx, changes); err != nil {
+	for _, state := range []string{"creating", "needs_review"} {
+		bq := &br.Input{}
+		bq.SetState(state)
+		bindings, err := x.readBindings(ctx, bq, true)
+		if err != nil {
+			return err
+		}
+		if err := x.closeBindings(ctx, bindings, now); err != nil {
 			return err
 		}
 	}
@@ -44,13 +35,46 @@ func (x *execution) recover(ctx context.Context, _ *Input, _ *Output) error {
 	if err != nil {
 		return err
 	}
+	type closure struct {
+		job    *jr.GatewayJob
+		reason string
+	}
+	closures := map[gateway.PhysicalThreadKey]closure{}
+	for _, j := range jobs {
+		reason := ""
+		switch {
+		case j.GatewayExecutionState == "needs_review":
+			reason = j.GatewayExecutionReason
+			if reason == "" {
+				reason = "interrupted_external_operation"
+			}
+		case j.ConversationBinding != nil && j.ConversationBinding.GatewayBindingState == "closed":
+			reason = "interrupted_external_operation"
+		case j.GatewayExecutionState == "querying" && j.BackendSubmissionStartedAt == nil:
+			reason = "interrupted_external_operation"
+		case j.BackendSubmissionStartedAt != nil && !now.Before(j.BackendSubmissionStartedAt.Add(gateway.ReconciliationMaxWait)):
+			reason = "reconciliation_deadline"
+		}
+		if reason != "" {
+			key := gateway.PhysicalThreadKey{AppID: j.SlackAppId, WorkspaceID: j.SlackWorkspaceId, ChannelID: j.SlackChannelId, RootTS: j.SlackThreadRootMessageId}
+			if _, exists := closures[key]; !exists {
+				closures[key] = closure{j, reason}
+			}
+		}
+	}
+	for _, c := range closures {
+		if err := x.closeJobThread(ctx, c.job, c.reason, now, out); err != nil {
+			return err
+		}
+	}
 	updates := make([]*jw.GatewayJob, 0, len(jobs))
 	for _, j := range jobs {
+		key := gateway.PhysicalThreadKey{AppID: j.SlackAppId, WorkspaceID: j.SlackWorkspaceId, ChannelID: j.SlackChannelId, RootTS: j.SlackThreadRootMessageId}
+		if _, closed := closures[key]; closed {
+			continue
+		}
 		r := jobUpdate(j)
-		if (j.ConversationBinding != nil && j.ConversationBinding.GatewayBindingState == "needs_review") || (j.GatewayExecutionState == "querying" && j.BackendSubmissionStartedAt == nil) {
-			r.SetGatewayExecutionState("needs_review")
-			r.SetGatewayExecutionReason("interrupted_external_operation")
-		} else if j.BackendSubmissionStartedAt != nil {
+		if j.BackendSubmissionStartedAt != nil {
 			r.SetGatewayExecutionState("querying")
 			r.SetBackendPollReady(1)
 		} else if j.GatewayExecutionState == "processing" {
@@ -63,7 +87,10 @@ func (x *execution) recover(ctx context.Context, _ *Input, _ *Output) error {
 			return err
 		}
 		for _, j := range jobs {
-			x.affectJob(j)
+			key := gateway.PhysicalThreadKey{AppID: j.SlackAppId, WorkspaceID: j.SlackWorkspaceId, ChannelID: j.SlackChannelId, RootTS: j.SlackThreadRootMessageId}
+			if _, closed := closures[key]; !closed {
+				x.affectJob(j)
+			}
 		}
 	}
 	dq := &dr.Input{}

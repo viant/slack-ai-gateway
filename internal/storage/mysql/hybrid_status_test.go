@@ -48,8 +48,10 @@ func TestOpenNativeCyclePublishesMessageAuthFailureDuringShutdown(t *testing.T) 
 	// Message intake occurs before active is confirmed, keeping the cycle open.
 	_, err = s.Enqueue(ctx, storetest.Message("b", "thread", "bob"))
 	storetest.Must(t, err)
+	settleStatuses(t, s, now)
 	j = startStatusJob(t, s)
-	storetest.Must(t, s.Review(ctx, j.ID, "backend_auth_or_identity_rejected"))
+	_, err = s.CloseThread(ctx, j.ID, "backend_auth_or_identity_rejected")
+	storetest.Must(t, err)
 	seen := map[gateway.StatusTarget]bool{}
 	for range 2 {
 		a, err = s.ClaimStatus(ctx, now, "terminal")
@@ -58,8 +60,8 @@ func TestOpenNativeCyclePublishesMessageAuthFailureDuringShutdown(t *testing.T) 
 			t.Fatal("missing terminal publication")
 		}
 		if a.Target == gateway.StatusTargetAgentSession {
-			if a.SessionState != "suspended" || a.Mode != gateway.StatusAgentSession {
-				t.Fatal("message auth failure did not suspend the open native cycle")
+			if a.SessionState != "active" || a.Mode != gateway.StatusAgentSession {
+				t.Fatal("message auth failure did not finish the open native cycle")
 			}
 			metadata, err := s.GetStatusContext(ctx, *a)
 			storetest.Must(t, err)

@@ -27,9 +27,9 @@ type Worker struct {
 	// Execute transfers a durably marked query/attachment to runtime ownership.
 	// When unset, Step executes synchronously (e.g. command and contract tests).
 	Execute func(func() error)
-	// OnReview runs only after the needs_review transition is persisted.
+	// OnThreadClosed runs only after the local thread closure is persisted.
 	// It receives correlation metadata and a fixed reason code, never query text.
-	OnReview func(jobID int64, requestID, reason string)
+	OnThreadClosed func(jobID int64, requestID, reason string)
 }
 
 // Zero values select the stage C defaults. Shorter values are useful in tests.
@@ -39,6 +39,10 @@ type QueryTiming struct {
 	PollMax     time.Duration
 	MaxWait     time.Duration
 }
+
+// ReconciliationMaxWait is the durable production observation budget, shared
+// by live workers and startup recovery. Restart does not renew this budget.
+const ReconciliationMaxWait = 15 * time.Minute
 
 func (t QueryTiming) defaults() QueryTiming {
 	if t.Timeout <= 0 {
@@ -51,7 +55,7 @@ func (t QueryTiming) defaults() QueryTiming {
 		t.PollMax = 15 * time.Second
 	}
 	if t.MaxWait <= 0 {
-		t.MaxWait = 15 * time.Minute
+		t.MaxWait = ReconciliationMaxWait
 	}
 	return t
 }
@@ -65,7 +69,7 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 	}
 	// Preserve the original deadline even while the shared connection is down.
 	if !j.BackendSubmissionStartedAt.IsZero() && time.Since(j.BackendSubmissionStartedAt) >= w.Timing.defaults().MaxWait {
-		return true, w.review(ctx, j, "reconciliation_deadline")
+		return true, w.closeThread(ctx, j, "reconciliation_deadline")
 	}
 	if paused, err := w.pauseUnavailable(ctx, j); paused {
 		return true, err
@@ -77,15 +81,15 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 	d, err := w.Policy.Authorize(ctx, j.Message, b)
 	if err != nil {
 		if errors.Is(err, ErrSlackAuth) {
-			return true, errors.Join(err, w.finishBeforeSubmission(ctx, j, func(local Store) error { return w.reviewStore(ctx, local, j, "slack_auth_rejected") }))
+			return true, errors.Join(err, w.finishBeforeSubmission(ctx, j, func(local Store) error { return w.closeThreadStore(ctx, local, j, "slack_auth_rejected") }))
 		}
 		if errors.Is(err, ErrDenied) && j.BackendSubmissionStartedAt.IsZero() {
 			return true, w.finishBeforeSubmission(ctx, j, func(local Store) error { return local.Reject(ctx, j.ID, "policy_denied") })
 		}
 		if errors.Is(err, ErrDenied) {
-			return true, w.review(ctx, j, "policy_denied")
+			return true, w.closeThread(ctx, j, "policy_denied")
 		}
-		return true, w.finishBeforeSubmission(ctx, j, func(local Store) error { return w.reviewStore(ctx, local, j, "policy_unavailable") })
+		return true, w.finishBeforeSubmission(ctx, j, func(local Store) error { return w.closeThreadStore(ctx, local, j, "policy_unavailable") })
 	}
 	if strings.TrimSpace(j.Text) == "" {
 		text := "Mention the bot and include a question."
@@ -104,7 +108,7 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 			return true, w.deferUnavailable(ctx, j)
 		}
 		if errors.Is(err, ErrConflict) {
-			return true, w.review(ctx, j, "binding_conflict")
+			return true, w.closeThread(ctx, j, "binding_conflict")
 		}
 		return true, err
 	}
@@ -117,17 +121,17 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 			return true, w.deferUnavailable(ctx, j)
 		}
 		if errors.Is(err, ErrBackendAuth) {
-			return true, w.authReview(ctx, j, err)
+			return true, w.authCloseThread(ctx, j, err)
 		}
-		return true, w.review(ctx, j, "credentials_unavailable")
+		return true, w.closeThread(ctx, j, "credentials_unavailable")
 	}
 	timing := w.Timing.defaults()
 	if !j.BackendSubmissionStartedAt.IsZero() {
 		if b.ConversationID == "" || j.GatewayRequestID == "" {
-			return true, w.review(ctx, j, "invalid_reconciliation_state")
+			return true, w.closeThread(ctx, j, "invalid_reconciliation_state")
 		}
 		if time.Since(j.BackendSubmissionStartedAt) >= timing.MaxWait {
-			return true, w.review(ctx, j, "reconciliation_deadline")
+			return true, w.closeThread(ctx, j, "reconciliation_deadline")
 		}
 		return true, w.execute(func() error {
 			readCtx, cancel := context.WithDeadline(ctx, j.BackendSubmissionStartedAt.Add(timing.MaxWait))
@@ -155,9 +159,9 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 		defer persistCancel()
 		if createErr != nil || id == "" {
 			if errors.Is(createErr, ErrBackendAuth) && w.Backend == nil {
-				return true, w.authReview(ctx, j, createErr)
+				return true, w.authCloseThread(ctx, j, createErr)
 			}
-			return true, w.review(persistCtx, j, "creation_unknown")
+			return true, w.closeThread(persistCtx, j, "creation_unknown")
 		}
 		if err = w.Store.SetConversation(persistCtx, b.ID, id); err != nil {
 			return true, err
@@ -175,9 +179,9 @@ func (w Worker) Step(ctx context.Context) (bool, error) {
 				return true, w.deferUnavailable(persistCtx, j)
 			}
 			if errors.Is(err, ErrBackendAuth) {
-				return true, w.authReview(persistCtx, j, err)
+				return true, w.authCloseThread(persistCtx, j, err)
 			}
-			return true, w.review(persistCtx, j, "credentials_unavailable")
+			return true, w.closeThread(persistCtx, j, "credentials_unavailable")
 		}
 	}
 	// The durable marker precedes the external side effect. Never blindly replay
@@ -284,10 +288,10 @@ func (w Worker) settle(ctx context.Context, j *GatewayJob, conversationID string
 			return w.poll(ctx, j)
 		}
 		if errors.Is(err, ErrBackendAuth) {
-			return w.authReview(ctx, j, err)
+			return w.authCloseThread(ctx, j, err)
 		}
 		if errors.Is(err, ErrBackendProtocol) {
-			return w.review(ctx, j, "backend_protocol_or_access_error")
+			return w.closeThread(ctx, j, "backend_protocol_or_access_error")
 		}
 		if saveErr := w.Store.RecordObservation(ctx, j.ID, "unknown", time.Now()); saveErr != nil {
 			return saveErr
@@ -295,7 +299,7 @@ func (w Worker) settle(ctx context.Context, j *GatewayJob, conversationID string
 		return w.poll(ctx, j)
 	}
 	if turn.ID != j.GatewayRequestID {
-		return w.review(ctx, j, "turn_identity_mismatch")
+		return w.closeThread(ctx, j, "turn_identity_mismatch")
 	}
 	switch turn.State {
 	case "queued", "running", "completed", "failed", "canceled", "waiting_for_user", "unknown":
@@ -315,9 +319,9 @@ func (w Worker) settle(ctx context.Context, j *GatewayJob, conversationID string
 	case "queued", "running", "unknown":
 		return w.poll(ctx, j)
 	case "waiting_for_user":
-		return w.review(ctx, j, "interaction_requires_review")
+		return w.closeThread(ctx, j, "interaction_requires_review")
 	default:
-		return w.review(ctx, j, "unsupported_turn_state")
+		return w.closeThread(ctx, j, "unsupported_turn_state")
 	}
 	result := text
 	if turn.State == "completed" {
@@ -363,24 +367,25 @@ func (w Worker) settle(ctx context.Context, j *GatewayJob, conversationID string
 	return w.Store.Complete(ctx, j.ID, turn.ID, result, parts)
 }
 
-func (w Worker) review(ctx context.Context, j *GatewayJob, reason string) error {
-	return w.reviewStore(ctx, w.Store, j, reason)
+func (w Worker) closeThread(ctx context.Context, j *GatewayJob, reason string) error {
+	return w.closeThreadStore(ctx, w.Store, j, reason)
 }
 
-func (w Worker) reviewStore(ctx context.Context, local Store, j *GatewayJob, reason string) error {
-	if err := local.Review(ctx, j.ID, reason); err != nil {
+func (w Worker) closeThreadStore(ctx context.Context, local Store, j *GatewayJob, reason string) error {
+	closed, err := local.CloseThread(ctx, j.ID, reason)
+	if err != nil {
 		return err
 	}
-	if w.OnReview != nil {
-		w.OnReview(j.ID, j.GatewayRequestID, reason)
+	if closed && w.OnThreadClosed != nil {
+		w.OnThreadClosed(j.ID, j.GatewayRequestID, reason)
 	}
 	return nil
 }
 
-func (w Worker) authReview(ctx context.Context, j *GatewayJob, cause error) error {
+func (w Worker) authCloseThread(ctx context.Context, j *GatewayJob, cause error) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
-	return errors.Join(cause, w.review(ctx, j, "backend_auth_or_identity_rejected"))
+	return errors.Join(cause, w.closeThread(ctx, j, "backend_auth_or_identity_rejected"))
 }
 
 func (w Worker) poll(ctx context.Context, j *GatewayJob) error {
@@ -388,7 +393,7 @@ func (w Worker) poll(ctx context.Context, j *GatewayJob) error {
 	deadline := j.BackendSubmissionStartedAt.Add(timing.MaxWait)
 	if !time.Now().Before(deadline) {
 		// This does NOT cancel backend execution; no cancellation endpoint is called.
-		return w.review(ctx, j, "reconciliation_deadline")
+		return w.closeThread(ctx, j, "reconciliation_deadline")
 	}
 	delay := min(timing.PollInitial, timing.PollMax)
 	for n := 0; n < j.PollAttempts && delay < timing.PollMax; n++ {

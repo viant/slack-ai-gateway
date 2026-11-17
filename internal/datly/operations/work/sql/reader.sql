@@ -1,4 +1,5 @@
-SELECT work.* FROM  (#if($Mode == "stale_thread")
+SELECT work.* FROM  (
+#if($Mode == "stale_thread")
 SELECT evidence.integration_id,evidence.slack_app_id,evidence.slack_workspace_id,evidence.slack_channel_id,evidence.slack_thread_root_message_id,
  'stale' AS kind,NULL AS candidate_at,NULL AS refresh_at,NULL AS observed_at
 FROM (
@@ -26,6 +27,19 @@ FROM (
    AND candidate.slack_channel_id=$ChannelID AND candidate.slack_thread_root_message_id=$SlackThreadRootMessageID
   ORDER BY candidate.id LIMIT 1
  ) closed_job
+ UNION ALL
+ SELECT unbound_closed_job.* FROM (
+  SELECT historical.id AS integration_id,historical.slack_app_id,historical.slack_workspace_id,candidate.slack_channel_id,candidate.slack_thread_root_message_id
+  FROM integration historical JOIN gateway_job candidate ON candidate.integration_id=historical.id
+  WHERE historical.slack_app_id=$AppID AND historical.slack_workspace_id=$WorkspaceID
+   AND candidate.slack_channel_id=$ChannelID AND candidate.slack_thread_root_message_id=$SlackThreadRootMessageID
+   AND candidate.gateway_execution_state IN ('completed','rejected')
+   AND (candidate.gateway_execution_reason='conversation_closed' OR SUBSTR(candidate.gateway_execution_reason,1,20)='conversation_closed:')
+   AND NOT EXISTS (SELECT 1 FROM conversation_binding binding JOIN integration binding_integration ON binding_integration.id=binding.integration_id
+    WHERE binding_integration.slack_app_id=$AppID AND binding_integration.slack_workspace_id=$WorkspaceID
+     AND binding.slack_channel_id=$ChannelID AND binding.slack_thread_root_message_id=$SlackThreadRootMessageID)
+  ORDER BY candidate.id LIMIT 1
+ ) unbound_closed_job
 ) evidence LIMIT 1
 #elseif(($Mode == "cleanup_keys") || ($Mode == "backend_keys"))
 SELECT i.id AS integration_id,i.slack_app_id,i.slack_workspace_id,candidate.slack_channel_id,candidate.slack_thread_root_message_id,
@@ -117,7 +131,8 @@ AND (
   WHERE earlier_job.integration_id=candidate.integration_id AND earlier_job.slack_channel_id=candidate.slack_channel_id
   AND earlier_job.slack_thread_root_message_id=candidate.slack_thread_root_message_id AND earlier.id<m.id
   AND (earlier.slack_delivery_state IN ('pending','sending') OR (earlier.slack_delivery_state IN ('failed','delivery_unknown')
-  AND m.slack_message_kind='response' AND candidate.gateway_execution_reason<>'conversation_closed')))
+  AND m.slack_message_kind='response' AND candidate.gateway_execution_reason<>'conversation_closed'
+  AND SUBSTR(candidate.gateway_execution_reason,1,20)<>'conversation_closed:')))
  UNION ALL
  SELECT i.id,i.slack_app_id,i.slack_workspace_id,candidate.slack_channel_id,candidate.slack_thread_root_message_id,
   'outbound',CASE
@@ -210,4 +225,5 @@ WHERE w.candidate_at IS NULL OR w.candidate_at<=$Now
 ORDER BY w.slack_app_id,w.slack_workspace_id,w.slack_channel_id,w.slack_thread_root_message_id,w.integration_id,w.kind
 #end
 #end
+
 )  work

@@ -65,9 +65,9 @@ Agently's canonical transcript projection maps stored success states such as
 `succeeded` to `completed`; the gateway requires that canonical status.
 Previously produced text or a visible report is not proof of that
 terminal state: an execution can produce content and subsequently fail.
-Failure/cancellation produces controlled text, while waiting for interaction,
-inconsistent IDs or invalid responses require review. No structured approval is
-automatically accepted.
+Failure/cancellation produces controlled text. Waiting for unsupported
+interaction, inconsistent IDs or invalid responses closes local handling of the
+Slack thread. No structured approval is automatically accepted.
 
 ## Durable observation
 
@@ -75,7 +75,8 @@ The binding and query-start marker are persisted before submission. After an
 uncertain query or restart, the adapter verifies ownership, attaches the original
 run and reads its native turn. It never resends the prompt or replaces the run.
 Correlation IDs are not a backend idempotency guarantee. An uncertain conversation
-creation requires review because no safe lookup/retry contract is available.
+creation closes local handling because no safe lookup/retry contract is available.
+The original prompt is never automatically repeated.
 
 The local `gateway_job` row combines execution and progress facts. Its numeric `id`
 links outgoing Slack messages, while `gateway_request_id` remains the separate
@@ -99,12 +100,19 @@ owned by that deadline and runtime cancellation. Each integration has four
 admission workers; execution observers run outside them, and questions within
 one thread remain ordered. The original persisted deadline survives restart.
 While the gateway is stopped it cannot publish timeout transitions; after restart,
-an already expired job requires review before further execution observation.
+an already expired job is closed locally without another execution read or a new
+observation budget. Historical `needs_review` records and interrupted uncertain
+creation are closed during startup before generic backend-unavailable cleanup.
 
 A timeout, disconnect or missing attachment is not proof that a prompt was rejected.
 Transient uncertainty schedules further observation, never a replacement chat.
 Expiry stops observation without canceling the backend. Jobs without sufficient
-correlation facts or already in `needs_review` are not automatically replayed.
+correlation facts are not automatically replayed. Local closure ends outstanding
+queued questions as not submitted and records one collective Slack notice.
+Late responses cannot reopen the old thread. Subsequent permitted messages in
+that thread receive a local reply requesting a new Slack thread, without a new
+backend conversation or processing indicator. A new Slack root can start a fresh
+conversation; it does not automatically replay or inherit queued prompts.
 
 ## Authentication
 
@@ -150,7 +158,7 @@ token refresh to run. A protected `401` retains the native refresh cooldown of
 at least 30 seconds; it does not immediately repeat OOB login. A new OOB flow is
 attempted only when `/me` confirms the cookie session is missing. Authentication
 is serialized, and stale worker clients cannot invalidate a newer verified
-generation. A query-specific `403` remains a local access/review error.
+generation. A query-specific `403` remains a local access/closure condition.
 
 Network failures, timeouts, `408`, `429` and server errors retry verification or
 authentication with exponential intervals around 1, 2, 4, 8, 16 and 30 seconds,
@@ -185,7 +193,7 @@ or general configuration hot reload is provided.
 Recovery never repeats conversation creation or a chat POST. Unsubmitted questions
 finish locally with a durable Slack notice and never run after recovery. Started
 requests attach/read using the original correlation and 15-minute deadline;
-uncertain creation still requires review. These behaviors are implemented only
+uncertain creation closes local handling. These behaviors are implemented only
 in the gateway; Core session, refresh and SDK contracts are unchanged.
 
 `check-agently` remains a bounded, one-shot identity and protected agent-listing
@@ -198,6 +206,6 @@ contact Slack.
 
 Login is bounded by 90 seconds overall and 30 seconds per HTTP request. JSON
 support/transcript responses are limited to 8 MiB; oversized conversations require
-review rather than silent truncation. Errors omit raw URLs, bodies and credentials.
+local closure rather than silent truncation. Errors omit raw URLs, bodies and credentials.
 There is no transcript pagination, backend cancellation or Slack interaction UI.
-See [operations](operations.md) for persisted review states and delivery recovery.
+See [operations](operations.md) for persisted closure facts and delivery recovery.

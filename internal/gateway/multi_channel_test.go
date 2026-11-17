@@ -166,7 +166,7 @@ func TestPolicyChangeAfterRestartRejectsQueuedButNotOtherChannels(t *testing.T) 
 	}
 }
 
-func TestPolicyDenialOnExistingTurnQuarantinesWithoutQueryReplay(t *testing.T) {
+func TestPolicyDenialOnExistingTurnClosesWithoutQueryReplay(t *testing.T) {
 	ctx := context.Background()
 	s, reopen := database(t)
 	accept(t, s, storetest.Message("a", "one", "alice"))
@@ -182,8 +182,14 @@ func TestPolicyDenialOnExistingTurnQuarantinesWithoutQueryReplay(t *testing.T) {
 	status, err := s.Status(ctx, 10)
 	storetest.Must(t, err)
 	_, queries := backend.snapshot()
-	if len(queries) != 1 || status.GatewayJobs[0].State != "needs_review" || status.GatewayJobs[0].Reason != "policy_denied" || len(status.SlackOutgoingMessages) != 0 {
-		t.Fatal("denied turn replayed or incorrectly rejected")
+	if len(queries) != 1 || status.GatewayJobs[0].State != "rejected" || status.GatewayJobs[0].Reason != gateway.ConversationClosureReason("policy_denied") || len(status.SlackOutgoingMessages) != 1 {
+		t.Fatal("denied turn replayed or not locally closed")
+	}
+	sender := &fakeSlack{}
+	_, err = (&gateway.DeliveryWorker{Store: s, Sender: sender, Policy: w.Policy.(gateway.DeliveryPolicy)}).Step(ctx)
+	var issue *gateway.DeliveryIssue
+	if !errors.As(err, &issue) || issue.Reason != "policy_denied" || len(sender.snapshot()) != 0 {
+		t.Fatal("closure notice bypassed the current author policy")
 	}
 }
 
@@ -204,8 +210,8 @@ func TestPolicyMetadataFailureBeforeQueryHasNoBackendSideEffects(t *testing.T) {
 			}
 			status, err := s.Status(context.Background(), 10)
 			storetest.Must(t, err)
-			if status.GatewayJobs[0].State != "needs_review" || len(status.SlackOutgoingMessages) != 0 {
-				t.Fatal("metadata failure not quarantined")
+			if status.GatewayJobs[0].State != "rejected" || !gateway.ConversationClosed(status.GatewayJobs[0].Reason) || len(status.SlackOutgoingMessages) != 1 {
+				t.Fatal("metadata failure did not close local handling")
 			}
 		})
 	}

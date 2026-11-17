@@ -89,7 +89,7 @@ func TestNativeIntegrationIsolation(t *testing.T) {
 			if jobs[0].ID == jobs[1].ID {
 				t.Fatal("independent jobs share identity")
 			}
-			if err := bs.Review(ctx, jobs[0].ID, "foreign"); err == nil {
+			if _, err := bs.CloseThread(ctx, jobs[0].ID, "foreign"); err == nil {
 				t.Fatal("foreign job mutated")
 			}
 			for _, scoped := range []storage.Store{as, bs} {

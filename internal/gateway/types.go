@@ -14,6 +14,7 @@ var (
 	ErrConflict = errors.New("state or identity conflict")
 	// ErrBackendProtocol marks an unsafe identity/response or permanent API failure.
 	// Transient errors are reconciled by read-only polling, never query replay.
+	// Permanent errors close local handling of the affected thread.
 	ErrBackendProtocol = errors.New("backend response requires review")
 	// ErrBackendAuth is handled by the shared backend connection lifecycle.
 	ErrBackendAuth         = errors.New("Backend session or execution identity rejected")
@@ -268,7 +269,9 @@ type Store interface {
 	BeginQuery(context.Context, int64) error
 	SchedulePoll(context.Context, int64, time.Time) error
 	Complete(context.Context, int64, string, string, []ReplyPart, ...ProtocolSnapshot) error
-	Review(context.Context, int64, string) error
+	// CloseThread ends local handling of unresolved work and its queued questions.
+	// It returns true only when this invocation newly closed the physical thread.
+	CloseThread(context.Context, int64, string) (bool, error)
 	Reject(context.Context, int64, string) error
 	ClaimDelivery(context.Context) (*SlackOutgoingMessage, error)
 	GetDeliveryContext(context.Context, SlackOutgoingMessage) (*DeliveryContext, error)

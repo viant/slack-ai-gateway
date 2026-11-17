@@ -42,15 +42,17 @@ func projectSession(a *sessionsread.SlackAgentSessionPublication) gateway.Gatewa
 	p := gateway.GatewayJobProgress{Target: gateway.StatusTargetAgentSession, ThreadKey: key, SessionState: "active", Terminal: true}
 	priority := 0
 	authRejected := false
+	closedThread := false
 	var source *sessionsread.GatewayJobSessionProjection
 	for _, j := range a.GatewayJobs {
 		if j == nil {
 			continue
 		}
 		state, reason := deref(j.GatewayExecutionState), deref(j.GatewayExecutionReason)
+		closedThread = closedThread || gateway.ConversationClosed(reason)
 		pending, bad := deref(j.Pending), deref(j.Bad)
 		rank := 0
-		live := deref(j.IntegrationActive) != 0 && j.BindingState != "closed" && reason != "conversation_closed" && !gateway.IntegrationTermination(reason)
+		live := deref(j.IntegrationActive) != 0 && j.BindingState != "closed" && !gateway.ConversationClosed(reason) && !gateway.IntegrationTermination(reason)
 		if live && (state != "completed" && state != "rejected" || pending > 0) {
 			rank = 1
 		}
@@ -82,6 +84,9 @@ func projectSession(a *sessionsread.SlackAgentSessionPublication) gateway.Gatewa
 		p.JobID, p.MessageTS, p.Surface, p.CreatedAt = int64(deref(source.Id)), deref(source.SlackPromptMessageId), gateway.MessageSurface(deref(source.SlackConversationType)), deref(source.CreatedAt)
 		p.IntegrationID = int64(deref(source.IntegrationId))
 		p.Mode, p.Phase = gateway.StatusMode(source.SlackProgressMode), deref(source.GatewayExecutionReason)
+		if gateway.ConversationClosed(p.Phase) {
+			p.Phase = "conversation_closed"
+		}
 	}
 	switch priority {
 	case 1:
@@ -91,6 +96,9 @@ func projectSession(a *sessionsread.SlackAgentSessionPublication) gateway.Gatewa
 	}
 	if authRejected {
 		p.Phase = "backend_auth_or_identity_rejected"
+	}
+	if closedThread && priority == 0 {
+		p.Phase = "conversation_closed"
 	}
 	if p.Terminal && gateway.IntegrationTermination(a.SlackPublicationReason) {
 		p.Phase = a.SlackPublicationReason
@@ -117,7 +125,7 @@ func (e *execution) claimAgentSession(ctx context.Context, now time.Time, kind s
 		// One bot may eventually serve several integrations. All their jobs
 		// contribute to the projection, but its original source policy and
 		// scoped context must publish it through the owning integration.
-		closing := gateway.IntegrationTermination(p.Phase)
+		closing := gateway.IntegrationTermination(p.Phase) || gateway.ConversationClosed(p.Phase)
 		if e.scope != 0 && p.IntegrationID != e.scope && !closing {
 			continue
 		}
@@ -138,7 +146,7 @@ func (e *execution) claimAgentSession(ctx context.Context, now time.Time, kind s
 			revision++
 		}
 		urgent := changedProjection || a.SlackPublicationSentRevision < revision
-		if kind == "terminal" && (p.Phase != "backend_auth_or_identity_rejected" || p.SessionState != "suspended") {
+		if kind == "terminal" && !gateway.ConversationClosed(p.Phase) && (p.Phase != "backend_auth_or_identity_rejected" || p.SessionState != "suspended") {
 			continue
 		}
 		if kind == "heartbeat" && (urgent || p.SessionState != "processing" || deref(a.SlackPublicationRefreshAt).After(now)) {

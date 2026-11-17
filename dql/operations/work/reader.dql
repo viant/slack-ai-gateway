@@ -28,4 +28,6 @@ SELECT work.*, type(work,'WorkTiming'), CAST(work.integration_id AS int64), CAST
        CAST(work.candidate_at AS *time.Time), CAST(work.refresh_at AS *time.Time), CAST(work.observed_at AS *time.Time),
        required(work.kind), required(work.slack_app_id), required(work.slack_workspace_id),
        required(work.slack_channel_id), required(work.slack_thread_root_message_id), set_limit(work,0)
-FROM (${embed:sql/work.sql}) work
+FROM (
+${embed:sql/work.sql}
+) work

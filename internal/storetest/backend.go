@@ -142,8 +142,8 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 			if err := s.Complete(ctx, j.ID, "", "stale answer", []gateway.ReplyPart{{Text: "stale answer", Format: gateway.ReplyPlain}}); !errors.Is(err, gateway.ErrBackendUnavailable) {
 				t.Fatalf("stale result overwrote rejection: %v", err)
 			}
-			if err := s.Review(ctx, j.ID, "stale policy review"); !errors.Is(err, gateway.ErrBackendUnavailable) {
-				t.Fatalf("stale review did not identify local rejection: %v", err)
+			if closed, err := s.CloseThread(ctx, j.ID, "stale_policy_review"); err != nil || closed {
+				t.Fatalf("stale closure changed the terminal local rejection: closed=%t %v", closed, err)
 			}
 			if err := s.Reject(ctx, j.ID, "stale policy rejection"); !errors.Is(err, gateway.ErrBackendUnavailable) {
 				t.Fatalf("stale policy rejection did not identify local rejection: %v", err)
@@ -193,11 +193,17 @@ func runBackendOutage(t *testing.T, open func(*testing.T) Fixture) {
 			t.Fatalf("restart did not preserve original started request: %+v", reconciled)
 		}
 		noJob(t, s)
-		if d, err := s.ClaimDelivery(ctx); err != nil || d != nil {
-			t.Fatalf("restart duplicated failure replies: %+v, %v", d, err)
+		d, err := s.ClaimDelivery(ctx)
+		Must(t, err)
+		if d == nil || d.RootTS != "creating" || d.Text != gateway.ConversationClosureNotice(gateway.ConversationClosureReason("interrupted_external_operation"), false, "") {
+			t.Fatalf("restart did not publish one local closure for interrupted create: %+v", d)
+		}
+		Must(t, s.Delivered(ctx, d.ID, "closed-create-notice"))
+		if again, err := s.ClaimDelivery(ctx); err != nil || again != nil {
+			t.Fatalf("restart duplicated failure or closure replies: %+v, %v", again, err)
 		}
 		for _, j := range backendSnapshot(t, s).GatewayJobs {
-			if j.ID == creating.ID && j.State != "needs_review" {
+			if j.ID == creating.ID && (j.State != "rejected" || !gateway.ConversationClosed(j.Reason)) {
 				t.Fatalf("unknown creation was replayed after restart: %+v", j)
 			}
 		}

@@ -291,8 +291,8 @@ func (r *Runtime) runPrepared(ctx context.Context, scheduler *workScheduler) err
 	case <-ready:
 		w := gateway.Worker{Store: r.Store, Policy: r.Policy, Clients: r.Clients, Backend: r.Backend, AgentID: r.AgentID, Execute: execute,
 			ResponseMode: r.ResponseMode, AgentlyBaseURL: r.AgentlyBaseURL, Log: log,
-			OnReview: func(jobID int64, requestID, reason string) {
-				log.Warn("query_needs_review", "job_id", jobID, "gateway_request_id", requestID, "reason", reason)
+			OnThreadClosed: func(jobID int64, requestID, reason string) {
+				log.Warn("thread_closed", "job_id", jobID, "gateway_request_id", requestID, "reason", reason)
 			}}
 		delivery := gateway.DeliveryWorker{Store: r.Store, Sender: r.Sender, Policy: deliveryPolicy, OnDelivered: func(d gateway.SlackOutgoingMessage) {
 			r.delivered.Add(1)

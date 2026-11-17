@@ -65,9 +65,9 @@ func (s *epochWorkerStore) Reject(_ context.Context, _ int64, reason string) err
 	s.rejected = reason
 	return nil
 }
-func (s *epochWorkerStore) Review(_ context.Context, _ int64, reason string) error {
+func (s *epochWorkerStore) CloseThread(_ context.Context, _ int64, reason string) (bool, error) {
 	s.reviewed = reason
-	return nil
+	return true, nil
 }
 func (s *epochWorkerStore) RecordObservation(context.Context, int64, string, time.Time) error {
 	return nil

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"sync/atomic"
 	"time"
@@ -322,8 +323,15 @@ func (s *Store) BeginQuery(ctx context.Context, id int64) error {
 func (s *Store) SchedulePoll(ctx context.Context, id int64, at time.Time) error {
 	return s.apply(ctx, &workflow.Input{Action: "schedule_poll", ID: id, At: at})
 }
-func (s *Store) Review(ctx context.Context, id int64, text string) error {
-	return s.apply(ctx, &workflow.Input{Action: "review", ID: id, Text: text})
+func (s *Store) CloseThread(ctx context.Context, id int64, reason string) (bool, error) {
+	out, err := s.call(ctx, &workflow.Input{Action: "close_thread", ID: id, Text: reason, At: time.Now()})
+	if err != nil {
+		return false, err
+	}
+	if out.ThreadClosed {
+		slog.Info("thread_closure_persisted", "integration_id", s.scope, "job_id", id, "reason", gateway.ConversationClosureReason(reason), "closed_jobs", out.ClosedJobs, "unsubmitted_jobs", out.UnsubmittedJobs)
+	}
+	return out.ThreadClosed, nil
 }
 func (s *Store) Reject(ctx context.Context, id int64, text string) error {
 	return s.apply(ctx, &workflow.Input{Action: "reject", ID: id, Text: text})
@@ -341,5 +349,9 @@ func (s *Store) FailDelivery(ctx context.Context, id int64) error {
 	return s.apply(ctx, &workflow.Input{Action: "fail_delivery", ID: id})
 }
 func (s *Store) Recover(ctx context.Context) error {
-	return s.apply(ctx, &workflow.Input{Action: "recover"})
+	out, err := s.call(ctx, &workflow.Input{Action: "recover"})
+	if err == nil && out.ClosedJobs > 0 {
+		slog.Info("thread_closures_recovered", "closed_jobs", out.ClosedJobs, "unsubmitted_jobs", out.UnsubmittedJobs)
+	}
+	return err
 }

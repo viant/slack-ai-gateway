@@ -16,9 +16,9 @@ func (s *pollStore) SchedulePoll(_ context.Context, _ int64, at time.Time) error
 	s.at = at
 	return nil
 }
-func (s *pollStore) Review(_ context.Context, _ int64, reason string) error {
+func (s *pollStore) CloseThread(_ context.Context, _ int64, reason string) (bool, error) {
 	s.reason = reason
-	return nil
+	return true, nil
 }
 
 func TestPollingDefaultsBackoffAndDeadline(t *testing.T) {

@@ -425,7 +425,11 @@ func TestActorTerminalDrainRetainsPhysicalBotPermitAfterUnregister(t *testing.T)
 		t.Fatal("missing native progress fixture")
 	}
 	storetest.Must(t, bound.FinishStatus(f.ctx, *progress, gateway.StatusResult{State: "ready", SlackTS: "500.000001"}, time.Now()))
-	storetest.Must(t, bound.Review(f.ctx, job.ID, "backend_auth_or_identity_rejected"))
+	closed, err := bound.CloseThread(f.ctx, job.ID, "backend_auth_or_identity_rejected")
+	storetest.Must(t, err)
+	if !closed {
+		t.Fatal("terminal fixture did not close locally")
+	}
 
 	sent := make(chan time.Time, 1)
 	status := &gateway.StatusWorker{Sender: actorTerminalSender{sent}, Policy: storetest.Policy(identity.AppID, "T", "shared", "C")}

@@ -93,6 +93,14 @@ func TestBackendAuthenticationShutdownAttemptsOnlyTerminalStatus(t *testing.T) {
 		_, err := s.Enqueue(ctx, storetest.Message(event, "same-thread", "alice"))
 		storetest.Must(t, err)
 	}
+	// Closing does not create a fresh progress message. Exercise terminal drain
+	// with a message whose earlier publication was already acknowledged.
+	progress, err := s.ClaimStatus(ctx, time.Now(), "urgent")
+	storetest.Must(t, err)
+	if progress == nil {
+		t.Fatal("missing initial progress fixture")
+	}
+	storetest.Must(t, s.FinishStatus(ctx, *progress, gateway.StatusResult{State: "ready", SlackTS: "3.000001"}, time.Now()))
 	stopped := make(chan struct{})
 	r.Source = sourceFunc(func(ctx context.Context, _ gateway.EventSink, ready func()) error {
 		ready()
@@ -108,7 +116,7 @@ func TestBackendAuthenticationShutdownAttemptsOnlyTerminalStatus(t *testing.T) {
 		t.Error("shutdown drained final replies")
 		return "", nil
 	}, status: func(_ context.Context, status gateway.GatewayJobProgress, _ string) (string, error) {
-		if status.Phase == "needs_review" {
+		if gateway.ConversationClosed(status.Phase) {
 			terminal <- status
 		}
 		if status.SlackTS != "" {
@@ -116,7 +124,7 @@ func TestBackendAuthenticationShutdownAttemptsOnlyTerminalStatus(t *testing.T) {
 		}
 		return "3.000001", nil
 	}}
-	err := r.Run(ctx)
+	err = r.Run(ctx)
 	if err == nil || err.Error() != gateway.ErrBackendAuth.Error() {
 		t.Fatalf("unexpected shutdown: %v", err)
 	}
@@ -131,7 +139,7 @@ func TestBackendAuthenticationShutdownAttemptsOnlyTerminalStatus(t *testing.T) {
 	}
 	metadata, err := s.Status(context.Background(), 10)
 	storetest.Must(t, err)
-	if metadata.Counts["gateway_job.gateway_execution_state"]["pending"] != 1 || b.queries.Load() != 1 || r.Delivered() != 0 {
-		t.Fatal("authentication shutdown drained queued work")
+	if metadata.Counts["gateway_job.gateway_execution_state"]["pending"] != 0 || metadata.Counts["gateway_job.gateway_execution_state"]["rejected"] != 2 || b.queries.Load() != 1 || r.Delivered() != 0 {
+		t.Fatal("authentication shutdown did not close local work without executing queued questions")
 	}
 }

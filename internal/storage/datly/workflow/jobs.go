@@ -57,7 +57,7 @@ func (x *execution) enqueue(ctx context.Context, in *Input, out *Output) error {
 		return err
 	}
 	if stale {
-		text := gateway.IntegrationNotice("integration_changed")
+		text := gateway.ConversationClosureNotice("conversation_closed", false, "")
 		row.GatewayExecutionState = "completed"
 		row.GatewayExecutionFinishedAt = timePointer(now)
 		row.GatewayExecutionReason = "conversation_closed"
@@ -160,6 +160,21 @@ func (x *execution) jobs(ctx context.Context, in *Input, out *Output) error {
 	if j.GatewayExecutionState == "completed" && localBackendFailure(j.GatewayExecutionReason) {
 		return gateway.ErrBackendUnavailable
 	}
+	if gateway.ConversationClosed(j.GatewayExecutionReason) {
+		switch in.Action {
+		case "bind_job", "begin_query":
+			// An admitted preparation may outlive local closure. Reuse the
+			// existing no-start disposition; never authorize another query.
+			return gateway.ErrBackendUnavailable
+		case "complete":
+			if j.BackendSubmissionStartedAt != nil && in.GatewayRequestID != j.GatewayRequestId {
+				return gateway.ErrConflict
+			}
+			return nil
+		case "schedule_poll", "reject":
+			return nil
+		}
+	}
 	row := jobUpdate(j)
 	switch in.Action {
 	case "bind_job":
@@ -211,12 +226,6 @@ func (x *execution) jobs(ctx context.Context, in *Input, out *Output) error {
 				return err
 			}
 		}
-	case "review":
-		if j.GatewayExecutionState != "processing" && j.GatewayExecutionState != "querying" {
-			return gateway.ErrConflict
-		}
-		row.SetGatewayExecutionState("needs_review")
-		row.SetGatewayExecutionReason(in.Text)
 	case "reject":
 		if localBackendFailure(in.Text) {
 			if (j.GatewayExecutionState != "pending" && j.GatewayExecutionState != "processing") || j.BackendSubmissionStartedAt != nil ||
@@ -311,6 +320,27 @@ func (x *execution) bindings(ctx context.Context, in *Input, out *Output) error 
 	if in.Action == "get_binding" {
 		out.ConversationBinding = &gateway.ConversationBinding{ID: int64(b.Id), ThreadKey: gateway.ThreadKey{WorkspaceID: b.SlackWorkspaceId, ChannelID: b.SlackChannelId, RootTS: b.SlackThreadRootMessageId}, Decision: gateway.Decision{Mode: b.GatewayAccessMode, PrincipalID: b.BackendPrincipalId, OwnerID: b.GatewayBindingOwnerId}, ConversationID: deref(b.BackendConversationId), State: b.GatewayBindingState, ProtocolMessages: json.RawMessage(b.BackendProtocolMessages), ProtocolState: json.RawMessage(b.BackendProtocolState)}
 		return nil
+	}
+	if b.GatewayBindingState == "closed" {
+		switch in.Action {
+		case "begin_create":
+			return gateway.ErrBackendUnavailable
+		case "set_conversation":
+			if in.Text == "" {
+				return gateway.ErrConflict
+			}
+			if b.BackendConversationId != nil {
+				if *b.BackendConversationId != in.Text {
+					return gateway.ErrConflict
+				}
+				return nil
+			}
+			late := &bw.ConversationBinding{}
+			late.SetId(b.Id)
+			late.SetBackendConversationId(&in.Text)
+			late.SetUpdatedAt(timestamp(time.Now()))
+			return x.writeBindings(ctx, []*bw.ConversationBinding{late})
+		}
 	}
 	row := &bw.ConversationBinding{}
 	row.SetId(b.Id)

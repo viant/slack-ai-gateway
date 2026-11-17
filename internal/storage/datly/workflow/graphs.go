@@ -42,7 +42,7 @@ func (x *execution) readJobs(ctx context.Context, in *jr.Input, lock bool) ([]*j
 	if x.identity != nil {
 		in.SetAppID(x.identity.AppID)
 		in.SetWorkspaceID(x.identity.WorkspaceID)
-		if in.Mode == "publication" || in.Mode == "stale_thread" || in.Mode == "physical_thread" {
+		if in.Mode == "publication" || in.Mode == "stale_thread" || in.Mode == "physical_thread" || in.Mode == "thread_unfinished" {
 			in.SetIntegrationID(0)
 		}
 	}

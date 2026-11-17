@@ -125,7 +125,17 @@ func TestRemoteAuthRecoveryResumesOriginalRunAndIsolatesIntegrations(t *testing.
 						if reviewJob == nil || reviewJob.EventID != "review" {
 							t.Fatal("missing independent review fixture")
 						}
-						storetest.Must(t, first.Review(ctx, reviewJob.ID, "reconciliation_deadline"))
+						closed, err := first.CloseThread(ctx, reviewJob.ID, "reconciliation_deadline")
+						storetest.Must(t, err)
+						if !closed {
+							t.Fatal("independent unresolved fixture did not close")
+						}
+						closureNotice, err := first.ClaimDelivery(ctx)
+						storetest.Must(t, err)
+						if closureNotice == nil || closureNotice.RootTS != "review" {
+							t.Fatal("missing independent closure notice")
+						}
+						storetest.Must(t, first.Delivered(ctx, closureNotice.ID, "1.000001"))
 
 						attached := &recovery021Backend{attached: make(chan [2]string, 4)}
 						attempts := make(chan time.Time, 4)
@@ -252,8 +262,8 @@ func TestRemoteAuthRecoveryResumesOriginalRunAndIsolatesIntegrations(t *testing.
 						for _, job := range state.GatewayJobs {
 							switch job.ThreadTS {
 							case "review":
-								if job.ID != reviewJob.ID || job.State != "needs_review" || job.Reason != "reconciliation_deadline" {
-									t.Fatal("authentication recovery released historical review work")
+								if job.ID != reviewJob.ID || job.State != "rejected" || job.Reason != gateway.ConversationClosureReason("reconciliation_deadline") {
+									t.Fatal("authentication recovery reopened the closed conversation")
 								}
 							case "outage":
 								if job.State != "completed" || job.Reason != "backend_unavailable" || job.BackendSubmissionStartedAt != 0 {

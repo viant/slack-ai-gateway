@@ -36,7 +36,8 @@ AND NOT EXISTS (SELECT 1 FROM slack_outgoing_message earlier JOIN gateway_job ea
  WHERE earlier_job.integration_id=owner_job.integration_id AND earlier_job.slack_channel_id=owner_job.slack_channel_id
  AND earlier_job.slack_thread_root_message_id=owner_job.slack_thread_root_message_id AND earlier.id<m.id
  AND (earlier.slack_delivery_state IN ('pending','sending') OR (earlier.slack_delivery_state IN ('failed','delivery_unknown')
- AND m.slack_message_kind='response' AND owner_job.gateway_execution_reason<>'conversation_closed')))
+ AND m.slack_message_kind='response' AND owner_job.gateway_execution_reason<>'conversation_closed'
+ AND SUBSTR(owner_job.gateway_execution_reason,1,20)<>'conversation_closed:')))
 ORDER BY m.id LIMIT 1
 #elseif($Mode == "recover")
  AND m.slack_delivery_state='sending'

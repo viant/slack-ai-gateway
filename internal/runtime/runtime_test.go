@@ -306,7 +306,7 @@ func TestCredentialRejectionStopsRuntimeWithoutLosingReply(t *testing.T) {
 	})
 }
 
-func TestBackendIdentityRejectionStopsIntakeAndPreservesPendingWork(t *testing.T) {
+func TestBackendIdentityRejectionStopsIntakeAndClosesQueuedWork(t *testing.T) {
 	r, s, b := setup(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -331,15 +331,15 @@ func TestBackendIdentityRejectionStopsIntakeAndPreservesPendingWork(t *testing.T
 	await(t, stopped)
 	status, err := s.Status(context.Background(), 10)
 	storetest.Must(t, err)
-	if b.queries.Load() != 1 || len(status.SlackOutgoingMessages) != 0 || status.Counts["gateway_job.gateway_execution_state"]["needs_review"] != 1 || status.Counts["gateway_job.gateway_execution_state"]["pending"] != 1 {
+	if b.queries.Load() != 1 || len(status.SlackOutgoingMessages) != 1 || status.Counts["gateway_job.gateway_execution_state"]["rejected"] != 2 || status.Counts["gateway_job.gateway_execution_state"]["pending"] != 0 {
 		t.Fatal("unsafe auth failure recovery")
 	}
-	if status.GatewayJobs[1].Reason != "backend_auth_or_identity_rejected" {
-		t.Fatal("missing redacted review reason")
+	if status.GatewayJobs[1].Reason != gateway.ConversationClosureReason("backend_auth_or_identity_rejected") {
+		t.Fatal("missing redacted closure reason")
 	}
 }
 
-func TestQueryReviewLogsPersistedMetadataWithoutContent(t *testing.T) {
+func TestThreadClosureLogsPersistedMetadataWithoutContent(t *testing.T) {
 	r, s, b := setup(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -353,7 +353,7 @@ func TestQueryReviewLogsPersistedMetadataWithoutContent(t *testing.T) {
 	var logs bytes.Buffer
 	r.Log = slog.New(slog.NewJSONHandler(logWriterFunc(func(p []byte) (int, error) {
 		n, err := logs.Write(p)
-		if bytes.Contains(p, []byte(`"msg":"query_needs_review"`)) {
+		if bytes.Contains(p, []byte(`"msg":"thread_closed"`)) {
 			cancel()
 		}
 		return n, err
@@ -361,8 +361,8 @@ func TestQueryReviewLogsPersistedMetadataWithoutContent(t *testing.T) {
 	storetest.Must(t, r.Run(ctx)) // Joins all workers before logs are inspected.
 	status, err := s.Status(context.Background(), 10)
 	storetest.Must(t, err)
-	if len(status.GatewayJobs) != 1 || status.GatewayJobs[0].State != "needs_review" || len(status.SlackOutgoingMessages) != 0 || b.queries.Load() != 1 || r.Delivered() != 0 {
-		t.Fatal("review caused replay or delivery, or was not persisted")
+	if len(status.GatewayJobs) != 1 || status.GatewayJobs[0].State != "rejected" || len(status.SlackOutgoingMessages) != 1 || b.queries.Load() != 1 || r.Delivered() != 0 {
+		t.Fatal("closure caused replay or shutdown delivery, or was not persisted")
 	}
 	var record struct {
 		Level            string `json:"level"`
@@ -372,16 +372,16 @@ func TestQueryReviewLogsPersistedMetadataWithoutContent(t *testing.T) {
 		Reason           string `json:"reason"`
 	}
 	for _, line := range bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")) {
-		if bytes.Contains(line, []byte(`"msg":"query_needs_review"`)) {
+		if bytes.Contains(line, []byte(`"msg":"thread_closed"`)) {
 			storetest.Must(t, json.Unmarshal(line, &record))
 		}
 	}
 	j := status.GatewayJobs[0]
-	if record.Level != "WARN" || record.Message != "query_needs_review" || record.JobID != j.ID || record.GatewayRequestID != j.GatewayRequestID || record.Reason != "backend_protocol_or_access_error" || record.Reason != j.Reason {
-		t.Fatalf("unexpected review log: %s", logs.String())
+	if record.Level != "WARN" || record.Message != "thread_closed" || record.JobID != j.ID || record.GatewayRequestID != j.GatewayRequestID || record.Reason != "backend_protocol_or_access_error" || gateway.ConversationClosureReason(record.Reason) != j.Reason {
+		t.Fatalf("unexpected closure log: %s", logs.String())
 	}
 	if strings.Contains(logs.String(), "private-") {
-		t.Fatal("review log exposed question text or backend error")
+		t.Fatal("closure log exposed question text or backend error")
 	}
 }
 

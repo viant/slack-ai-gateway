@@ -86,6 +86,9 @@ type StatusStore interface {
 }
 
 func StatusText(s GatewayJobProgress, now time.Time) string {
+	if ConversationClosed(s.Phase) {
+		return "This conversation is closed. Start a new thread to continue."
+	}
 	text := map[string]string{
 		"received":            "Received your request. Waiting to start.",
 		"queued":              "Your request is queued behind an earlier request in this thread.",
@@ -106,7 +109,6 @@ func StatusText(s GatewayJobProgress, now time.Time) string {
 		"delivery_uncertain":  "The response could not be fully confirmed as delivered. Operator attention is required.",
 		"integration_changed": IntegrationNotice("integration_changed"),
 		"integration_removed": IntegrationNotice("integration_removed"),
-		"conversation_closed": "This conversation is closed. Start a new thread to continue.",
 	}[s.Phase]
 	if text == "" {
 		text = "Checking the request status."

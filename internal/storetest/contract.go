@@ -309,7 +309,11 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 		if b.EventID != "b" {
 			t.Fatal("next thread message not released")
 		}
-		Must(t, s.Review(ctx, b.ID, "test_unknown"))
+		closed, err := s.CloseThread(ctx, b.ID, "test_unknown")
+		Must(t, err)
+		if !closed {
+			t.Fatal("unresolved thread was not closed")
+		}
 		enqueue(t, s, Message("d", "one", "alice"))
 		noJob(t, s)
 	})
@@ -457,8 +461,8 @@ func Run(t *testing.T, open func(*testing.T) Fixture) {
 		noJob(t, s)
 		b, err = s.GetBinding(ctx, m.ThreadKey)
 		Must(t, err)
-		if b.State != "needs_review" {
-			t.Fatal("ambiguous creation not quarantined")
+		if b.State != "closed" {
+			t.Fatal("ambiguous creation did not close local conversation handling")
 		}
 	})
 	t.Run("interrupted_delivery_blocks_only_its_thread", func(t *testing.T) {

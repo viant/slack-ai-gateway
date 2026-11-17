@@ -86,7 +86,9 @@ AND NOT EXISTS (SELECT 1 FROM slack_agent_session_publication a JOIN integration
   AND thread_integration.slack_app_id=$AppID AND thread_integration.slack_workspace_id=$WorkspaceID)
 #end
 
-ORDER BY CASE WHEN j.gateway_execution_reason IN ('integration_changed','integration_removed') OR j.slack_progress_phase IN ('integration_changed','integration_removed') THEN 0 ELSE 1 END,
+ORDER BY CASE WHEN j.gateway_execution_reason IN ('conversation_closed','integration_changed','integration_removed')
+ OR SUBSTR(j.gateway_execution_reason,1,20)='conversation_closed:'
+ OR j.slack_progress_phase IN ('conversation_closed','integration_changed','integration_removed') THEN 0 ELSE 1 END,
  j.slack_progress_last_sent_at,j.id
 
 #elseif($Mode == "recover_status")
@@ -108,7 +110,9 @@ WHERE 1=1
 AND j.integration_id=$IntegrationID
 #end
  AND EXISTS (SELECT 1 FROM integration integration WHERE integration.id=j.integration_id AND integration.active=1)
- AND j.gateway_execution_state IN ('processing','querying')
+ AND (j.gateway_execution_state IN ('processing','querying','needs_review')
+ OR (j.gateway_execution_state='pending' AND EXISTS (SELECT 1 FROM conversation_binding b
+  WHERE b.id=j.conversation_binding_id AND b.gateway_binding_state='closed')))
 #if($PhysicalThread)
  AND j.slack_channel_id=$ChannelID AND j.slack_thread_root_message_id=$SlackThreadRootMessageID
  AND EXISTS (SELECT 1 FROM integration thread_integration WHERE thread_integration.id=j.integration_id
@@ -155,6 +159,18 @@ AND EXISTS (SELECT 1 FROM integration thread_integration WHERE thread_integratio
 AND (j.slack_progress_mode IN ('message','hybrid') OR j.slack_progress_message_id<>'')
 AND j.slack_progress_state IN ('ready','sending','settled')
 AND (j.gateway_execution_state NOT IN ('completed','rejected') OR j.slack_progress_state IN ('ready','sending') OR j.slack_progress_phase='delivery_uncertain')
+ORDER BY j.id
+#elseif($Mode == "thread_unfinished")
+WHERE j.slack_channel_id=$ChannelID AND j.slack_thread_root_message_id=$SlackThreadRootMessageID
+AND j.gateway_execution_state NOT IN ('completed','rejected')
+AND EXISTS (SELECT 1 FROM integration integration WHERE integration.id=j.integration_id
+ AND integration.slack_app_id=$AppID AND integration.slack_workspace_id=$WorkspaceID)
+#if($PhysicalThread)
+ AND j.slack_channel_id=$ChannelID AND j.slack_thread_root_message_id=$SlackThreadRootMessageID
+ AND EXISTS (SELECT 1 FROM integration thread_integration WHERE thread_integration.id=j.integration_id
+  AND thread_integration.slack_app_id=$AppID AND thread_integration.slack_workspace_id=$WorkspaceID)
+#end
+
 ORDER BY j.id
 #elseif($Mode == "physical_thread")
 WHERE j.slack_channel_id=$ChannelID AND j.slack_thread_root_message_id=$SlackThreadRootMessageID

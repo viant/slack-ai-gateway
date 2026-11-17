@@ -22,7 +22,10 @@ type statusProjection struct {
 }
 
 func (p statusProjection) phase(now time.Time) (string, bool) {
-	if gateway.IntegrationTermination(p.reason) || p.reason == "conversation_closed" {
+	if gateway.ConversationClosed(p.reason) {
+		return "conversation_closed", true
+	}
+	if gateway.IntegrationTermination(p.reason) {
 		return p.reason, true
 	}
 	switch p.jobState {
@@ -90,6 +93,9 @@ func (e *execution) recordObservation(ctx context.Context, in *Input, _ *Output)
 		return err
 	}
 	if len(rows) == 0 {
+		return nil
+	}
+	if gateway.ConversationClosed(rows[0].GatewayExecutionReason) {
 		return nil
 	}
 	if rows[0].GatewayExecutionState == "completed" && localBackendFailure(rows[0].GatewayExecutionReason) {
@@ -194,11 +200,11 @@ func (e *execution) claimMessageStatus(ctx context.Context, now time.Time, kind 
 		if j.SlackProgressState != "ready" && j.SlackProgressState != "settled" {
 			continue
 		}
-		if kind == "terminal" && j.GatewayExecutionReason != "backend_auth_or_identity_rejected" {
+		if kind == "terminal" && j.GatewayExecutionReason != "backend_auth_or_identity_rejected" && !gateway.ConversationClosed(j.GatewayExecutionReason) {
 			continue
 		}
 		p := projectMessageStatus(j, now)
-		closing := gateway.IntegrationTermination(p.Phase)
+		closing := gateway.IntegrationTermination(p.Phase) || gateway.ConversationClosed(p.Phase)
 		if kind == "integration_terminal" && !closing {
 			continue
 		}

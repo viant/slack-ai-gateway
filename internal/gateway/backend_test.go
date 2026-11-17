@@ -31,9 +31,9 @@ func (s *interruptedStore) Reject(_ context.Context, id int64, _ string) error {
 	s.rejected = id
 	return ErrBackendUnavailable
 }
-func (s *interruptedStore) Review(_ context.Context, _ int64, reason string) error {
+func (s *interruptedStore) CloseThread(_ context.Context, _ int64, reason string) (bool, error) {
 	s.review = reason
-	return nil
+	return true, nil
 }
 func (s *interruptedStore) Enqueue(_ context.Context, message Message) (bool, error) {
 	s.enqueued = message
@@ -69,7 +69,7 @@ func TestIntakePreservesUnavailableDispositionAfterRecovery(t *testing.T) {
 
 func TestReconciliationDeadlineDoesNotRestartDuringBackendRecovery(t *testing.T) {
 	s := &interruptedStore{job: &GatewayJob{ID: 1, GatewayRequestID: "existing-run", BackendSubmissionStartedAt: time.Now().Add(-16 * time.Minute)}}
-	// No client or policy is available: an expired query is quarantined before
+	// No client or policy is available: an expired query is closed locally before
 	// authentication/polling and keeps its original deadline across restarts.
 	w := Worker{Store: s, Backend: staleBackend{}}
 	worked, err := w.Step(context.Background())

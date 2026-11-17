@@ -124,8 +124,12 @@ func TestAgentSessionBlockerResolutionAndObservation(t *testing.T) {
 	a = claimStatus(t, s, now, "urgent", "processing")
 	acknowledgeSession(t, s, a, now)
 	j = startStatusJob(t, s)
-	storetest.Must(t, s.Review(ctx, j.ID, "backend_auth_or_identity_rejected"))
-	a = claimStatus(t, s, now, "terminal", "suspended")
+	_, err = s.CloseThread(ctx, j.ID, "backend_auth_or_identity_rejected")
+	storetest.Must(t, err)
+	a = claimStatus(t, s, now, "terminal", "conversation_closed")
+	if a.SessionState != "active" {
+		t.Fatal("closed thread retained a native work indicator")
+	}
 	acknowledgeSession(t, s, a, now)
 	claimStatus(t, s, now, "terminal", "")
 }

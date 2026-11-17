@@ -45,7 +45,9 @@ WHERE 1=1
 AND j.integration_id=$IntegrationID
 #end
  AND EXISTS (SELECT 1 FROM integration integration WHERE integration.id=j.integration_id AND integration.active=1)
- AND j.gateway_execution_state IN ('processing','querying')
+ AND (j.gateway_execution_state IN ('processing','querying','needs_review')
+ OR (j.gateway_execution_state='pending' AND EXISTS (SELECT 1 FROM conversation_binding b
+  WHERE b.id=j.conversation_binding_id AND b.gateway_binding_state='closed')))
 ${embed:thread_scope.sql}
 ORDER BY j.id
 #elseif($Mode == "unstarted")
@@ -72,6 +74,13 @@ AND EXISTS (SELECT 1 FROM integration thread_integration WHERE thread_integratio
 AND (j.slack_progress_mode IN ('message','hybrid') OR j.slack_progress_message_id<>'')
 AND j.slack_progress_state IN ('ready','sending','settled')
 AND (j.gateway_execution_state NOT IN ('completed','rejected') OR j.slack_progress_state IN ('ready','sending') OR j.slack_progress_phase='delivery_uncertain')
+ORDER BY j.id
+#elseif($Mode == "thread_unfinished")
+WHERE j.slack_channel_id=$ChannelID AND j.slack_thread_root_message_id=$SlackThreadRootMessageID
+AND j.gateway_execution_state NOT IN ('completed','rejected')
+AND EXISTS (SELECT 1 FROM integration integration WHERE integration.id=j.integration_id
+ AND integration.slack_app_id=$AppID AND integration.slack_workspace_id=$WorkspaceID)
+${embed:thread_scope.sql}
 ORDER BY j.id
 #elseif($Mode == "physical_thread")
 WHERE j.slack_channel_id=$ChannelID AND j.slack_thread_root_message_id=$SlackThreadRootMessageID

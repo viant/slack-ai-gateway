@@ -322,7 +322,7 @@ func (c *reconcilingClient) ReadTurn(_ context.Context, _, id string, _ func(gat
 	return gateway.Turn{ID: id, State: c.backend.readState, Content: "read answer"}, c.backend.readError
 }
 
-func TestPollingReviewAndDeadline(t *testing.T) {
+func TestPollingClosureAndDeadline(t *testing.T) {
 	for _, tc := range []struct {
 		name, state, reason string
 		readErr             error
@@ -351,8 +351,8 @@ func TestPollingReviewAndDeadline(t *testing.T) {
 			storetest.Must(t, err)
 			j := status.GatewayJobs[0]
 			if tc.reason != "" {
-				if j.State != "needs_review" || j.Reason != tc.reason || len(status.SlackOutgoingMessages) != 0 {
-					t.Fatalf("bad review: %+v", status)
+				if j.State != "rejected" || j.Reason != gateway.ConversationClosureReason(tc.reason) || len(status.SlackOutgoingMessages) != 1 {
+					t.Fatalf("bad closure: %+v", status)
 				}
 			} else if tc.state == "completed" || tc.state == "failed" || tc.state == "canceled" {
 				if j.State != "completed" || len(status.SlackOutgoingMessages) != 1 {
@@ -386,11 +386,16 @@ func TestPollingReviewAndDeadline(t *testing.T) {
 			work(t, w)
 			status, err := s.Status(context.Background(), 10)
 			storetest.Must(t, err)
-			if status.GatewayJobs[0].Reason != "reconciliation_deadline" || backend.readCalls != 0 {
+			if status.GatewayJobs[0].Reason != gateway.ConversationClosureReason("reconciliation_deadline") || backend.readCalls != 0 {
 				t.Fatal("deadline ignored or reset")
 			}
-			if len(status.SlackOutgoingMessages) != 0 {
-				t.Fatal("timeout incorrectly published as completion")
+			if len(status.SlackOutgoingMessages) != 1 || status.GatewayJobs[0].Outcome != "" {
+				t.Fatal("timeout did not preserve an unknown outcome and terminal notice")
+			}
+			notice, err := s.ClaimDelivery(context.Background())
+			storetest.Must(t, err)
+			if notice == nil || !strings.Contains(notice.Text, "could not confirm") {
+				t.Fatal("timeout did not produce an uncertainty notice")
 			}
 		})
 	})

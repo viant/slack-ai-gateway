@@ -120,7 +120,7 @@ func workerStep(t *testing.T, worker gateway.Worker, expected bool) {
 	}
 }
 
-func TestWorkerPersistsGenericHistoryOutboxAndReviewAcrossRestart(t *testing.T) {
+func TestWorkerPersistsGenericHistoryOutboxAndClosureAcrossRestart(t *testing.T) {
 	var calls atomic.Int64
 	story := strings.Repeat("The mouse helped the baker. 🐭\n", 700)
 	storyJSON := string(mustJSON(t, story))
@@ -210,11 +210,11 @@ func TestWorkerPersistsGenericHistoryOutboxAndReviewAcrossRestart(t *testing.T) 
 	enqueueWorkerMessage(t, f.scoped, workerMessage("truncated", rootTS, "102.000001", "Start another story."))
 	workerStep(t, workerFor(t, f.scoped, server), true)
 	var disposition string
-	if err = inspection.QueryRow("SELECT gateway_execution_state FROM gateway_job WHERE slack_event_id='truncated'").Scan(&disposition); err != nil || disposition != "needs_review" {
+	if err = inspection.QueryRow("SELECT gateway_execution_state FROM gateway_job WHERE slack_event_id='truncated'").Scan(&disposition); err != nil || disposition != "rejected" {
 		t.Fatalf("truncated state=%q err=%v", disposition, err)
 	}
 	binding, err = f.scoped.GetBinding(context.Background(), message.ThreadKey)
-	if err != nil || string(binding.ProtocolMessages) != previousMessages {
+	if err != nil || binding.State != "closed" || string(binding.ProtocolMessages) != previousMessages {
 		t.Fatal("partial result overwrote the confirmed protocol snapshot")
 	}
 	enqueueWorkerMessage(t, f.scoped, workerMessage("blocked-followup", rootTS, "103.000001", "Continue."))
@@ -227,7 +227,7 @@ func TestWorkerPersistsGenericHistoryOutboxAndReviewAcrossRestart(t *testing.T) 
 	enqueueWorkerMessage(t, f.scoped, workerMessage("independent", "200.000001", "200.000001", "An independent question."))
 	workerStep(t, workerFor(t, f.scoped, server), true)
 	if calls.Load() != 4 {
-		t.Fatal("review blocked an independent thread")
+		t.Fatal("closure blocked an independent thread")
 	}
 }
 
@@ -285,7 +285,11 @@ func TestWorkerRollsBackProtocolSnapshotWithFailedOutbox(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatal("recovery replayed the completed but uncommitted generic run")
 	}
-	if err = db.QueryRow("SELECT gateway_execution_state FROM gateway_job WHERE slack_event_id='atomic'").Scan(&disposition); err != nil || disposition != "needs_review" {
+	if err = db.QueryRow("SELECT gateway_execution_state FROM gateway_job WHERE slack_event_id='atomic'").Scan(&disposition); err != nil || disposition != "rejected" {
 		t.Fatalf("unknown completion state=%q err=%v", disposition, err)
+	}
+	var reason string
+	if err = db.QueryRow("SELECT gateway_execution_reason FROM gateway_job WHERE slack_event_id='atomic'").Scan(&reason); err != nil || !gateway.ConversationClosed(reason) {
+		t.Fatalf("missing durable closure after unrecoverable generic execution: %q %v", reason, err)
 	}
 }

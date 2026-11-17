@@ -229,7 +229,8 @@ func TestStartupRepairsAcknowledgedProcessingFromCanonicalBlocker(t *testing.T) 
 			storetest.Must(t, s.FinishStatus(ctx, *processing, gateway.StatusResult{State: "settled", Acknowledged: true, AgentStatus: "processing", SessionStatus: "processing", NextRefreshAt: now.Add(gateway.AgentSessionRefresh)}, now))
 			job, err := s.ClaimJob(ctx)
 			storetest.Must(t, err)
-			storetest.Must(t, s.Review(ctx, job.ID, "interrupted_external_operation"))
+			_, err = db.Exec("UPDATE gateway_job SET gateway_execution_state='needs_review',gateway_execution_reason='interrupted_external_operation' WHERE id=?", job.ID)
+			storetest.Must(t, err)
 			// Historical acknowledged processing could survive while its source became
 			// blocked. Startup must repair that intent without waiting ten minutes.
 			_, err = db.Exec("UPDATE slack_agent_session_publication SET slack_agent_desired_status='processing',slack_publication_state='settled',slack_publication_sent_revision=slack_publication_revision")
@@ -238,12 +239,12 @@ func TestStartupRepairsAcknowledgedProcessingFromCanonicalBlocker(t *testing.T) 
 			var desired, state string
 			var revision, sent int
 			storetest.Must(t, db.QueryRow("SELECT slack_agent_desired_status,slack_publication_state,slack_publication_revision,slack_publication_sent_revision FROM slack_agent_session_publication").Scan(&desired, &state, &revision, &sent))
-			if desired != "suspended" || state != "ready" || revision <= sent {
+			if desired != "active" || state != "ready" || revision <= sent {
 				t.Fatalf("startup retained stale native processing: desired=%s state=%s revisions=%d/%d", desired, state, revision, sent)
 			}
 			recovered, err := s.ClaimStatus(ctx, now.Add(time.Second), "urgent")
 			storetest.Must(t, err)
-			if recovered == nil || recovered.SessionState != "suspended" {
+			if recovered == nil || recovered.SessionState != "active" {
 				t.Fatalf("repair was not immediately publishable: %+v", recovered)
 			}
 		})

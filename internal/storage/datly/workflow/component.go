@@ -75,7 +75,7 @@ func (*Workflow) Exec(ctx context.Context, session handler.Session, in *Input, o
 			switch in.Action {
 			case "claim_job":
 				return nil
-			case "enqueue", "bind_job", "begin_create", "set_conversation", "begin_query", "schedule_poll", "complete", "observe", "review", "reject", "fail_unstarted":
+			case "enqueue", "bind_job", "begin_create", "set_conversation", "begin_query", "schedule_poll", "complete", "observe", "close_thread", "reject", "fail_unstarted":
 				return gateway.ErrConflict
 			}
 		}
@@ -115,7 +115,9 @@ func (x *execution) execute(ctx context.Context, in *Input, out *Output) error {
 		return x.failUnstarted(ctx, in, out)
 	case "fail_cleanup":
 		return x.failCleanup(ctx, in.Text)
-	case "claim_job", "bind_job", "begin_query", "schedule_poll", "complete", "review", "reject":
+	case "close_thread":
+		return x.closeThread(ctx, in, out)
+	case "claim_job", "bind_job", "begin_query", "schedule_poll", "complete", "reject":
 		return x.jobs(ctx, in, out)
 	case "get_binding", "begin_create", "set_conversation":
 		return x.bindings(ctx, in, out)
