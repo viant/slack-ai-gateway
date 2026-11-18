@@ -43,6 +43,10 @@ func Execute(ctx context.Context, args []string, out io.Writer) error {
 }
 
 func execute(ctx context.Context, args []string, out io.Writer, deps dependencies) error {
+	if len(args) == 1 && (args[0] == "-v" || args[0] == "--version") {
+		_, err := fmt.Fprintln(out, version)
+		return err
+	}
 	if len(args) == 0 {
 		return fmt.Errorf("usage: slack-ai-gateway <validate-config|migrate|check-agently|run|status|resolve-delivery> --config FILE")
 	}

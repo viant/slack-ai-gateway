@@ -9,8 +9,9 @@ See [request status](request-status.md) and [DM setup](direct-messages.md).
 
 SQLite and MySQL use the same Datly storage components and operator behavior.
 Selecting a driver changes the connection and database preparation; the generated
-components do not need to be rebuilt. SQLite retains its file lock and migration
-history, while MySQL retains explicit provisioning and deployment exclusivity.
+components do not need to be rebuilt. SQLite retains its migration history,
+while MySQL retains explicit provisioning. Both require one gateway process per
+database; deployment exclusivity is an operational requirement.
 
 ## Validate configuration without storage or secrets
 
@@ -19,7 +20,7 @@ go run ./cmd/slack-ai-gateway validate-config --config examples/gateway.example.
 ```
 
 This command needs the complete runtime configuration, not just storage. It is
-entirely offline: no database, lock, token loading, login or API calls, including
+entirely offline: no database, token loading, login or API calls, including
 when the runtime is active. It reports static policy, not verified membership or
 granted scopes. The report names the chosen general/override/disabled rule and
 its effective user scope. See [access policy](access-policy.md) for complete-rule
@@ -45,9 +46,9 @@ for copying a public example and explicitly creating these directories.
 The gateway does not create parent directories. For a new installation, create
 the configured parent directory explicitly, then use `run`: if the database file
 is missing, it creates the file with mode `0600` and initializes the current schema
-using the embedded migrations while holding the lifetime lock. It reports the full
-path after initialization. This happens before loading credentials or connecting
-to Agently or Slack, so a later authentication failure can leave an initialized
+using the embedded migrations. It reports the full path after initialization.
+This happens before loading credentials or connecting to Agently or Slack, so a
+later authentication failure can leave an initialized
 database ready for the next run.
 
 Existing files must have a current, compatible gateway schema. `run` does not
@@ -56,11 +57,13 @@ an empty file; earlier development histories require a new database path. `migra
 can also create a database offline using only storage configuration. `status` and
 `resolve-delivery` require an existing current database and never initialize one.
 
-These commands acquire the same lifetime lock as the runtime:
-**stop the gateway or live test first**.
-Do not remove the lock file to bypass a running process. Protect the database,
-its directory and backups: questions and answers are stored even though `status`
-does not print them.
+**Stop the gateway or live test before running these commands.** Only one gateway
+process may use a database, including during startup recovery and administration.
+SQLite's native locking protects database transactions; it does not enforce this
+process-level requirement. The gateway does not create or use an application
+`.lock` file. Files left by older versions are ignored and remain untouched.
+Protect the database, its directory and backups: questions and answers are stored
+even though `status` does not print them.
 
 ## Initialize a database offline
 

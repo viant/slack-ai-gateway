@@ -25,7 +25,7 @@ and whole-conversation removal; no retention schedule or cleanup command runs ye
 
 ## Requirements
 
-- Go 1.26 or newer; macOS or Linux for the SQLite lifetime lock.
+- Go 1.26 or newer when building from source.
 - An Agently deployment with OOB/PKCE login, the configured agent and an account
   permitted to use it, or a compatible AG-UI execution endpoint. Browser login and
   arbitrary MFA flows are not implemented.
@@ -35,6 +35,41 @@ and whole-conversation removal; no retention schedule or cleanup command runs ye
 Users of each integration execute through its configured backend identity. Slack
 access rules do not provide separate per-user backend identities or hide responses
 from channel readers. Configure that identity's data and tool permissions accordingly.
+
+## Build release archives
+
+From the repository root, run:
+
+```sh
+endly build
+```
+
+The workflow requires Endly, Go 1.26 or newer, Bash, `tar` and `shasum` on the
+build host. It reads and trims the root `Version` file once, without changing it,
+and builds Linux amd64, macOS amd64/arm64 and Windows amd64 with CGO disabled.
+An empty version or a failed build stops the workflow.
+
+For `Version` containing `v0.1.0`, the following files appear next to `build.yaml`:
+
+```text
+slack-ai-gateway_linux_amd64_v0.1.0.tar.gz
+slack-ai-gateway_darwin_amd64_v0.1.0.tar.gz
+slack-ai-gateway_darwin_arm64_v0.1.0.tar.gz
+slack-ai-gateway_windows_amd64_v0.1.0.tar.gz
+SHA256SUMS
+```
+
+Each archive contains only `slack-ai-gateway`, or `slack-ai-gateway.exe` on
+Windows. Temporary compilation files are removed on success or failure; the
+development executable in `bin/` is not replaced. Verify the archives with
+`shasum -a 256 -c SHA256SUMS`, then attach the four archives and checksum file to
+the release manually. The workflow does not create tags, publish releases or
+package private configuration, credentials or databases.
+
+The release executable reports the embedded `Version` with `--version` or `-v`,
+without reading configuration or connecting to services. A normal `go build`
+reports `dev`. Cross-compilation verifies the target binary can be built; native
+runtime verification on the destination operating system remains separate.
 
 ## Setup
 
@@ -158,11 +193,12 @@ Changing an execution assignment closes its old conversations; new top-level
 messages use the new assignment. An unchanged restart retains normal recovery.
 
 Use one gateway process per database; configured integrations share scoped storage. Stop the runtime
-before operator commands. SQLite enforces this with a lifetime file lock; MySQL
-deployment exclusivity is an operational requirement, not a distributed lock or HA
-feature. Keep SQLite on local disk and protect database access and backups:
-questions and answers are stored. The SQLite `.lock` file may remain after shutdown;
-do not remove it while a process is active. Do not reuse a Slack-only smoke database
+before operator commands. Deployment exclusivity is an operational requirement for
+both SQLite and MySQL; a second process is not automatically rejected. Multi-process
+recovery and HA are unsupported. SQLite uses its native database locking without
+an additional application `.lock` file. Old `.lock` files are ignored and left untouched.
+Keep SQLite on local disk and protect database access and backups: questions and
+answers are stored. Do not reuse a Slack-only smoke database
 for real Agently conversations. Changing the storage configuration does not copy
 existing conversations or pending work between databases.
 

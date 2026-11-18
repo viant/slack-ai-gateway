@@ -19,7 +19,6 @@ type Store struct {
 	*datlystore.Store
 	db      *sql.DB // Used only while preparing or checking the SQLite schema.
 	dsn     string
-	lock    *os.File
 	created bool
 	closed  bool
 }
@@ -27,7 +26,7 @@ type Store struct {
 var _ gateway.Store = (*Store)(nil)
 
 // Open only accepts an explicit filesystem path, never a URI or memory DSN.
-// A lifetime lock enforces the single-active-instance deployment model.
+// Deployments must ensure that only one gateway process uses the database.
 func Open(ctx context.Context, path string, create bool) (*Store, error) {
 	if strings.TrimSpace(path) == "" || path == ":memory:" || strings.HasPrefix(path, "file:") {
 		return nil, fmt.Errorf("SQLite requires an explicit durable file path")
@@ -43,21 +42,11 @@ func Open(ctx context.Context, path string, create bool) (*Store, error) {
 	} else if !os.IsNotExist(statErr) || !create {
 		return nil, statErr
 	}
-	lock, err := acquireLock(abs + ".lock")
-	if err != nil {
-		return nil, err
-	}
-	failed := true
-	defer func() {
-		if failed {
-			_ = lock.Close()
-		}
-	}()
 	var f *os.File
 	created := false
 	if create {
-		// Record creation atomically while holding the lifetime lock. An
-		// existing file must never be mistaken for a newly initialized database.
+		// Record creation atomically so an existing file is never mistaken for
+		// a newly initialized database.
 		f, err = os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 		created = err == nil
 	}
@@ -70,10 +59,18 @@ func Open(ctx context.Context, path string, create bool) (*Store, error) {
 	if err = f.Close(); err != nil {
 		return nil, err
 	}
-	u := &url.URL{Scheme: "file", Path: abs}
+	// Windows drive and UNC paths are filenames, not URI authorities. Keep
+	// native separators percent-escaped for SQLite's own URI parser to decode.
+	u := &url.URL{Scheme: "file", Path: abs, OmitHost: !strings.HasPrefix(abs, "/")}
 	q := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(ON)", "journal_mode(WAL)"}, "_txlock": {"immediate"}}
 	u.RawQuery = q.Encode()
-	s := &Store{dsn: u.String(), lock: lock, created: created}
+	s := &Store{dsn: u.String(), created: created}
+	failed := true
+	defer func() {
+		if failed {
+			_ = s.Close()
+		}
+	}()
 	if err = s.prepareSchema(ctx); err != nil {
 		return nil, err
 	}
@@ -102,15 +99,11 @@ func (s *Store) Close() error {
 		}
 		s.db = nil
 	}
-	lockErr := s.lock.Close()
-	if err != nil {
-		return err
-	}
-	return lockErr
+	return err
 }
 
-// Schema operations are offline. The lifetime file lock stays owned while the
-// single database pool passes between schema preparation and the Datly runtime.
+// Schema operations are offline. The single database pool passes between schema
+// preparation and the Datly runtime.
 func (s *Store) prepareSchema(ctx context.Context) error {
 	if s.closed {
 		return os.ErrClosed

@@ -36,7 +36,7 @@ func TestNativeOpenUninitializedSQLite(t *testing.T) {
 	}
 }
 
-func TestSQLitePoolHandoffKeepsLifetimeLockAndRejectsFailedSchema(t *testing.T) {
+func TestSQLitePoolHandoffPreservesDataAndRejectsFailedSchema(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "handoff.sqlite")
 	s, err := Open(ctx, path, true)
@@ -59,10 +59,6 @@ func TestSQLitePoolHandoffKeepsLifetimeLockAndRejectsFailedSchema(t *testing.T) 
 		if s.db != nil || s.Store == nil {
 			t.Fatal("schema preparation did not hand its pool back to Datly")
 		}
-		if second, err := Open(ctx, path, false); err == nil {
-			second.Close()
-			t.Fatal("schema preparation released the lifetime lock")
-		}
 	}
 	db := fixtureDB(t, s)
 	list, err := migrationList()
@@ -83,10 +79,6 @@ func TestSQLitePoolHandoffKeepsLifetimeLockAndRejectsFailedSchema(t *testing.T) 
 	if count != 1 {
 		t.Fatal("schema verification changed business data")
 	}
-	if second, err := Open(ctx, path, false); err == nil {
-		second.Close()
-		t.Fatal("failed verification released the lifetime lock")
-	}
 	_, err = db.Exec("UPDATE schema_migrations SET checksum=? WHERE version=1", list[0].checksum)
 	storetest.Must(t, err)
 	storetest.Must(t, s.CheckSchema(ctx))
@@ -95,7 +87,7 @@ func TestSQLitePoolHandoffKeepsLifetimeLockAndRejectsFailedSchema(t *testing.T) 
 	}
 }
 
-func TestCanceledSQLiteOpenReleasesLifetimeLock(t *testing.T) {
+func TestCanceledSQLiteOpenCanBeReopenedAndClosed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "canceled.sqlite")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -108,6 +100,54 @@ func TestCanceledSQLiteOpenReleasesLifetimeLock(t *testing.T) {
 	storetest.Must(t, s.Close())
 	if err := s.CheckSchema(context.Background()); err == nil {
 		t.Fatal("closed storage reopened itself for schema verification")
+	}
+}
+
+func TestSQLiteLifecycleDoesNotUseApplicationLock(t *testing.T) {
+	for _, existingLock := range []bool{false, true} {
+		t.Run(map[bool]string{false: "absent", true: "existing"}[existingLock], func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "lifecycle.sqlite")
+			lockPath := path + ".lock"
+			const marker = "legacy application lock; preserve this file\n"
+			var original os.FileInfo
+			if existingLock {
+				storetest.Must(t, os.WriteFile(lockPath, []byte(marker), 0600))
+				var err error
+				original, err = os.Stat(lockPath)
+				storetest.Must(t, err)
+			}
+			checkLock := func() {
+				t.Helper()
+				info, err := os.Stat(lockPath)
+				if !existingLock {
+					if !os.IsNotExist(err) {
+						t.Fatalf("unexpected application lock: info=%v err=%v", info, err)
+					}
+					return
+				}
+				storetest.Must(t, err)
+				contents, err := os.ReadFile(lockPath)
+				storetest.Must(t, err)
+				if string(contents) != marker || !os.SameFile(original, info) || original.Mode() != info.Mode() || !original.ModTime().Equal(info.ModTime()) {
+					t.Fatal("existing application lock was modified or replaced")
+				}
+			}
+			for _, create := range []bool{true, false} {
+				s, err := Open(ctx, path, create)
+				storetest.Must(t, err)
+				t.Cleanup(func() { _ = s.Close() })
+				checkLock()
+				if create {
+					storetest.Must(t, s.Migrate(ctx))
+					checkLock()
+				}
+				storetest.Must(t, s.CheckSchema(ctx))
+				checkLock()
+				storetest.Must(t, s.Close())
+				checkLock()
+			}
+		})
 	}
 }
 

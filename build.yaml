@@ -1,0 +1,10 @@
+init:
+  appPath: $WorkingDirectory(.)
+
+pipeline:
+  build:
+    action: exec:run
+    timeoutMs: 3600000
+    checkError: true
+    commands:
+      - bash '${appPath}/script/build.sh'

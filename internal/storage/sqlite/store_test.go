@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -212,17 +213,18 @@ func TestReplyFormatsSurviveRestart(t *testing.T) {
 	}
 }
 
-func TestSingleActiveInstanceAndDurablePath(t *testing.T) {
+func TestDurablePathAndCreationState(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "with spaces.sqlite")
 	s, err := Open(ctx, path, true)
 	storetest.Must(t, err)
+	uri, err := url.Parse(s.dsn)
+	storetest.Must(t, err)
+	if uri.Host != "" {
+		t.Fatalf("SQLite filename was encoded as a URI authority: %q", uri.Host)
+	}
 	if !s.Created() {
 		t.Fatal("new database not reported as created")
-	}
-	if second, err := Open(ctx, path, false); err == nil {
-		second.Close()
-		t.Fatal("second instance accepted")
 	}
 	storetest.Must(t, s.Close())
 	for _, create := range []bool{false, true} {
