@@ -154,7 +154,7 @@ func projectStatus(limit int, s *snapshot.Snapshot) *storage.Status {
 			AuthorID: r.SlackPromptAuthorId, ConversationBindingID: int64(r.ConversationBindingId), GatewayRequestID: r.GatewayRequestId,
 			State: r.GatewayExecutionState, Reason: r.GatewayExecutionReason, Outcome: r.GatewayExecutionOutcome,
 			PollAttempts: r.BackendPollAttempts, BackendSubmissionStartedAt: diagnosticMillis(r.BackendSubmissionStartedAt), NextAttemptAt: diagnosticMillis(r.BackendNextPollAt),
-			ObservedState: r.BackendObservedState, ObservedAt: diagnosticMillis(r.BackendObservedAt), ObservationUncertain: r.BackendObservationUncertain != 0,
+			ObservedState: r.BackendObservedState, ObservedAt: diagnosticMillis(r.BackendObservedAt), ObservationUncertain: r.BackendObservationUncertainSince != nil, ObservationUncertainSince: diagnosticMillis(r.BackendObservationUncertainSince),
 			Mode: r.SlackProgressMode, SlackTS: r.SlackProgressMessageId, Phase: r.SlackProgressPhase, ProgressState: r.SlackProgressState, ProgressReason: r.SlackProgressReason,
 			Revision: int64(r.SlackProgressRevision), SentRevision: int64(r.SlackProgressSentRevision), ProgressAttempts: r.SlackProgressAttempts,
 			ProgressNextAttemptAt: diagnosticMillis(r.SlackProgressNextAttemptAt), RefreshAt: diagnosticMillis(r.SlackProgressRefreshAt), RateLimitedUntil: diagnosticMillis(r.SlackProgressRateLimitedUntil),

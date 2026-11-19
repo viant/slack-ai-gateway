@@ -56,6 +56,12 @@ func (x *execution) refreshMessageProgress(ctx context.Context, key gateway.Phys
 	var changes []*jw.GatewayJob
 	for _, j := range jobs {
 		p := projectMessageStatus(j, now)
+		// Claims and poll scheduling change execution bookkeeping, not the
+		// manager's availability. Its next status claim owns that overlay;
+		// preserving it here avoids inventing an urgent checking transition.
+		if backendStatusKind(j.SlackProgressPhase) && p.Submitted && p.jobState != "completed" && !p.Terminal && p.Phase != "delivering" {
+			continue
+		}
 		if p.Phase == j.SlackProgressPhase {
 			continue
 		}

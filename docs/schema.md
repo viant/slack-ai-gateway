@@ -135,7 +135,7 @@ their shared identity does not require a second status table.
 | Prompt | `prompt_text`, `prompt_has_attachments` |
 | Gateway execution | `gateway_execution_state`, `gateway_execution_reason`, `gateway_execution_outcome`, `gateway_execution_result_text`, `gateway_execution_claim_count` |
 | Backend submission and polling | `backend_submission_started_at`, `backend_next_poll_at`, `backend_poll_attempts`, `backend_poll_ready` |
-| Backend observation | `backend_observed_state`, `backend_observed_at`, `backend_observation_uncertain` |
+| Backend observation | `backend_observed_state`, `backend_observed_at`, `backend_observation_uncertain_since` |
 | Slack progress content and target | `slack_progress_mode`, `slack_progress_message_id`, `slack_progress_phase` |
 | Slack progress publication | `slack_progress_state`, `slack_progress_reason`, `slack_progress_revision`, `slack_progress_sent_revision`, `slack_progress_attempts` |
 | Slack progress dates | `slack_progress_next_attempt_at`, `slack_progress_refresh_at`, `slack_progress_rate_limited_until`, `slack_progress_first_sent_at`, `slack_progress_last_sent_at` |
@@ -296,3 +296,11 @@ gateway_execution_finished_at, id)` and `(last_activity_at, id)`, request lookup
 by binding/completion, and indexed traversal of outgoing-message and native
 publication foreign keys. They support bounded future batches without indexing
 every timestamp or adding a second retention-state projection.
+
+The observation fields retain the last confirmed backend state and its timestamp.
+A nullable `backend_observation_uncertain_since` records the start of a continuous
+loss of current confirmation. Repeated errors and restarts do not advance it; a
+current confirmation clears it. The 15-minute uncertainty budget is independent
+of total execution duration. This replaces the former boolean column without
+adding a new versioned migration; existing databases require an explicit schema
+cutover before using the corresponding binary.

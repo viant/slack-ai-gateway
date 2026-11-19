@@ -67,11 +67,15 @@ func TestIntakePreservesUnavailableDispositionAfterRecovery(t *testing.T) {
 	}
 }
 
+type recoveringBackend struct{ BackendLifecycle }
+
+func (recoveringBackend) State() BackendState { return BackendRecovering }
+
 func TestReconciliationDeadlineDoesNotRestartDuringBackendRecovery(t *testing.T) {
-	s := &interruptedStore{job: &GatewayJob{ID: 1, GatewayRequestID: "existing-run", BackendSubmissionStartedAt: time.Now().Add(-16 * time.Minute)}}
-	// No client or policy is available: an expired query is closed locally before
-	// authentication/polling and keeps its original deadline across restarts.
-	w := Worker{Store: s, Backend: staleBackend{}}
+	s := &interruptedStore{job: &GatewayJob{ID: 1, GatewayRequestID: "existing-run", BackendSubmissionStartedAt: time.Now().Add(-time.Hour), BackendObservationUncertainSince: time.Now().Add(-16 * time.Minute)}}
+	// Final verification waits for readiness within its bounded budget. It does
+	// not renew the durable uncertainty deadline or require a new authentication loop.
+	w := Worker{Store: s, Backend: recoveringBackend{}, Timing: QueryTiming{Timeout: time.Millisecond}}
 	worked, err := w.Step(context.Background())
 	if err != nil || !worked || s.review != "reconciliation_deadline" || s.sweeps != 0 {
 		t.Fatalf("expired query was extended: worked=%t review=%s err=%v", worked, s.review, err)

@@ -44,19 +44,44 @@ func (c *Client) observeRun(ctx context.Context, conversationID, threadID, runID
 	}
 	defer stream.Close() // Detaches the observer; never cancels durable execution.
 	nativeID := ""
+	observed := ""
+	checkedHints := map[string]bool{}
+	notify := func(turn gateway.Turn) error {
+		// RUN_STARTED can precede the native turn's first persisted snapshot.
+		// Absence is not a failed observation while the initial confirmation
+		// budget is still running in the worker.
+		if turn.State == "unknown" || turn.State == observed {
+			return nil
+		}
+		if observe != nil {
+			if err := observe(turn); err != nil {
+				return err
+			}
+		}
+		observed = turn.State
+		return nil
+	}
+	canonical := func() (gateway.Turn, error) {
+		turn, err := c.readNativeTurn(ctx, conversationID, runID, nativeID)
+		if err == nil {
+			err = notify(turn)
+		}
+		return turn, err
+	}
 	for {
 		event, recvErr := stream.Recv()
 		if recvErr != nil {
 			if nativeID != "" && ctx.Err() == nil {
 				// A disconnected observer may already have a committed canonical outcome.
 				// Otherwise the existing scheduler reattaches, never resubmits the prompt.
-				return c.readNativeTurn(ctx, conversationID, runID, nativeID)
+				return canonical()
 			}
 			return gateway.Turn{}, observationError(recvErr)
 		}
 		var header struct {
 			ThreadID, RunID, ProtocolVersion string
 			SubagentRunID                    *string `json:"subagentRunId"`
+			ActivityType                     string
 			Metadata                         struct {
 				Agently struct{ IdentityVersion, NativeTurnID string }
 			}
@@ -72,18 +97,66 @@ func (c *Client) observeRun(ctx context.Context, conversationID, threadID, runID
 				return gateway.Turn{}, gateway.ErrBackendProtocol
 			}
 			nativeID = header.Metadata.Agently.NativeTurnID
-			if observe != nil {
-				turn, err := c.readNativeTurn(ctx, conversationID, runID, nativeID)
-				if err != nil {
+			if query != nil && observe == nil {
+				continue
+			}
+			turn, err := canonical()
+			if err != nil {
+				return gateway.Turn{}, err
+			}
+			// A replay can begin after the result was committed already.
+			if terminalTurn(turn) || turn.State == "waiting_for_user" {
+				return turn, nil
+			}
+		}
+		if event.Type == "ACTIVITY_SNAPSHOT" && header.ActivityType == "agently.turn" {
+			if nativeID == "" || (header.ThreadID != "" && header.ThreadID != threadID) || (header.RunID != "" && header.RunID != runID) {
+				continue
+			}
+			var descriptor struct {
+				Content struct{ Version, NativeTurnID, Status string }
+			}
+			if event.Decode(&descriptor) != nil {
+				continue
+			}
+			content := descriptor.Content
+			if content.NativeTurnID != nativeID {
+				continue
+			}
+			if content.Version != agui.ExtensionVersion {
+				continue
+			}
+			switch content.Status {
+			case "queued", "running", "completed", "failed", "canceled", "waiting_for_user":
+			default:
+				continue
+			}
+			if content.Status == observed || content.Status == "queued" && observed == "running" {
+				continue
+			}
+			if query != nil && (content.Status == "queued" || content.Status == "running") {
+				if err = notify(gateway.Turn{ID: runID, State: content.Status}); err != nil {
 					return gateway.Turn{}, err
 				}
-				if err = observe(turn); err != nil {
-					return gateway.Turn{}, err
-				}
-				// A replay can begin after the result was committed already.
-				if terminalTurn(turn) || turn.State == "waiting_for_user" {
-					return turn, nil
-				}
+				continue
+			}
+			// An attachment can replay old state. Confirm each different hint
+			// canonically, without turning repeated snapshots into HTTP polling.
+			if checkedHints[content.Status] {
+				continue
+			}
+			checkedHints[content.Status] = true
+			turn, err := canonical()
+			if err != nil {
+				return gateway.Turn{}, err
+			}
+			if terminalTurn(turn) || turn.State == "waiting_for_user" {
+				return turn, nil
+			}
+			if turn.State != "unknown" && turn.State != content.Status {
+				// The hint raced the current projection. Let the existing worker
+				// schedule attachment again instead of inventing another retry loop.
+				return turn, nil
 			}
 		}
 		if event.Type == "RUN_FINISHED" || event.Type == "RUN_ERROR" {
@@ -93,7 +166,7 @@ func (c *Client) observeRun(ctx context.Context, conversationID, threadID, runID
 			if nativeID == "" {
 				return gateway.Turn{}, gateway.ErrBackendProtocol
 			}
-			return c.readNativeTurn(ctx, conversationID, runID, nativeID)
+			return canonical()
 		}
 	}
 }

@@ -349,7 +349,9 @@ func TestCredentialProviderIsConsultedForEveryRequest(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if supplied.Load() != 6 || received.Load() != 6 {
+	// Each attachment reads conversation metadata, attaches once, confirms the
+	// current native turn before replay, and checks once more on disconnection.
+	if supplied.Load() != 8 || received.Load() != 8 {
 		t.Fatal("credential provider was not called per request")
 	}
 }

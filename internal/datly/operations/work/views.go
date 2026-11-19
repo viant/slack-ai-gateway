@@ -16,5 +16,4 @@ type WorkTiming struct {
 	Kind                     string     `json:"kind" sqlx:"kind"`
 	CandidateAt              *time.Time `json:"candidateAt" sqlx:"candidate_at"`
 	RefreshAt                *time.Time `json:"refreshAt" sqlx:"refresh_at"`
-	ObservedAt               *time.Time `json:"observedAt" sqlx:"observed_at"`
 }

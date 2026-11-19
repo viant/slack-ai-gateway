@@ -166,7 +166,7 @@ func TestClosedNativeCycleDoesNotReopenForMessageOnlyTurn(t *testing.T) {
 	}
 }
 
-func TestMessageRefreshIncludesObservationStalenessWithoutCheckingSpin(t *testing.T) {
+func TestMessageRefreshDoesNotInventObservationUncertainty(t *testing.T) {
 	for _, driver := range []string{"sqlite", "mysql"} {
 		t.Run(driver, func(t *testing.T) {
 			ctx := context.Background()
@@ -189,22 +189,26 @@ func TestMessageRefreshIncludesObservationStalenessWithoutCheckingSpin(t *testin
 			storetest.Must(t, s.FinishStatus(ctx, *status, gateway.StatusResult{State: "ready", SlackTS: "40.000001", NextRefreshAt: now.Add(time.Hour)}, now))
 			var refresh time.Time
 			storetest.Must(t, db.QueryRow("SELECT slack_progress_refresh_at FROM gateway_job WHERE id=?", job.ID).Scan(&refresh))
-			staleAt := now.Add(gateway.ObservationMaxAge + time.Millisecond)
-			if !refresh.Equal(staleAt) {
-				t.Fatalf("stale observation lost behind long refresh: %s, want %s", refresh, staleAt)
+			if !refresh.Equal(now.Add(time.Hour)) {
+				t.Fatalf("healthy observation shortened the configured refresh: %s", refresh)
 			}
-			checking, err := s.ClaimStatus(ctx, staleAt, "urgent")
+			later := now.Add(18 * time.Minute)
+			if duplicate, err := s.ClaimStatus(ctx, later, "urgent"); err != nil || duplicate != nil {
+				t.Fatalf("time alone changed confirmed running: %+v %v", duplicate, err)
+			}
+			storetest.Must(t, s.RecordObservation(ctx, job.ID, "unknown", later))
+			checking, err := s.ClaimStatus(ctx, later, "urgent")
 			storetest.Must(t, err)
 			if checking == nil || checking.Phase != "checking" {
-				t.Fatalf("stale boundary did not publish checking: %+v", checking)
+				t.Fatalf("actual observation failure did not publish checking: %+v", checking)
 			}
-			next := staleAt.Add(time.Hour)
-			storetest.Must(t, s.FinishStatus(ctx, *checking, gateway.StatusResult{State: "ready", SlackTS: "40.000001", NextRefreshAt: next}, staleAt))
+			next := later.Add(time.Hour)
+			storetest.Must(t, s.FinishStatus(ctx, *checking, gateway.StatusResult{State: "ready", SlackTS: "40.000001", NextRefreshAt: next}, later))
 			storetest.Must(t, db.QueryRow("SELECT slack_progress_refresh_at FROM gateway_job WHERE id=?", job.ID).Scan(&refresh))
 			if !refresh.Equal(next) {
-				t.Fatalf("checking rearmed an expired observation boundary: %s", refresh)
+				t.Fatalf("checking altered the configured refresh: %s", refresh)
 			}
-			if duplicate, err := s.ClaimStatus(ctx, staleAt.Add(time.Second), "urgent"); err != nil || duplicate != nil {
+			if duplicate, err := s.ClaimStatus(ctx, later.Add(time.Second), "urgent"); err != nil || duplicate != nil {
 				t.Fatalf("checking busy loop: %+v %v", duplicate, err)
 			}
 		})

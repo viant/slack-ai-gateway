@@ -40,17 +40,17 @@ func TestPollingDefaultsBackoffAndDeadline(t *testing.T) {
 	s := &pollStore{}
 	w := Worker{Store: s}
 	started := time.Now().Add(-15*time.Minute + time.Second)
-	if err := w.poll(context.Background(), &GatewayJob{BackendSubmissionStartedAt: started, PollAttempts: 100}); err != nil {
+	if err := w.poll(context.Background(), &GatewayJob{BackendSubmissionStartedAt: started.Add(-time.Hour), BackendObservationUncertainSince: started, PollAttempts: 100}); err != nil {
 		t.Fatal(err)
 	}
 	if !s.at.Equal(started.Add(15 * time.Minute)) {
 		t.Fatal("poll exceeds deadline")
 	}
 	s.at = time.Time{}
-	if err := w.poll(context.Background(), &GatewayJob{BackendSubmissionStartedAt: time.Now().Add(-16 * time.Minute)}); err != nil {
+	if err := w.poll(context.Background(), &GatewayJob{BackendSubmissionStartedAt: time.Now().Add(-time.Hour), BackendObservationUncertainSince: time.Now().Add(-16 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
-	if s.reason != "reconciliation_deadline" || !s.at.IsZero() {
-		t.Fatal("expired query rescheduled")
+	if s.reason != "" || s.at.IsZero() || s.at.After(time.Now()) {
+		t.Fatal("expired uncertainty was not scheduled for final verification")
 	}
 }

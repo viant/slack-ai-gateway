@@ -156,14 +156,19 @@ rewritten as `failed` or `canceled`.
 
 The binding, when present, becomes `closed` with a stable `closed_at`. The job
 marker also preserves closure when no binding was ever created. Startup closes
-historical `needs_review`, interrupted uncertain creation and already-expired
-execution records before ordinary unsubmitted-work cleanup. It does not need a
+historical `needs_review` and interrupted uncertain creation before ordinary
+unsubmitted-work cleanup. Submitted work is not closed only because it is old. It does not need a
 working backend session for this repair. Repeated startup does not repeat the
 notice or change the original finish dates.
 
-The 15-minute observation budget starts at the durable submission marker, includes
-downtime and is never reset by restart. At expiry local handling ends immediately:
-there is no extra final read, prompt replay or automatic backend cancellation.
+The 15-minute uncertainty budget starts at the first unconfirmed observation,
+stored in nullable `backend_observation_uncertain_since`. Repeated errors, status
+updates and restarts preserve it, including downtime. Current confirmation clears
+it. Confirmed queued/running work has no gateway lifetime cap. After uncertainty
+expires, one final verification attempt has up to 120 seconds, including readiness
+and cooldown waits. An interrupted final check may repeat after restart without
+renewing the 15-minute window. There is no prompt replay or automatic backend
+cancellation.
 One collective durable notice distinguishes a possibly executed question from a
 definitely unsubmitted one and directs the user to start a new Slack thread.
 Queued questions do not run later and are not moved to the new conversation.
@@ -339,8 +344,10 @@ before the first query marker. An unknown Create is never repeated automatically
 
 Started requests retain their stored conversation/run/turn identifiers. Recovery
 attaches/reads the existing request without repeating a create or query POST;
-the original 15-minute reconciliation deadline is retained across outages and
-restarts. Status messages explain that the connection is unavailable without
+the current 15-minute uncertainty deadline is retained across outages and
+restarts. Current confirmation ends that uncertainty period; a later outage starts
+a new one. The 120-second first-confirmation limit does not interrupt a healthy
+attached stream. Status messages explain that the connection is unavailable without
 claiming that remote work stopped. Unknown conversation creation and expired or
 otherwise unsafe execution close local handling with a `conversation_closed:`
 reason. Already prepared final replies continue through the outbox while the
@@ -467,6 +474,13 @@ refreshes. It is independent of the reconciliation interval and does not control
 the number of workers. Native session refreshes, one-second outbound pacing and
 durable Slack rate-limit deadlines retain their existing behavior.
 
+Repeated observation attempts during a backend outage do not make the same
+progress message urgent again. Unchanged outage messages follow the configured
+refresh interval; actual phase changes can be published earlier, subject to
+pacing and cooldowns. Once Agently confirms completion, progress moves to
+`delivering` while the response is prepared and sent, and reaches `completed`
+only after all response parts are confirmed delivered.
+
 Unlike the storage operator commands, `check-agently` contacts the IdP and Agently
 to create and validate an authentication session. It does not use gateway storage
 or Slack, and does not create/query a conversation. `run` independently connects
@@ -479,3 +493,28 @@ intended environment. A successful restart after a completed reply does not veri
 recovery during an in-flight request.
 See [the API contract](agently-contract.md), [request status](request-status.md)
 and [integration test instructions](../internal/integration/README.md).
+
+## Observation schema and developer cutover
+
+`gateway_job.backend_observed_state` and `backend_observed_at` retain the last
+confirmed backend facts. Nullable `backend_observation_uncertain_since` replaces
+the former uncertainty flag; its presence means the current state is uncertain.
+The diagnostic JSON boolean `backend_observation_uncertain` is derived from that
+date, and `backend_observation_uncertain_since_ms` exposes its UTC epoch time.
+
+This developer change updates the existing baseline definitions only. There is
+no automatic schema upgrade on startup and no new migration command/file. Deploy
+the matching schema before the new binary; the former binary requires its former
+column. Production schema is managed separately through Skeema. The local MySQL
+cutover preserves rows and assigns one cutover timestamp to former nonzero flags
+because the original outage start was not recorded. Closed work stays closed.
+Unused SQLite archives retain their original schema history and are not silently
+rebaselined.
+
+An authoritative completed work-discovery round retires idle thread scheduling
+entries. If an empty claim or outbound preparation finishes after that round,
+the same retirement runs at completion. This prevents an old immediate-work hint
+from retaining an absent thread for repeated empty transactions on reconciliation.
+Active operations, newer work hints, and incomplete discovery pages remain
+protected; external execution continuations can reactivate their thread through
+the existing durable-work notifications.

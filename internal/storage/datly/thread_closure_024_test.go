@@ -277,14 +277,19 @@ func TestThreadClosure024StartupRepairsHistoricalBlockersOnce(t *testing.T) {
 			id := storetest.RegisterDefault(t, root)
 			scoped := root.Scope(id)
 			var ids []int64
+			var runningID int64
+			var runningStore gateway.Store
 			old := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Millisecond)
-			for _, kind := range []string{"review", "expired", "creating"} {
+			for _, kind := range []string{"review", "long_running", "creating"} {
 				message := storetest.Message("historical-"+kind, "historical-root-"+kind, "alice")
 				_, err := scoped.Enqueue(ctx, message)
 				storetest.Must(t, err)
 				store := gateway.ForThread(scoped, message.PhysicalThread())
 				job, binding := closure024Start(t, store, kind != "creating")
 				ids = append(ids, job.ID)
+				if kind == "long_running" {
+					runningID, runningStore = job.ID, store
+				}
 				if kind == "creating" {
 					storetest.Must(t, store.BeginCreate(ctx, binding.ID))
 				} else {
@@ -303,25 +308,39 @@ func TestThreadClosure024StartupRepairsHistoricalBlockersOnce(t *testing.T) {
 			storetest.Must(t, root.Recover(ctx))
 			var unfinished int
 			storetest.Must(t, db.QueryRow("SELECT COUNT(*) FROM gateway_job WHERE gateway_execution_state NOT IN ('completed','rejected')").Scan(&unfinished))
-			if unfinished != 0 || closure024CountNotices(t, db) != 3 {
-				t.Fatal("startup left historical blockers or omitted collective notices")
+			if unfinished != 2 || closure024CountNotices(t, db) != 2 {
+				t.Fatal("startup must close review/create blockers while preserving the old query and its queued followup")
 			}
 			finished := map[int64]int64{}
 			for _, id := range ids {
 				job := closure024Job(t, root, id)
+				if id == runningID {
+					if job.State != "querying" || job.Reason != "" || job.ExecutionFinishedAt != 0 || job.BackendSubmissionStartedAt != old.UnixMilli() {
+						t.Fatalf("startup closed or changed a query solely because of its age: %+v", job)
+					}
+					continue
+				}
 				if job.State != "rejected" || !strings.HasPrefix(job.Reason, "conversation_closed:") || job.ExecutionFinishedAt == 0 || job.Outcome != "" {
 					t.Fatalf("historical job was not truthfully finalized: %+v", job)
 				}
 				finished[id] = job.ExecutionFinishedAt
 			}
 			storetest.Must(t, root.Recover(ctx))
-			if closure024CountNotices(t, db) != 3 {
+			if closure024CountNotices(t, db) != 2 {
 				t.Fatal("second recovery repeated a closure notice")
 			}
-			for _, id := range ids {
-				if closure024Job(t, root, id).ExecutionFinishedAt != finished[id] {
+			for id, at := range finished {
+				if closure024Job(t, root, id).ExecutionFinishedAt != at {
 					t.Fatal("second recovery changed a historical finish time")
 				}
+			}
+			resumed, err := runningStore.ClaimJob(ctx)
+			storetest.Must(t, err)
+			if resumed == nil || resumed.ID != runningID || !resumed.BackendSubmissionStartedAt.Equal(old) {
+				t.Fatalf("old submitted query was not recoverable with its original identity: %+v", resumed)
+			}
+			if queued, err := runningStore.ClaimJob(ctx); err != nil || queued != nil {
+				t.Fatalf("queued followup bypassed the old query awaiting reconciliation: %+v %v", queued, err)
 			}
 		})
 	}

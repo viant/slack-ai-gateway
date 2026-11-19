@@ -270,7 +270,7 @@ func TestSchemaInitializationPreservesPublicationFacts(t *testing.T) {
 	}
 	now := time.Now()
 	settleStatuses(t, s, now)
-	_, err := fixtureDB(t, s).Exec(`UPDATE gateway_job SET backend_observed_state='running',backend_observed_at='1970-01-01 00:00:00.123',backend_observation_uncertain=1,gateway_execution_outcome='failed',slack_progress_revision=9,slack_progress_sent_revision=8,slack_progress_attempts=7,slack_progress_next_attempt_at='1970-01-01 00:00:00.006',slack_progress_refresh_at='1970-01-01 00:00:00.005',slack_progress_rate_limited_until='1970-01-01 00:00:00.004',slack_progress_reason='test_retry',gateway_status_updated_at='1970-01-01 00:00:00.003'`)
+	_, err := fixtureDB(t, s).Exec(`UPDATE gateway_job SET backend_observed_state='running',backend_observed_at='1970-01-01 00:00:00.123',backend_observation_uncertain_since='1970-01-01 00:00:00.124',gateway_execution_outcome='failed',slack_progress_revision=9,slack_progress_sent_revision=8,slack_progress_attempts=7,slack_progress_next_attempt_at='1970-01-01 00:00:00.006',slack_progress_refresh_at='1970-01-01 00:00:00.005',slack_progress_rate_limited_until='1970-01-01 00:00:00.004',slack_progress_reason='test_retry',gateway_status_updated_at='1970-01-01 00:00:00.003'`)
 	storetest.Must(t, err)
 	before, err := s.Status(ctx, 10)
 	storetest.Must(t, err)

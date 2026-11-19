@@ -34,7 +34,8 @@ BEGIN
     IF get_schema_version() > 2 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Installed gateway schema is newer than this DDL';
     END IF;
-    IF get_schema_version() >= 1 AND (
+    IF (get_schema_version() >= 1 OR EXISTS (SELECT 1 FROM information_schema.tables
+        WHERE table_schema=DATABASE() AND table_name='gateway_job')) AND (
         (SELECT COUNT(*) FROM information_schema.columns
          WHERE table_schema=DATABASE() AND table_name='integration'
            AND column_name IN ('name','active','slack_app_id','slack_workspace_id','backend_endpoint')) <> 5
@@ -42,7 +43,12 @@ BEGIN
             WHERE table_schema=DATABASE() AND table_name IN ('slack_installations','backend_connections','agents','inbox_jobs','request_status','outbox_messages','delivery_resolutions','agent_session_publications','integrations','conversation_bindings','requests','slack_outgoing_messages','slack_delivery_resolutions','slack_agent_session_publications')) <> 0
         OR (SELECT COUNT(*) FROM information_schema.columns
             WHERE table_schema=DATABASE() AND table_name='gateway_job'
-              AND column_name IN ('gateway_request_id','backend_submission_started_at','slack_prompt_message_id','slack_progress_mode','gateway_status_updated_at','gateway_execution_finished_at','content_purged_at')) <> 7
+              AND column_name IN ('gateway_request_id','backend_submission_started_at','slack_prompt_message_id','slack_progress_mode','gateway_status_updated_at','gateway_execution_finished_at','content_purged_at','backend_observation_uncertain_since')) <> 8
+        OR (SELECT COUNT(*) FROM information_schema.columns
+            WHERE table_schema=DATABASE() AND table_name='gateway_job'
+              AND column_name='backend_observation_uncertain_since' AND data_type='datetime' AND datetime_precision=3 AND is_nullable='YES') <> 1
+        OR (SELECT COUNT(*) FROM information_schema.columns
+            WHERE table_schema=DATABASE() AND table_name='gateway_job' AND column_name='backend_observation_uncertain') <> 0
         OR (SELECT COUNT(*) FROM information_schema.columns
             WHERE table_schema=DATABASE() AND table_name='conversation_binding'
               AND column_name IN ('last_activity_at','closed_at')) <> 2
@@ -55,7 +61,7 @@ BEGIN
                 OR (column_name IN ('slack_thread_root_message_id','slack_prompt_message_id','slack_progress_message_id','slack_message_id') AND character_maximum_length=255)
                 OR (column_name IN ('backend_type','gateway_access_mode','gateway_binding_state','slack_conversation_type','gateway_execution_state','gateway_execution_outcome','slack_progress_mode','slack_progress_state','slack_message_kind','slack_delivery_state','slack_message_format','resolution_action','slack_agent_desired_status','slack_agent_observed_status','slack_session_observed_status','slack_publication_state') AND character_maximum_length=128))) <> 24
     ) THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Incompatible developer gateway schema; provision a fresh database explicitly';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Incompatible gateway schema; update its definition explicitly';
     END IF;
     IF get_schema_version() = 0 THEN
 CREATE TABLE IF NOT EXISTS integration (
@@ -119,7 +125,6 @@ CREATE TABLE IF NOT EXISTS gateway_job (
     backend_poll_ready TINYINT NOT NULL DEFAULT 0,
     backend_observed_state TEXT NOT NULL DEFAULT (''),
     backend_observed_at DATETIME(3) NULL,
-    backend_observation_uncertain TINYINT NOT NULL DEFAULT 0,
     slack_progress_mode VARCHAR(128) NOT NULL DEFAULT 'message',
     slack_progress_message_id VARCHAR(255) NOT NULL DEFAULT '',
     slack_progress_state VARCHAR(128) NOT NULL DEFAULT 'ready',
@@ -138,6 +143,7 @@ CREATE TABLE IF NOT EXISTS gateway_job (
     gateway_status_updated_at DATETIME(3) NOT NULL,
     gateway_execution_finished_at DATETIME(3) NULL,
     content_purged_at DATETIME(3) NULL,
+    backend_observation_uncertain_since DATETIME(3) NULL DEFAULT NULL,
     UNIQUE (slack_event_id),
     FOREIGN KEY (integration_id) REFERENCES integration(id),
     FOREIGN KEY (conversation_binding_id) REFERENCES conversation_binding(id),

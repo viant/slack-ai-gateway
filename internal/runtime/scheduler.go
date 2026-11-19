@@ -345,6 +345,25 @@ func (s *workScheduler) run() {
 			pair.lane.hint = pair.hint
 		}
 	}
+	// An empty claim can finish after the authoritative discovery that found its
+	// thread absent. Retire it then as well, before an old ProbeNow hint is made
+	// eligible again by the next reconciliation version.
+	pruneIdle := func() {
+		if !hasThreads || discovering || cursor != nil {
+			return
+		}
+		filtered := order[:0]
+		for _, r := range order {
+			if r.queryLane.active == 0 && r.outboundLane.active == 0 && r.seen != round && !r.queryLane.wakePending && !r.outboundLane.wakePending {
+				delete(entries, scheduleKey{r.id, r.key})
+				forgetUnusedThread(r.key)
+				continue
+			}
+			filtered = append(filtered, r)
+		}
+		order = filtered
+		queryCursor, outboundCursor = 0, 0
+	}
 	startDiscovery := func() {
 		versions := make(map[int64]workVersion, len(registrations))
 		for id, r := range registrations {
@@ -391,6 +410,9 @@ func (s *workScheduler) run() {
 		if !worked {
 			r.outboundLane.parked = true
 			r.outboundLane.parkedVersion = f.version
+			if r.seen != round {
+				pruneIdle()
+			}
 		}
 		if f.cancel != nil {
 			f.cancel()
@@ -754,17 +776,7 @@ func (s *workScheduler) run() {
 				if cursor == nil {
 					// Settled history does not retain scheduling entries. In-flight external
 					// continuations retain ownership separately and can reactivate by hint.
-					filtered := order[:0]
-					for _, r := range order {
-						if r.queryLane.active == 0 && r.outboundLane.active == 0 && r.seen != round && !r.queryLane.wakePending && !r.outboundLane.wakePending {
-							delete(entries, scheduleKey{r.id, r.key})
-							forgetUnusedThread(r.key)
-							continue
-						}
-						filtered = append(filtered, r)
-					}
-					order = filtered
-					queryCursor, outboundCursor = 0, 0
+					pruneIdle()
 				}
 			} else {
 				for id, r := range registrations {
@@ -795,6 +807,9 @@ func (s *workScheduler) run() {
 			if !result.worked && (!lane.parked || lane.parkedVersion != version(r) || lane.parkedVersion == result.task.version) {
 				lane.parked = true
 				lane.parkedVersion = result.task.version
+			}
+			if !result.worked && r.seen != round {
+				pruneIdle()
 			}
 			if !hasThreads {
 				dirty = true

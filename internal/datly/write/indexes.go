@@ -1089,41 +1089,44 @@ func (index WriterHandlerCurrentWriterGroupedByBackendObservedAt) Has(key time.T
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByBackendObservationUncertainKey(value *CurrentWriterView) (int, bool) {
-	var zero int
+func WriterHandlerCurrentWriterIndexByBackendObservationUncertainSinceKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
 	if value == nil {
 		return zero, false
 	}
-	return value.BackendObservationUncertain, true
+	if value.BackendObservationUncertainSince == nil {
+		return zero, false
+	}
+	return *value.BackendObservationUncertainSince, true
 }
 
-type WriterHandlerCurrentWriterIndexedByBackendObservationUncertain map[int]*CurrentWriterView
+type WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince map[time.Time]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) IndexByBackendObservationUncertain() (WriterHandlerCurrentWriterIndexedByBackendObservationUncertain, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByBackendObservationUncertain)
+func (rows WriterHandlerCurrentWriterSlice) IndexByBackendObservationUncertainSince() (WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByBackendObservationUncertainKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexByBackendObservationUncertainSinceKey(row)
 		if !ok {
 			continue
 		}
 		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByBackendObservationUncertain")
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByBackendObservationUncertainSince")
 		}
 		result[key] = row
 	}
 	return result, nil
 }
-func (index WriterHandlerCurrentWriterIndexedByBackendObservationUncertain) Has(key int) bool {
+func (index WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
 
-type WriterHandlerCurrentWriterGroupedByBackendObservationUncertain map[int][]*CurrentWriterView
+type WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince map[time.Time][]*CurrentWriterView
 
-func (rows WriterHandlerCurrentWriterSlice) GroupByBackendObservationUncertain() WriterHandlerCurrentWriterGroupedByBackendObservationUncertain {
-	result := make(WriterHandlerCurrentWriterGroupedByBackendObservationUncertain)
+func (rows WriterHandlerCurrentWriterSlice) GroupByBackendObservationUncertainSince() WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince {
+	result := make(WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince)
 	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByBackendObservationUncertainKey(row)
+		key, ok := WriterHandlerCurrentWriterIndexByBackendObservationUncertainSinceKey(row)
 		if !ok {
 			continue
 		}
@@ -1131,7 +1134,7 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByBackendObservationUncertain()
 	}
 	return result
 }
-func (index WriterHandlerCurrentWriterGroupedByBackendObservationUncertain) Has(key int) bool {
+func (index WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince) Has(key time.Time) bool {
 	_, ok := index[key]
 	return ok
 }
@@ -2687,8 +2690,8 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("BackendObservedAt") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.BackendObservedAt")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("BackendObservationUncertain") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.BackendObservationUncertain")
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("BackendObservationUncertainSince") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.BackendObservationUncertainSince")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackProgressMode") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackProgressMode")

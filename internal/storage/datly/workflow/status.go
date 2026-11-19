@@ -59,7 +59,7 @@ func (p statusProjection) phase(now time.Time) (string, bool) {
 		}
 		return "received", false
 	}
-	if p.uncertain || (!p.ObservedAt.IsZero() && now.Sub(p.ObservedAt) > gateway.ObservationMaxAge) {
+	if p.uncertain {
 		return "checking", false
 	}
 	switch p.ObservedState {
@@ -67,6 +67,10 @@ func (p statusProjection) phase(now time.Time) (string, bool) {
 		return "running", false
 	case "queued":
 		return "backend_queued", false
+	case "completed":
+		// A canonical result can precede response preparation and the outbox.
+		// Delivery remains nonterminal until every outgoing part is acknowledged.
+		return "delivering", false
 	case "failed", "canceled":
 		return p.ObservedState, true
 	}
@@ -99,22 +103,32 @@ func (e *execution) recordObservation(ctx context.Context, in *Input, _ *Output)
 		return nil
 	}
 	if rows[0].GatewayExecutionState == "completed" && localBackendFailure(rows[0].GatewayExecutionReason) {
-		// A stale worker observation cannot convert a local rejection into a
-		// successful remote execution.
 		return gateway.ErrBackendUnavailable
 	}
-	status := statusPatch(rows[0].Id)
-	status.SetGatewayStatusUpdatedAt(timestamp(in.At))
+	if rows[0].GatewayExecutionState == "completed" || rows[0].GatewayExecutionState == "rejected" {
+		return nil
+	}
+	previous := rows[0]
+	status := statusPatch(previous.Id)
+	// An observation failure does not replace the last confirmed backend facts.
+	// Preserve the first failure timestamp across repeated errors and recovery.
 	if in.Text == "unknown" {
-		status.SetBackendObservationUncertain(1)
+		if previous.BackendObservationUncertainSince != nil {
+			return nil
+		}
+		status.SetBackendObservationUncertainSince(timePointer(in.At))
 	} else {
+		if previous.BackendObservedState == in.Text && previous.BackendObservationUncertainSince == nil {
+			return nil
+		}
 		status.SetBackendObservedState(in.Text)
 		status.SetBackendObservedAt(timePointer(in.At))
-		status.SetBackendObservationUncertain(0)
+		status.SetBackendObservationUncertainSince(nil)
 		if in.Text == "completed" || in.Text == "failed" || in.Text == "canceled" {
 			status.SetGatewayExecutionOutcome(in.Text)
 		}
 	}
+	status.SetGatewayStatusUpdatedAt(timestamp(in.At))
 	if err := e.writeJobs(ctx, []*graphwrite.GatewayJob{status}); err != nil {
 		return err
 	}
@@ -159,7 +173,7 @@ func projectMessageStatus(j *graphread.GatewayJob, now time.Time) statusProjecti
 			Revision: int64(s.SlackProgressRevision), CreatedAt: j.CreatedAt, ObservedState: s.BackendObservedState,
 		},
 		jobState: j.GatewayExecutionState, outcome: s.GatewayExecutionOutcome, previousPhase: s.SlackProgressPhase, reason: j.GatewayExecutionReason,
-		uncertain: s.BackendObservationUncertain != 0, refreshAt: deref(s.SlackProgressRefreshAt), sentRevision: int64(s.SlackProgressSentRevision),
+		uncertain: s.BackendObservationUncertainSince != nil, refreshAt: deref(s.SlackProgressRefreshAt), sentRevision: int64(s.SlackProgressSentRevision),
 		earlier: j.Earlier != 0, blocked: j.Blocked != 0,
 	}
 	if j.IntegrationActive == 0 && gateway.IntegrationTermination(s.SlackProgressPhase) {
@@ -208,7 +222,7 @@ func (e *execution) claimMessageStatus(ctx context.Context, now time.Time, kind 
 		if kind == "integration_terminal" && !closing {
 			continue
 		}
-		if backendStatusKind(kind) && !p.Terminal && p.jobState != "completed" {
+		if backendStatusKind(kind) && !p.Terminal && p.jobState != "completed" && p.Phase != "delivering" {
 			if !p.Submitted {
 				continue
 			}
@@ -220,6 +234,12 @@ func (e *execution) claimMessageStatus(ctx context.Context, now time.Time, kind 
 			status.SetSlackProgressReason("no_status_needed")
 			status.SetGatewayStatusUpdatedAt(timestamp(now))
 			patches = append(patches, status)
+			continue
+		}
+		// Native-only mode opens a fallback message only for an outage.
+		// A known result needs its normal response and session finalization;
+		// an already claimed fallback still owns its eventual receipt.
+		if p.Mode == gateway.StatusAgentSession && p.SlackTS == "" && !backendStatusKind(p.Phase) {
 			continue
 		}
 		urgent := p.SlackTS == "" || p.Phase != p.previousPhase || p.Revision > p.sentRevision
@@ -326,21 +346,14 @@ func (e *execution) finishStatus(ctx context.Context, in *Input, out *Output) er
 		status.SetSlackProgressLastSentAt(timePointer(now))
 	}
 	if !r.NextRefreshAt.IsZero() {
-		refreshAt := r.NextRefreshAt
-		if observed := j.BackendObservedAt; observed != nil && s.Phase != "checking" && !s.Terminal {
-			staleAt := observed.Add(gateway.ObservationMaxAge + time.Millisecond)
-			if staleAt.After(now) && staleAt.Before(refreshAt) {
-				refreshAt = staleAt
-			}
-		}
-		status.SetSlackProgressRefreshAt(timePointer(refreshAt))
+		status.SetSlackProgressRefreshAt(timePointer(r.NextRefreshAt))
 	}
 	status.SetSlackProgressNextAttemptAt(timePointer(r.RetryAt))
 	status.SetSlackProgressRateLimitedUntil(timePointer(r.RateLimitedUntil))
 	status.SetSlackProgressReason(r.Reason)
 	status.SetGatewayStatusUpdatedAt(timestamp(now))
 	p := projectMessageStatus(j, now)
-	if backendStatusKind(s.Phase) && !p.Terminal && j.SlackProgressPhase == s.Phase {
+	if backendStatusKind(s.Phase) && !p.Terminal && p.jobState != "completed" && p.Phase != "delivering" && j.SlackProgressPhase == s.Phase {
 		p.Phase = s.Phase
 	}
 	if p.Phase != s.Phase && (r.SlackTS != "" || r.State == "ready") {

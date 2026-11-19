@@ -10,7 +10,6 @@ import (
 const (
 	DefaultStatusRefresh = 30 * time.Second
 	StatusRetry          = 30 * time.Second
-	ObservationMaxAge    = 60 * time.Second
 	AgentSessionRefresh  = 10 * time.Minute
 )
 
@@ -87,7 +86,7 @@ type StatusStore interface {
 
 func StatusText(s GatewayJobProgress, now time.Time) string {
 	if ConversationClosed(s.Phase) {
-		return "This conversation is closed. Start a new thread to continue."
+		return "This Slack thread is closed for further requests. Start a new thread to continue."
 	}
 	text := map[string]string{
 		"received":            "Received your request. Waiting to start.",
@@ -99,7 +98,7 @@ func StatusText(s GatewayJobProgress, now time.Time) string {
 		"backend_recovering":  "Connection to Viant Steward is temporarily unavailable. We are checking your existing request; it will not be submitted again.",
 		"backend_blocked":     "Connection to Viant Steward requires administrator attention. Your existing request will not be submitted again.",
 		"not_submitted":       "This question was not submitted to Viant Steward. Please try again after the connection is restored.",
-		"checking":            "Checking the request status.",
+		"checking":            "Checking your existing request; it will not be submitted again.",
 		"delivering":          "The response is ready. Delivering it to this thread…",
 		"delivered":           "The response has been posted below.",
 		"completed":           "Completed. The response has been posted below.",
@@ -112,9 +111,6 @@ func StatusText(s GatewayJobProgress, now time.Time) string {
 	}[s.Phase]
 	if text == "" {
 		text = "Checking the request status."
-	}
-	if s.Phase == "checking" && s.ObservedState != "" {
-		text += fmt.Sprintf(" Last confirmed state: %s at %s.", s.ObservedState, s.ObservedAt.UTC().Format(time.RFC3339))
 	}
 	elapsed := max(time.Duration(0), now.Sub(s.CreatedAt)).Truncate(time.Second)
 	return RenderText(fmt.Sprintf("%s Elapsed: %s.", text, elapsed))[0].Text

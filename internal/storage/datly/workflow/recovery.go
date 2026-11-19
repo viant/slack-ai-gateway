@@ -52,8 +52,6 @@ func (x *execution) recover(ctx context.Context, _ *Input, out *Output) error {
 			reason = "interrupted_external_operation"
 		case j.GatewayExecutionState == "querying" && j.BackendSubmissionStartedAt == nil:
 			reason = "interrupted_external_operation"
-		case j.BackendSubmissionStartedAt != nil && !now.Before(j.BackendSubmissionStartedAt.Add(gateway.ReconciliationMaxWait)):
-			reason = "reconciliation_deadline"
 		}
 		if reason != "" {
 			key := gateway.PhysicalThreadKey{AppID: j.SlackAppId, WorkspaceID: j.SlackWorkspaceId, ChannelID: j.SlackChannelId, RootTS: j.SlackThreadRootMessageId}

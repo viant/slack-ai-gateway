@@ -102,7 +102,8 @@ func TestStatusProjectionLongRequestAndMultipartDelivery(t *testing.T) {
 	j := startStatusJob(t, s)
 	a = claimStatus(t, s, now, "urgent", "contacting")
 	confirmStatus(t, s, a, now)
-	storetest.Must(t, s.RecordObservation(ctx, j.ID, "running", now))
+	confirmedAt := now.UTC().Truncate(time.Millisecond)
+	storetest.Must(t, s.RecordObservation(ctx, j.ID, "running", confirmedAt))
 	a = claimStatus(t, s, now, "urgent", "running")
 	confirmStatus(t, s, a, now)
 	claimStatus(t, s, now.Add(29*time.Second), "heartbeat", "")
@@ -111,8 +112,11 @@ func TestStatusProjectionLongRequestAndMultipartDelivery(t *testing.T) {
 	confirmStatus(t, s, a, now)
 	storetest.Must(t, s.RecordObservation(ctx, j.ID, "unknown", now))
 	a = claimStatus(t, s, now, "urgent", "checking")
-	if a.ObservedState != "running" || a.ObservedAt.IsZero() || !strings.Contains(gateway.StatusText(*a, now), "Last confirmed state: running at") {
+	if a.ObservedState != "running" || !a.ObservedAt.Equal(confirmedAt) {
 		t.Fatal("last confirmation lost or invented")
+	}
+	if text := gateway.StatusText(*a, now); !strings.Contains(text, "will not be submitted again") || strings.Contains(text, "Last confirmed state:") {
+		t.Fatal("checking must retain the no-resubmission notice without adding diagnostic history to Slack")
 	}
 	confirmStatus(t, s, a, now)
 	storetest.Must(t, s.RecordObservation(ctx, j.ID, "completed", now))

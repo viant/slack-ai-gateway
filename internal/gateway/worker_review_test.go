@@ -83,7 +83,7 @@ func TestSettleNotifiesThreadClosureReasons(t *testing.T) {
 		{"identity", "other", "completed", "turn_identity_mismatch", nil},
 		{"interaction", "m", "waiting_for_user", "interaction_requires_review", nil},
 		{"unsupported", "m", "future_state", "unsupported_turn_state", nil},
-		{"deadline", "m", "running", "reconciliation_deadline", nil},
+		{"deadline", "m", "unknown", "reconciliation_deadline", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &reviewStore{}
@@ -94,7 +94,12 @@ func TestSettleNotifiesThreadClosureReasons(t *testing.T) {
 					t.Error("incorrect closure metadata")
 				}
 			}}
-			err := w.settle(context.Background(), &GatewayJob{ID: 42, GatewayRequestID: "m"}, "conversation", Turn{ID: tc.turnID, State: tc.state}, tc.err)
+			job := &GatewayJob{ID: 42, GatewayRequestID: "m"}
+			if tc.name == "deadline" {
+				job.BackendObservationUncertainSince = time.Now().Add(-16 * time.Minute)
+				w.finalSince = job.BackendObservationUncertainSince
+			}
+			err := w.settle(context.Background(), job, "conversation", Turn{ID: tc.turnID, State: tc.state}, tc.err)
 			if tc.err == ErrBackendAuth {
 				if !errors.Is(err, ErrBackendAuth) {
 					t.Fatal("fatal auth failure suppressed")

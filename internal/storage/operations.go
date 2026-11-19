@@ -107,6 +107,7 @@ type GatewayJobMetadata struct {
 	ObservedState              string `json:"backend_observed_state"`
 	ObservedAt                 int64  `json:"backend_observed_at_ms"`
 	ObservationUncertain       bool   `json:"backend_observation_uncertain"`
+	ObservationUncertainSince  int64  `json:"backend_observation_uncertain_since_ms"`
 	Mode                       string `json:"slack_progress_mode"`
 	Target                     string `json:"slack_progress_target,omitempty"`
 	SlackTS                    string `json:"slack_progress_message_id"`

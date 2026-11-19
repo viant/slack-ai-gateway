@@ -136,9 +136,9 @@ func TestWorkDiscoveryKeepsStatusTimersFallbackAndBotCooldown(t *testing.T) {
 			_, err = db.Exec("UPDATE gateway_job SET gateway_execution_state='processing',slack_progress_refresh_at=?,backend_observed_at=?", refresh, observed)
 			storetest.Must(t, err)
 			candidate := discoveryFor(t, root, a.ID, now)
-			stale := observed.Add(gateway.ObservationMaxAge + time.Millisecond)
-			if !candidate.Outbound.ProbeNow || !candidate.Outbound.NextAt.Equal(stale) {
-				t.Fatalf("status staleness timer was lost behind immediate probe: %+v", candidate.Outbound)
+			scheduled := refresh
+			if !candidate.Outbound.ProbeNow || !candidate.Outbound.NextAt.Equal(scheduled) {
+				t.Fatalf("status refresh timer was lost behind immediate probe: %+v", candidate.Outbound)
 			}
 			// A healthy native-only question does not require repeated message
 			// probes merely because its native publication has failed.

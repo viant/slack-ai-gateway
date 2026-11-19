@@ -93,16 +93,18 @@ conversation removal also removes its mapping and deduplication facts; a later
 prompt in the old Slack thread can then start a new backend conversation. No
 retention process currently performs either cleanup. See [the storage schema](schema.md).
 
-Ordinary API operations have a 120-second timeout. Execution observation has a
-15-minute deadline from durable query start; attachment retries wait 2, 4, 8, then
-15 seconds. These are implementation defaults, not YAML options. SSE lifetime is
-owned by that deadline and runtime cancellation. Each integration has four
-admission workers; execution observers run outside them, and questions within
-one thread remain ordered. The original persisted deadline survives restart.
-While the gateway is stopped it cannot publish timeout transitions; after restart,
-an already expired job is closed locally without another execution read or a new
-observation budget. Historical `needs_review` records and interrupted uncertain
-creation are closed during startup before generic backend-unavailable cleanup.
+Ordinary API operations have a 120-second timeout. Each execution attachment has
+up to 120 seconds for its first current confirmation; a confirmed queued/running
+stream then retains runtime lifetime, including quiet tools. Attachment retries
+wait 2, 4, 8, then 15 seconds. These are implementation defaults, not YAML options.
+Four admission workers are shared process-wide; execution observers run outside
+them, and questions within one thread remain ordered.
+
+The first unconfirmed observation saves a 15-minute uncertainty deadline that
+survives restart. Current confirmation clears it. After expiry a final current
+verification has up to 120 seconds, including readiness/cooldown waits, before
+local handling closes. Historical needs_review and interrupted uncertain creation
+are repaired during startup; submitted age alone does not close an execution.
 
 A timeout, disconnect or missing attachment is not proof that a prompt was rejected.
 Transient uncertainty schedules further observation, never a replacement chat.
@@ -192,7 +194,7 @@ or general configuration hot reload is provided.
 
 Recovery never repeats conversation creation or a chat POST. Unsubmitted questions
 finish locally with a durable Slack notice and never run after recovery. Started
-requests attach/read using the original correlation and 15-minute deadline;
+requests attach/read using the original correlation and persisted uncertainty deadline;
 uncertain creation closes local handling. These behaviors are implemented only
 in the gateway; Core session, refresh and SDK contracts are unchanged.
 
@@ -209,3 +211,25 @@ support/transcript responses are limited to 8 MiB; oversized conversations requi
 local closure rather than silent truncation. Errors omit raw URLs, bodies and credentials.
 There is no transcript pagination, backend cancellation or Slack interaction UI.
 See [operations](operations.md) for persisted closure facts and delivery recovery.
+
+### Current observation and quiet executions
+
+Root `agently.turn` activity snapshots confirm queued/running state through the
+existing native SDK stream. A missing canonical turn immediately after
+`RUN_STARTED` is an initial visibility race, not an observation failure. Each
+attachment has up to 120 seconds for its first current confirmation. Once
+confirmed, a quiet healthy stream may remain attached for longer than 15 minutes.
+Subagent frames cannot settle the root execution.
+
+Reattachment starts with a current canonical read. Replayed state-change hints
+require canonical confirmation before they replace durable observations. Repeated
+identical activity states and text fragments do not cause additional observation
+writes or per-fragment canonical requests. A conflicting hint/canonical state
+returns the current canonical state to the existing reattachment scheduler.
+Terminal results and response text are always read canonically.
+
+The first actual loss of confirmation sets a durable uncertainty timestamp; only
+a current correlated state clears it. At 15 minutes of continuous uncertainty,
+a final attempt has up to 120 seconds, including backend readiness/cooldown waits,
+before local Slack handling closes. Neither closing the local thread nor
+detaching the SDK stream cancels backend execution or repeats its prompt.

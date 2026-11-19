@@ -236,15 +236,15 @@ func (entity *GatewayJob) SetBackendObservedAt(value *time.Time) {
 	}
 	entity.Has.BackendObservedAt = true
 }
-func (entity *GatewayJob) GetBackendObservationUncertain() int {
-	return entity.BackendObservationUncertain
+func (entity *GatewayJob) GetBackendObservationUncertainSince() *time.Time {
+	return entity.BackendObservationUncertainSince
 }
-func (entity *GatewayJob) SetBackendObservationUncertain(value int) {
-	entity.BackendObservationUncertain = value
+func (entity *GatewayJob) SetBackendObservationUncertainSince(value *time.Time) {
+	entity.BackendObservationUncertainSince = value
 	if entity.Has == nil {
 		entity.Has = &GatewayJobHas{}
 	}
-	entity.Has.BackendObservationUncertain = true
+	entity.Has.BackendObservationUncertainSince = true
 }
 func (entity *GatewayJob) GetSlackProgressMode() string {
 	return entity.SlackProgressMode

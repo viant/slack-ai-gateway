@@ -370,11 +370,11 @@ func TestPollingClosureAndDeadline(t *testing.T) {
 		})
 	}
 	t.Run("deadline_does_not_reset_after_restart", func(t *testing.T) {
-		// Keep the submission budget and restart delay on the same native clock.
+		// Keep the uncertainty budget and restart delay on the same native clock.
 		// Real SQLite/Datly work under -race must not consume this test's 200ms.
 		synctest.Test(t, func(t *testing.T) {
 			s, reopen := database(t)
-			backend := &reconcilingBackend{fakeAgently: fakeAgently{state: "queued"}, readState: "running"}
+			backend := &reconcilingBackend{fakeAgently: fakeAgently{state: "unknown"}, readState: "unknown"}
 			accept(t, s, storetest.Message("a", "one", "alice"))
 			w := gateway.Worker{Store: s, Policy: policy(), Clients: backend, AgentID: "steward", Timing: gateway.QueryTiming{PollInitial: time.Millisecond, MaxWait: 200 * time.Millisecond}}
 			work(t, w)
@@ -386,8 +386,8 @@ func TestPollingClosureAndDeadline(t *testing.T) {
 			work(t, w)
 			status, err := s.Status(context.Background(), 10)
 			storetest.Must(t, err)
-			if status.GatewayJobs[0].Reason != gateway.ConversationClosureReason("reconciliation_deadline") || backend.readCalls != 0 {
-				t.Fatal("deadline ignored or reset")
+			if status.GatewayJobs[0].Reason != gateway.ConversationClosureReason("reconciliation_deadline") || backend.readCalls != 1 {
+				t.Fatal("deadline ignored, reset, or closed without final confirmation")
 			}
 			if len(status.SlackOutgoingMessages) != 1 || status.GatewayJobs[0].Outcome != "" {
 				t.Fatal("timeout did not preserve an unknown outcome and terminal notice")
@@ -398,6 +398,26 @@ func TestPollingClosureAndDeadline(t *testing.T) {
 				t.Fatal("timeout did not produce an uncertainty notice")
 			}
 		})
+	})
+}
+
+func TestConfirmedExecutionOlderThanEighteenMinutesResumesAfterRestart(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, reopen := database(t)
+		backend := &reconcilingBackend{fakeAgently: fakeAgently{state: "running"}, readState: "completed"}
+		accept(t, s, storetest.Message("long-execution", "long-thread", "alice"))
+		w := gateway.Worker{Store: s, Policy: policy(), Clients: backend, AgentID: "steward"}
+		work(t, w)
+		time.Sleep(18 * time.Minute)
+		s = reopen()
+		w.Store = s
+		work(t, w)
+		status, err := s.Status(context.Background(), 10)
+		storetest.Must(t, err)
+		_, queries := backend.snapshot()
+		if backend.readCalls != 1 || len(queries) != 1 || len(status.GatewayJobs) != 1 || status.GatewayJobs[0].State != "completed" || status.GatewayJobs[0].Outcome != "completed" || len(status.SlackOutgoingMessages) != 1 {
+			t.Fatalf("old confirmed execution was closed or resubmitted: reads=%d queries=%d status=%+v", backend.readCalls, len(queries), status)
+		}
 	})
 }
 

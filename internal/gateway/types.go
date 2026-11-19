@@ -87,12 +87,15 @@ type GatewayJob struct {
 	Message
 	ConversationBindingID int64
 	Decision
-	GatewayRequestID           string
-	State                      string
-	Result                     string
-	Reason                     string
-	BackendSubmissionStartedAt time.Time
-	PollAttempts               int
+	GatewayRequestID                 string
+	State                            string
+	Result                           string
+	Reason                           string
+	BackendSubmissionStartedAt       time.Time
+	BackendObservedState             string
+	BackendObservedAt                time.Time
+	BackendObservationUncertainSince time.Time
+	PollAttempts                     int
 }
 
 type ReplyFormat string

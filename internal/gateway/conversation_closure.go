@@ -25,7 +25,7 @@ func ConversationClosureReason(cause string) string {
 // ConversationClosureNotice preserves a canonical outcome when already known.
 // Local closure neither cancels the backend nor reverses completed side effects.
 func ConversationClosureNotice(reason string, submitted bool, outcome string) string {
-	ending := "This conversation is closed. Start a new thread to continue."
+	ending := "This Slack thread is closed for further requests. Start a new thread to continue."
 	if submitted {
 		known := map[string]string{
 			"completed": "The agent completed your request, but its response could not be recovered.",
@@ -41,7 +41,7 @@ func ConversationClosureNotice(reason string, submitted bool, outcome string) st
 		return "The agent requested an interaction that this Slack integration cannot handle. No response or approval was submitted. " + ending + " Any queued questions were not submitted."
 	}
 	if submitted {
-		return "We could not confirm the outcome of your request. It may have been executed and was not submitted again. " + ending + " Any queued questions were not submitted."
+		return "We could not confirm the outcome of your request. It may have been executed or the agent may still be working; the request was not submitted again. " + ending + " Any queued questions were not submitted."
 	}
 	if reason == conversationClosedReason || reason == "" {
 		return "Your question was not submitted. " + ending

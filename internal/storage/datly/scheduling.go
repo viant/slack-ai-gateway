@@ -184,14 +184,12 @@ func workRows(rows []*workread.WorkTiming, now time.Time) []gateway.WorkCandidat
 			addWorkTime(&item.Query, row.CandidateAt, now)
 		case "outbound":
 			addWorkTime(&item.Outbound, row.CandidateAt, now)
-			for _, deadline := range []*time.Time{row.RefreshAt, observationDeadline(row.ObservedAt)} {
-				if deadline != nil && deadline.After(now) {
-					at := *deadline
-					if row.CandidateAt != nil && row.CandidateAt.After(at) {
-						at = *row.CandidateAt
-					}
-					addWorkTime(&item.Outbound, &at, now)
+			if deadline := row.RefreshAt; deadline != nil && deadline.After(now) {
+				at := *deadline
+				if row.CandidateAt != nil && row.CandidateAt.After(at) {
+					at = *row.CandidateAt
 				}
+				addWorkTime(&item.Outbound, &at, now)
 			}
 		}
 	}
@@ -300,13 +298,4 @@ func addWorkTime(hint *gateway.WorkHint, at *time.Time, now time.Time) {
 	if hint.NextAt.IsZero() || at.Before(hint.NextAt) {
 		hint.NextAt = at.UTC()
 	}
-}
-
-func observationDeadline(observed *time.Time) *time.Time {
-	if observed == nil {
-		return nil
-	}
-	// The authoritative projection uses age > maxAge, with millisecond storage.
-	at := observed.Add(gateway.ObservationMaxAge + time.Millisecond)
-	return &at
 }

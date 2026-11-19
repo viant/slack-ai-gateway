@@ -44,7 +44,7 @@ func TestObservationUsesSparseGraphWritesAndIgnoresMissingRequests(t *testing.T)
 					if in.ID != 7 {
 						t.Fatal("wrong observation scope")
 					}
-					return &jr.Output{Data: []*jr.GatewayJob{{Id: 7, BackendObservedState: "running", GatewayExecutionOutcome: "completed"}}}, nil
+					return &jr.Output{Data: []*jr.GatewayJob{{Id: 7, BackendObservedState: "queued", GatewayExecutionOutcome: "completed"}}}, nil
 				case "PATCH":
 					written = r.Input.(*jw.Input).GatewayJobs
 					return &jw.Output{}, nil
@@ -59,7 +59,7 @@ func TestObservationUsesSparseGraphWritesAndIgnoresMissingRequests(t *testing.T)
 				t.Fatal("observation missing")
 			}
 			s := written[0]
-			if s.Has.BackendObservedAt != (state != "unknown") || s.Has.GatewayExecutionOutcome != (state == "completed") || !s.Has.BackendObservationUncertain {
+			if s.Has.BackendObservedAt != (state != "unknown") || s.Has.GatewayExecutionOutcome != (state == "completed") || !s.Has.BackendObservationUncertainSince {
 				t.Fatal("observation overwrites unrelated facts")
 			}
 		})

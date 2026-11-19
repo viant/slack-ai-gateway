@@ -377,7 +377,7 @@ func deref[T any](v *T) (z T) {
 func jobValue(j *jr.GatewayJob) *gateway.GatewayJob {
 	m := gateway.Message{ThreadKey: gateway.ThreadKey{WorkspaceID: j.SlackWorkspaceId, ChannelID: j.SlackChannelId, RootTS: j.SlackThreadRootMessageId}, AppID: j.SlackAppId, EventID: j.SlackEventId, AuthorID: j.SlackPromptAuthorId, MessageTS: j.SlackPromptMessageId, Text: deref(j.PromptText), HasAttachments: j.PromptHasAttachments != 0, Surface: gateway.MessageSurface(j.SlackConversationType)}
 	m.Mentioned = m.MessageSurface() == gateway.SurfaceChannel
-	out := &gateway.GatewayJob{ID: int64(j.Id), Message: m, ConversationBindingID: int64(deref(j.ConversationBindingId)), GatewayRequestID: j.GatewayRequestId, State: j.GatewayExecutionState, Result: deref(j.GatewayExecutionResultText), Reason: j.GatewayExecutionReason, PollAttempts: j.BackendPollAttempts}
+	out := &gateway.GatewayJob{ID: int64(j.Id), Message: m, ConversationBindingID: int64(deref(j.ConversationBindingId)), GatewayRequestID: j.GatewayRequestId, State: j.GatewayExecutionState, Result: deref(j.GatewayExecutionResultText), Reason: j.GatewayExecutionReason, PollAttempts: j.BackendPollAttempts, BackendObservedState: j.BackendObservedState, BackendObservedAt: deref(j.BackendObservedAt), BackendObservationUncertainSince: deref(j.BackendObservationUncertainSince)}
 	if j.ConversationBinding != nil {
 		out.Decision = gateway.Decision{Mode: j.ConversationBinding.GatewayAccessMode, PrincipalID: j.ConversationBinding.BackendPrincipalId, OwnerID: j.ConversationBinding.GatewayBindingOwnerId}
 	}

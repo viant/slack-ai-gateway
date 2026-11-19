@@ -66,7 +66,7 @@ CREATE TABLE gateway_job (
     backend_poll_ready INTEGER NOT NULL DEFAULT 0 CHECK (backend_poll_ready IN (0,1)),
     backend_observed_state TEXT NOT NULL DEFAULT '',
     backend_observed_at DATETIME NULL,
-    backend_observation_uncertain INTEGER NOT NULL DEFAULT 0 CHECK (backend_observation_uncertain IN (0,1)),
+    backend_observation_uncertain_since DATETIME NULL,
     slack_progress_mode TEXT NOT NULL DEFAULT 'message' CHECK (slack_progress_mode IN ('message','agent_session','hybrid')),
     slack_progress_message_id TEXT NOT NULL DEFAULT '',
     slack_progress_state TEXT NOT NULL DEFAULT 'ready' CHECK (slack_progress_state IN ('ready','sending','settled','skipped','failed','delivery_unknown')),

@@ -29,6 +29,13 @@ func TestThreadClosure024PreservesConfirmedOutcomeWithoutInventingResponse(t *te
 					_, err = db.Exec("UPDATE gateway_job SET backend_submission_started_at=? WHERE id=?", time.Now().UTC().Add(-16*time.Minute).Truncate(time.Millisecond), job.ID)
 					storetest.Must(t, err)
 					storetest.Must(t, root.Recover(ctx))
+					recovered := closure024Job(t, root, job.ID)
+					if recovered.State != "querying" || recovered.Outcome != outcome {
+						t.Fatalf("startup closed a recoverable confirmed outcome: %+v", recovered)
+					}
+					// Exercise explicit closure separately from startup recovery.
+					_, err = store.CloseThread(ctx, job.ID, "reconciliation_deadline")
+					storetest.Must(t, err)
 					closed := closure024Job(t, root, job.ID)
 					if closed.Outcome != outcome || closed.State != "rejected" || closed.Reason != "conversation_closed:reconciliation_deadline" {
 						t.Fatalf("local closure changed canonical execution facts: %+v", closed)

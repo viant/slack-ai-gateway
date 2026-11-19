@@ -22,9 +22,10 @@ for the heartbeat, but share outbound pacing and Slack cooldowns. A fast final r
 can skip the first status entirely. Socket envelope ACKs separately follow durable
 inbox commit.
 
-The interval does not change update retries (30 seconds), observation freshness
-(60 seconds), ordinary HTTP timeouts (120 seconds), or execution deadlines
-(15 minutes). There is no status-disable or answer-streaming switch.
+The interval does not change update retries (30 seconds), the first-confirmation
+budget (120 seconds), or the continuous observation-uncertainty budget (15 minutes).
+Confirmed queued/running executions have no gateway lifetime cap. There is no
+status-disable or answer-streaming switch.
 
 ## Message mode
 
@@ -41,11 +42,11 @@ Final conversation-closure messages omit elapsed time and are not refreshed.
 | `blocked` | Legacy progress awaiting automatic thread closure during recovery |
 | `contacting` | Local work or HTTP request started; no confirmed running state |
 | `backend_queued`, `running` | The correlated Agently turn confirmed this state |
-| `checking` | Observation failed or the last confirmation is over 60 seconds old |
+| `checking` | The current state cannot be confirmed; the existing request is checked without resubmission |
 | `backend_recovering` | Connection unavailable; existing submitted request will be checked without resubmission |
 | `backend_blocked` | Connection requires administrator attention; existing request will not be resubmitted |
 | `not_submitted` | Question finished locally during an outage; it will never execute automatically |
-| `delivering` | Final parts are persisted but not all confirmed delivered |
+| `delivering` | A completed backend response is being prepared, or final response parts still await delivery confirmation |
 | `completed` | Agently succeeded and every final part is delivered |
 | `failed`, `canceled` | Agently confirmed failure or cancellation |
 | `delivered` | Local help was delivered without an Agently execution |
@@ -53,16 +54,32 @@ Final conversation-closure messages omit elapsed time and are not refreshed.
 | `delivery_uncertain` | A final part is uncertain or permanently failed |
 | `conversation_closed` | Local handling ended; queued questions were not submitted; start a new thread |
 
-Checking includes the last confirmed backend state and UTC timestamp, when
-available. Heartbeats are not proof of backend activity. No percentages, ETAs,
-tool details or model-generated progress text are emitted. A gateway deadline
-does not cancel remote execution.
+Messages contain status and elapsed time only. Last confirmed facts and the
+start of uncertainty remain available in diagnostics. Heartbeats are not proof
+of backend activity. No percentages, ETAs, tool details or model-generated
+progress text are emitted. A gateway deadline does not cancel remote execution.
+
+A confirmed completion enters `delivering` before response preparation and outbox
+persistence finish. It does not return to `contacting`; final `completed` still
+requires confirmation of every response part. Backend connection recovery cannot
+replace an already prepared or confirmed-complete response with an outage status.
 
 ## Automatic conversation closure
 
-Execution observation lasts at most 15 minutes from the persisted submission
-marker. The original deadline survives restart. At expiry the gateway closes
-local handling immediately, without a final extra read or a replacement prompt.
+A confirmed queued/running execution may continue beyond 15 minutes, including
+through a quiet tool call. The first current confirmation of an attachment has
+a 120-second budget; a missing turn immediately after `RUN_STARTED` remains
+contacting while that budget is available.
+
+The first failure to confirm the state saves `backend_observation_uncertain_since`.
+Repeated errors and restarts do not move this timestamp. A current correlated
+confirmation clears it; historical replay alone cannot clear it. After 15 minutes
+of continuous uncertainty the gateway makes a final verification attempt of up
+to 120 seconds, including any wait for backend readiness/cooldown. If the outcome
+remains unknown, local handling ends. A restart can repeat an interrupted short
+final check, but never grants another 15-minute window. No replacement prompt is
+submitted. If abrupt process termination prevented the uncertainty write, its
+start is recorded at first detection after restart.
 An unsafe or unsupported execution state, uncertain conversation creation or an
 interaction requiring approval also closes local handling instead of waiting
 for an operator. A normal access-policy rejection before submission does not
@@ -79,7 +96,8 @@ not-submitted reply directing the user to a new thread; they do not start backen
 work or another processing indicator. A new top-level DM message or a new channel
 thread is independent. The gateway does not move old queued prompts to that new
 conversation. Startup applies the same rule to historical `needs_review` and
-expired execution records without requiring backend authentication.
+unsafe records without requiring backend authentication. Submitted executions
+are recovered by observing the existing run, regardless of their submission age.
 
 ## Native agent sessions
 
@@ -93,6 +111,9 @@ gets one ordinary progress message explaining the connection problem. Further
 updates, including completion, edit that same message. Questions that were not
 submitted get an ordinary durable reply in every status mode. This makes the
 required user action visible even when a native indicator cannot explain it.
+If the result is already confirmed before an outage fallback is claimed, no
+ordinary progress message is opened. An outage publication already claimed keeps
+its receipt and is updated with the newer phase after that receipt is recorded.
 
 | Current thread facts | Native state |
 | --- | --- |
@@ -140,6 +161,13 @@ bot. First acknowledgments and changed states retain priority over periodic
 refreshes, with one-second bot pacing. Hybrid targets retain independent
 publication and retry states; one failing target does not disable the other.
 
+Retrying observation or claiming a submitted job does not itself change the
+visible phase. While a connection remains unavailable, unchanged message status
+and elapsed time obey the configured refresh interval, measured from the previous
+acknowledged update. A change to the effective visible phase remains urgent,
+subject to the same pacing and cooldowns. The existing backend-state
+notification wakes publication after recovery without waiting for that interval.
+
 Cancellation before Slack HTTP restores the claimed work to `pending`/`ready`;
 it does not invent an uncertain send. Once HTTP starts, the existing uncertain
 delivery rules apply. No native store borrowed during preparation is retained
@@ -165,11 +193,11 @@ never bypasses authorization. See [access policy](access-policy.md).
 | Remote authentication/readiness refusal | Keep Slack connected; retry after 60–75 seconds or longer `Retry-After`, without replay |
 | Invalid local backend configuration/credential resource, confirmed identity mismatch or security failure | Keep Slack connected in `blocked`; administrator fixes the cause and restarts |
 | New/unstarted question while backend unavailable | Persist a not-submitted reply; never run it automatically later |
-| Original execution deadline expired or execution cannot be safely continued | Atomically close local handling and queued work; direct the user to a new thread |
+| Continuous uncertainty expired and final verification failed, or execution cannot safely continue | Atomically close local handling and queued work; direct the user to a new thread |
 
 Status failure or ambiguity does not block the final outbox. Restart reprojects
 current facts instead of replaying missed progress messages. Backend recovery
-retains each submitted request's original reconciliation deadline and identifiers;
+retains each submitted request's identifiers and current uncertainty deadline;
 it does not cancel remote execution or send the prompt again. Outage notices use
 the same policy checks, sender pacing and durable delivery rules as other replies.
 For final delivery ambiguity and automatic closure metadata, see [operations](operations.md).
