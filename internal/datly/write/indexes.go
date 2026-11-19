@@ -1089,55 +1089,6 @@ func (index WriterHandlerCurrentWriterGroupedByBackendObservedAt) Has(key time.T
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByBackendObservationUncertainSinceKey(value *CurrentWriterView) (time.Time, bool) {
-	var zero time.Time
-	if value == nil {
-		return zero, false
-	}
-	if value.BackendObservationUncertainSince == nil {
-		return zero, false
-	}
-	return *value.BackendObservationUncertainSince, true
-}
-
-type WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince map[time.Time]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByBackendObservationUncertainSince() (WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByBackendObservationUncertainSinceKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByBackendObservationUncertainSince")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince) Has(key time.Time) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince map[time.Time][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByBackendObservationUncertainSince() WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince {
-	result := make(WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByBackendObservationUncertainSinceKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince) Has(key time.Time) bool {
-	_, ok := index[key]
-	return ok
-}
 func WriterHandlerCurrentWriterIndexBySlackProgressModeKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -1987,6 +1938,55 @@ func (index WriterHandlerCurrentWriterGroupedByContentPurgedAt) Has(key time.Tim
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByBackendObservationUncertainSinceKey(value *CurrentWriterView) (time.Time, bool) {
+	var zero time.Time
+	if value == nil {
+		return zero, false
+	}
+	if value.BackendObservationUncertainSince == nil {
+		return zero, false
+	}
+	return *value.BackendObservationUncertainSince, true
+}
+
+type WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince map[time.Time]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByBackendObservationUncertainSince() (WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByBackendObservationUncertainSinceKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByBackendObservationUncertainSince")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByBackendObservationUncertainSince) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince map[time.Time][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByBackendObservationUncertainSince() WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince {
+	result := make(WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByBackendObservationUncertainSinceKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByBackendObservationUncertainSince) Has(key time.Time) bool {
+	_, ok := index[key]
+	return ok
+}
 
 type WriterHandlerCurrentSlackOutgoingMessagesSlice []*CurrentSlackOutgoingMessagesView
 
@@ -2690,9 +2690,6 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("BackendObservedAt") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.BackendObservedAt")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("BackendObservationUncertainSince") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.BackendObservationUncertainSince")
-			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SlackProgressMode") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SlackProgressMode")
 			}
@@ -2746,6 +2743,9 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ContentPurgedAt") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ContentPurgedAt")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("BackendObservationUncertainSince") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.BackendObservationUncertainSince")
 			}
 		}
 		cloned, err := (xshape.Runtime{}).CloneValue(rows, xshape.CloneOptions{})

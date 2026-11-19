@@ -236,16 +236,6 @@ func (entity *GatewayJob) SetBackendObservedAt(value *time.Time) {
 	}
 	entity.Has.BackendObservedAt = true
 }
-func (entity *GatewayJob) GetBackendObservationUncertainSince() *time.Time {
-	return entity.BackendObservationUncertainSince
-}
-func (entity *GatewayJob) SetBackendObservationUncertainSince(value *time.Time) {
-	entity.BackendObservationUncertainSince = value
-	if entity.Has == nil {
-		entity.Has = &GatewayJobHas{}
-	}
-	entity.Has.BackendObservationUncertainSince = true
-}
 func (entity *GatewayJob) GetSlackProgressMode() string {
 	return entity.SlackProgressMode
 }
@@ -425,6 +415,16 @@ func (entity *GatewayJob) SetContentPurgedAt(value *time.Time) {
 		entity.Has = &GatewayJobHas{}
 	}
 	entity.Has.ContentPurgedAt = true
+}
+func (entity *GatewayJob) GetBackendObservationUncertainSince() *time.Time {
+	return entity.BackendObservationUncertainSince
+}
+func (entity *GatewayJob) SetBackendObservationUncertainSince(value *time.Time) {
+	entity.BackendObservationUncertainSince = value
+	if entity.Has == nil {
+		entity.Has = &GatewayJobHas{}
+	}
+	entity.Has.BackendObservationUncertainSince = true
 }
 func (entity *GatewayJob) GetSlackOutgoingMessages() []*SlackOutgoingMessage {
 	return entity.SlackOutgoingMessages

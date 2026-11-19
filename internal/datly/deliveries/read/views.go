@@ -58,7 +58,6 @@ type GatewayJob struct {
 	BackendPollReady                 int                  `json:"backendPollReady" sqlx:"backend_poll_ready,required=true"`
 	BackendObservedState             string               `json:"backendObservedState" sqlx:"backend_observed_state,required=true"`
 	BackendObservedAt                *time.Time           `json:"backendObservedAt" sqlx:"backend_observed_at"`
-	BackendObservationUncertainSince *time.Time           `json:"backendObservationUncertainSince" sqlx:"backend_observation_uncertain_since"`
 	SlackProgressMode                string               `json:"slackProgressMode" sqlx:"slack_progress_mode,required=true"`
 	SlackProgressMessageId           string               `json:"slackProgressMessageId" sqlx:"slack_progress_message_id,required=true"`
 	SlackProgressState               string               `json:"slackProgressState" sqlx:"slack_progress_state,required=true"`
@@ -77,6 +76,7 @@ type GatewayJob struct {
 	GatewayStatusUpdatedAt           time.Time            `json:"gatewayStatusUpdatedAt" sqlx:"gateway_status_updated_at,required=true"`
 	GatewayExecutionFinishedAt       *time.Time           `json:"gatewayExecutionFinishedAt" sqlx:"gateway_execution_finished_at"`
 	ContentPurgedAt                  *time.Time           `json:"contentPurgedAt" sqlx:"content_purged_at"`
+	BackendObservationUncertainSince *time.Time           `json:"backendObservationUncertainSince" sqlx:"backend_observation_uncertain_since"`
 	SlackAppId                       string               `json:"slackAppId" sqlx:"slack_app_id"`
 	SlackWorkspaceId                 string               `json:"slackWorkspaceId" sqlx:"slack_workspace_id"`
 	IntegrationName                  string               `json:"integrationName" sqlx:"integration_name"`

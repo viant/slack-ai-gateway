@@ -31,7 +31,6 @@ type GatewayJob struct {
 	BackendPollReady                 int                     `sqlx:"backend_poll_ready,required=true"`
 	BackendObservedState             string                  `sqlx:"backend_observed_state,required=true"`
 	BackendObservedAt                *time.Time              `json:",omitempty" sqlx:"backend_observed_at"`
-	BackendObservationUncertainSince *time.Time              `json:",omitempty" sqlx:"backend_observation_uncertain_since"`
 	SlackProgressMode                string                  `sqlx:"slack_progress_mode,required=true"`
 	SlackProgressMessageId           string                  `sqlx:"slack_progress_message_id,required=true"`
 	SlackProgressState               string                  `sqlx:"slack_progress_state,required=true"`
@@ -50,6 +49,7 @@ type GatewayJob struct {
 	GatewayStatusUpdatedAt           time.Time               `sqlx:"gateway_status_updated_at,required=true"`
 	GatewayExecutionFinishedAt       *time.Time              `json:",omitempty" sqlx:"gateway_execution_finished_at"`
 	ContentPurgedAt                  *time.Time              `json:",omitempty" sqlx:"content_purged_at"`
+	BackendObservationUncertainSince *time.Time              `json:",omitempty" sqlx:"backend_observation_uncertain_since"`
 	SlackOutgoingMessages            []*SlackOutgoingMessage `on:"Id:gateway_jobs.id=JobId:slack_outgoing_messages.job_id" view:"slack_outgoing_messages,type=SlackOutgoingMessage,table=slack_outgoing_message"`
 	Has                              *GatewayJobHas          `diff:"-" format:"-" json:"-" setMarker:"true" sqlx:"-" typeName:"GatewayJobHas"`
 }
@@ -78,7 +78,6 @@ type GatewayJobHas struct {
 	BackendPollReady                 bool
 	BackendObservedState             bool
 	BackendObservedAt                bool
-	BackendObservationUncertainSince bool
 	SlackProgressMode                bool
 	SlackProgressMessageId           bool
 	SlackProgressState               bool
@@ -97,6 +96,7 @@ type GatewayJobHas struct {
 	GatewayStatusUpdatedAt           bool
 	GatewayExecutionFinishedAt       bool
 	ContentPurgedAt                  bool
+	BackendObservationUncertainSince bool
 	SlackOutgoingMessages            bool
 }
 
@@ -157,7 +157,6 @@ type CurrentWriterView struct {
 	BackendPollReady                 int        `json:"backendPollReady" sqlx:"backend_poll_ready,required=true"`
 	BackendObservedState             string     `json:"backendObservedState" sqlx:"backend_observed_state,required=true"`
 	BackendObservedAt                *time.Time `json:"backendObservedAt,omitempty" sqlx:"backend_observed_at"`
-	BackendObservationUncertainSince *time.Time `json:"backendObservationUncertainSince,omitempty" sqlx:"backend_observation_uncertain_since"`
 	SlackProgressMode                string     `json:"slackProgressMode" sqlx:"slack_progress_mode,required=true"`
 	SlackProgressMessageId           string     `json:"slackProgressMessageId" sqlx:"slack_progress_message_id,required=true"`
 	SlackProgressState               string     `json:"slackProgressState" sqlx:"slack_progress_state,required=true"`
@@ -176,6 +175,7 @@ type CurrentWriterView struct {
 	GatewayStatusUpdatedAt           time.Time  `json:"gatewayStatusUpdatedAt" sqlx:"gateway_status_updated_at,required=true"`
 	GatewayExecutionFinishedAt       *time.Time `json:"gatewayExecutionFinishedAt,omitempty" sqlx:"gateway_execution_finished_at"`
 	ContentPurgedAt                  *time.Time `json:"contentPurgedAt,omitempty" sqlx:"content_purged_at"`
+	BackendObservationUncertainSince *time.Time `json:"backendObservationUncertainSince,omitempty" sqlx:"backend_observation_uncertain_since"`
 }
 
 // CurrentSlackOutgoingMessagesView is generated canonical view metadata for writer.
